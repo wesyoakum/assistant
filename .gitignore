@@ -16,3 +16,7 @@ android/
 *.log
 coverage/
 .turbo/
+
+.claude/
+pnpm-lock.yaml
+package-lock.json

@@ -1,0 +1,43 @@
+name = "whyapp-api"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Custom domain
+routes = [
+  { pattern = "api.whyapp.us", custom_domain = true }
+]
+
+[vars]
+ENVIRONMENT = "production"
+
+# D1 database
+[[d1_databases]]
+binding = "DB"
+database_name = "whyapp-db"
+database_id = "ecd61511-6a57-492e-8fc3-00e4ee920350"
+
+# R2 bucket
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "whyapp-files"
+
+# Queue producer
+[[queues.producers]]
+binding = "TASKS"
+queue = "whyapp-tasks"
+
+# Queue consumer
+[[queues.consumers]]
+queue = "whyapp-tasks"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Cron: poll Gmail every 10 minutes
+[triggers]
+crons = ["*/10 * * * *"]
+
+# Secrets (set via `wrangler secret put <NAME>`):
+# - GOOGLE_CLIENT_SECRET
+# - OAUTH_ENCRYPTION_KEY  (32-byte base64, AES-GCM master key)
+# - SESSION_JWT_SECRET
+# - ANTHROPIC_API_KEY
