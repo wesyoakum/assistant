@@ -269,6 +269,25 @@ export default function SettingsScreen() {
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.card}>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => {
+            Alert.alert("Clear Chat", "This will delete your entire chat history.", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Clear",
+                style: "destructive",
+                onPress: () => {
+                  apiFetch("/chat/history", { method: "DELETE" }).then(() => {
+                    queryClient.invalidateQueries({ queryKey: ["chat-history"] });
+                  });
+                },
+              },
+            ]);
+          }}
+        >
+          <Text style={styles.clearChatText}>Clear Chat History</Text>
+        </Pressable>
         <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
@@ -356,6 +375,13 @@ const styles = StyleSheet.create({
   ctxDetail: { fontSize: 13, color: "#888", marginTop: 1 },
   ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
   ctxDeleteText: { fontSize: 13, color: "#e53e3e" },
+  clearChatBtn: {
+    paddingVertical: 14,
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eee",
+  },
+  clearChatText: { fontSize: 16, fontWeight: "600", color: "#ed8936" },
   signOutBtn: {
     paddingVertical: 14,
     alignItems: "center",

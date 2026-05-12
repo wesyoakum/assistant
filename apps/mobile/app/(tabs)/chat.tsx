@@ -27,58 +27,69 @@ interface ChatResponse {
   reply: string;
   savedContext?: string[];
   createdItems?: string[];
+  editedItems?: string[];
+  calendarActions?: string[];
+}
+
+interface HistoryResponse {
+  messages: { id: string; role: "user" | "assistant"; content: string }[];
 }
 
 export default function ChatScreen() {
   const params = useLocalSearchParams<{ triageId?: string; context?: string }>();
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (params.context) {
-      return [
-        {
-          id: "system-0",
-          role: "assistant" as const,
-          content: `Let's discuss: ${params.context}`,
-        },
-      ];
-    }
-    return [];
-  });
+  const [messages, setMessages] = useState<Message[]>([]);
   const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
-  const didGreet = useRef(false);
+  const didInit = useRef(false);
 
-  // Fetch greeting on mount (only if no triage context)
+  // Load persisted history + greeting on mount
   useEffect(() => {
-    if (didGreet.current || params.context) return;
-    didGreet.current = true;
+    if (didInit.current) return;
+    didInit.current = true;
 
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    apiFetch<{ greeting: string }>(`/chat/greeting?tz=${encodeURIComponent(tz)}`)
-      .then((data) => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: "greeting-0",
-            role: "assistant",
-            content: data.greeting,
-          },
-        ]);
-      })
-      .catch(() => {
-        // Fail silently — user can still chat
-      });
+    (async () => {
+      // Load history first
+      try {
+        const history = await apiFetch<HistoryResponse>("/chat/history?limit=50");
+        if (history.messages.length > 0) {
+          setMessages(history.messages);
+          return; // Skip greeting if there's existing history
+        }
+      } catch {
+        // Continue to greeting
+      }
+
+      // Show triage context or greeting
+      if (params.context) {
+        setMessages([{
+          id: "system-0",
+          role: "assistant",
+          content: `Let's discuss: ${params.context}`,
+        }]);
+        return;
+      }
+
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      try {
+        const data = await apiFetch<{ greeting: string }>(
+          `/chat/greeting?tz=${encodeURIComponent(tz)}`
+        );
+        setMessages([{
+          id: "greeting-0",
+          role: "assistant",
+          content: data.greeting,
+        }]);
+      } catch {
+        // Fail silently
+      }
+    })();
   }, []);
 
   const sendMutation = useMutation({
     mutationFn: async (text: string) => {
-      // Send conversation history for context
-      const history = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const body: Record<string, unknown> = { message: text, history, timezone: tz };
+      const body: Record<string, unknown> = { message: text, timezone: tz };
       if (params.triageId) body.triage_item_id = params.triageId;
       return apiFetch<ChatResponse>("/chat", {
         method: "POST",
@@ -97,8 +108,12 @@ export default function ChatScreen() {
       if (data.savedContext?.length) {
         queryClient.invalidateQueries({ queryKey: ["user-context"] });
       }
-      if (data.createdItems?.length) {
+      if (data.createdItems?.length || data.editedItems?.length) {
         queryClient.invalidateQueries({ queryKey: ["triage"] });
+      }
+      if (data.calendarActions?.length) {
+        queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+        queryClient.invalidateQueries({ queryKey: ["calendar-suggestions"] });
       }
     },
     onError: (err: Error) => {

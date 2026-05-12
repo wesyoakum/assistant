@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
+import { listUpcomingEvents, createEvent, updateEvent, deleteEvent } from "../services/google-calendar";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-5";
@@ -43,26 +44,53 @@ chat.post("/", async (c) => {
   let triageContext = "";
   if (body.triage_item_id) {
     const item = await c.env.DB.prepare(
-      "SELECT source_type, summary, suggested_action, category, priority, urgency, classifier_json FROM triage_items WHERE id = ? AND user_id = ?"
+      "SELECT source_type, source_ref, summary, suggested_action, category, priority, urgency, classifier_json, source_title, source_url, created_at FROM triage_items WHERE id = ? AND user_id = ?"
     )
       .bind(body.triage_item_id, userId)
       .first<{
         source_type: string;
+        source_ref: string | null;
         summary: string | null;
         suggested_action: string | null;
         category: string | null;
         priority: number;
         urgency: number;
         classifier_json: string | null;
+        source_title: string | null;
+        source_url: string | null;
+        created_at: string;
       }>();
 
     if (item) {
+      const q = getQuadrant(item.priority, item.urgency);
       triageContext = `\n\nThe user is asking about this triage item:
 - Source: ${item.source_type}
 - Category: ${item.category || "uncategorized"}
-- Priority: ${item.priority}/5, Urgency: ${item.urgency}/5
+- Quadrant: ${q} (Priority: ${item.priority}/5, Urgency: ${item.urgency}/5)
 - Summary: ${item.summary || "none"}
-- Suggested action: ${item.suggested_action || "none"}`;
+- Suggested action: ${item.suggested_action || "none"}
+- Created: ${item.created_at}`;
+
+      if (item.source_title) triageContext += `\n- Source title: ${item.source_title}`;
+      if (item.source_url) triageContext += `\n- Source URL: ${item.source_url}`;
+
+      // Include full classifier output for detailed context
+      if (item.classifier_json) {
+        try {
+          const parsed = JSON.parse(item.classifier_json);
+          if (parsed.details || parsed.extended_summary) {
+            triageContext += `\n- Details: ${parsed.details || parsed.extended_summary}`;
+          }
+          if (parsed.clarification_question) {
+            triageContext += `\n- Open question: ${parsed.clarification_question}`;
+          }
+        } catch { /* ignore */ }
+      }
+
+      // For emails, try to load the original message content from Gmail sync
+      if (item.source_type === "email" && item.source_ref) {
+        triageContext += `\n- Gmail message ID: ${item.source_ref}`;
+      }
     }
   }
 
@@ -88,18 +116,21 @@ chat.post("/", async (c) => {
 
   // Load open triage items
   const { results: triageItems } = await c.env.DB.prepare(
-    `SELECT source_type, priority, urgency, category, summary, suggested_action, created_at
+    `SELECT source_type, source_ref, priority, urgency, category, summary, suggested_action, source_title, created_at
      FROM triage_items WHERE user_id = ? AND status = 'open'
      ORDER BY priority DESC, urgency DESC LIMIT 15`
   )
     .bind(userId)
-    .all<{ source_type: string; priority: number; urgency: number; category: string | null; summary: string | null; suggested_action: string | null; created_at: string }>();
+    .all<{ source_type: string; source_ref: string | null; priority: number; urgency: number; category: string | null; summary: string | null; suggested_action: string | null; source_title: string | null; created_at: string }>();
 
   let triageInbox = "";
   if (triageItems.length > 0) {
     const lines = triageItems.map((t) => {
       const q = getQuadrant(t.priority, t.urgency);
-      return `- [${q}] P${t.priority}U${t.urgency} ${t.source_type}: ${t.summary || "no summary"}${t.suggested_action ? ` → ${t.suggested_action}` : ""}`;
+      let line = `- [${q}] P${t.priority}U${t.urgency} ${t.source_type}: ${t.summary || "no summary"}`;
+      if (t.source_title) line += ` (from: ${t.source_title})`;
+      if (t.suggested_action) line += ` → ${t.suggested_action}`;
+      return line;
     });
     const counts = { Hot: 0, Action: 0, Plan: 0, Noop: 0 };
     for (const t of triageItems) counts[getQuadrant(t.priority, t.urgency)]++;
@@ -123,6 +154,24 @@ chat.post("/", async (c) => {
       (s) => `- "${s.title}" at ${s.start_iso}${s.location ? ` (${s.location})` : ""}`
     );
     suggestionsContext = `\n\nPending calendar suggestions:\n${lines.join("\n")}`;
+  }
+
+  // Load upcoming calendar events
+  let calendarContext = "";
+  try {
+    const events = await listUpcomingEvents(userId, c.env, 30, 75);
+    if (events.length > 0) {
+      const lines = events.map((e) => {
+        const start = new Date(e.start).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: tz });
+        let line = `- [cal:${e.calendarId}|evt:${e.id}] "${e.summary}" — ${start}`;
+        if (e.location) line += ` @ ${e.location}`;
+        if (e.calendarName) line += ` (${e.calendarName})`;
+        return line;
+      });
+      calendarContext = `\n\nUpcoming calendar events (next 30 days, format [cal:calendarId|evt:eventId]):\n${lines.join("\n")}`;
+    }
+  } catch {
+    // Calendar fetch may fail if token expired
   }
 
   // Load user context
@@ -183,6 +232,8 @@ chat.post("/", async (c) => {
 
   const systemPrompt = `You are a helpful personal assistant for managing email, calendar, and tasks. The current date and time is: ${currentDateTime}. You help the user triage, prioritize, and take action on their items. Be concise and actionable in your responses. When discussing triage items, reference the Eisenhower matrix: Hot (high importance + high urgency), Action (low importance + high urgency), Plan (high importance + low urgency), Noop (low importance + low urgency).
 
+PAST EVENTS: If any open triage items reference events, deadlines, or appointments that are now in the past (based on the current date/time), proactively ask the user: did this happen, or does it need to be rescheduled? If it happened, offer to dismiss it. If it needs rescheduling, offer to create a new calendar event. Only ask about 1-2 past items per message — don't overwhelm.
+
 SAVING CONTEXT: When the user tells you about people in their life, relationships, activities, teams, classes, birthdays, important dates, or other recurring context, you MUST save it by including a JSON block in your response like this:
 \`\`\`save_context
 {"kind": "person", "label": "Coach Smith", "detail": "Jake's soccer coach, Wildcats team"}
@@ -195,14 +246,46 @@ CREATING TRIAGE ITEMS: When the user asks you to create a triage item, reminder,
 \`\`\`save_triage
 {"summary": "Call dentist to schedule cleaning", "priority": 3, "urgency": 2, "category": "health", "suggested_action": "Call during business hours"}
 \`\`\`
-Priority and urgency are 1-5. Category can be: billing, scheduling, personal, work, newsletter, notification, social, shopping, travel, security, health, legal, other. Always confirm to the user that the item was created.${userContext}${triageInbox}${suggestionsContext}${contextPromptHint}${triageContext}${feedbackContext}`;
+Priority and urgency are 1-5. Category can be: billing, scheduling, personal, work, newsletter, notification, social, shopping, travel, security, health, legal, other. Always confirm to the user that the item was created.
 
-  // Build messages array with history
+EDITING TRIAGE ITEMS: When the user asks you to dismiss, complete, update, reprioritize, rename, or change any triage item, you MUST include a JSON block:
+\`\`\`edit_triage
+{"summary_match": "call dentist", "status": "dismissed"}
+\`\`\`
+Fields you can set: summary, priority (1-5), urgency (1-5), category, suggested_action, status ("open", "done", "dismissed").
+Only include fields that are changing. summary_match is a substring that uniquely identifies the item from the open triage list. You can include multiple edit_triage blocks. Always confirm what was changed.
+
+CALENDAR ACTIONS: You can create, edit, and delete Google Calendar events.
+
+To create an event:
+\`\`\`create_event
+{"title": "Dentist appointment", "startIso": "2026-05-15T14:00:00-05:00", "endIso": "2026-05-15T15:00:00-05:00", "location": "123 Main St", "description": "Annual cleaning"}
+\`\`\`
+
+To edit an event (use calendarId and eventId from the events list above):
+\`\`\`edit_event
+{"calendarId": "primary", "eventId": "abc123", "summary": "Updated title", "startIso": "2026-05-15T15:00:00-05:00", "endIso": "2026-05-15T16:00:00-05:00"}
+\`\`\`
+Fields you can set: summary, startIso, endIso, location, description. Only include fields that are changing.
+
+To delete an event:
+\`\`\`delete_event
+{"calendarId": "primary", "eventId": "abc123"}
+\`\`\`
+
+You have visibility into the next 30 days of events. When the user asks about events in that window, answer directly from the list above. Always confirm calendar actions to the user. Use ISO 8601 dates with the user's timezone offset.${userContext}${triageInbox}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
+
+  // Build messages array from persisted history
+  const { results: historyRows } = await c.env.DB.prepare(
+    "SELECT role, content FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT 20"
+  )
+    .bind(userId)
+    .all<{ role: "user" | "assistant"; content: string }>();
+
   const messages: { role: "user" | "assistant"; content: string }[] = [];
-  if (body.history) {
-    for (const msg of body.history.slice(-20)) {
-      messages.push({ role: msg.role, content: msg.content });
-    }
+  // historyRows is newest-first, reverse for chronological order
+  for (const row of historyRows.reverse()) {
+    messages.push({ role: row.role, content: row.content });
   }
   messages.push({ role: "user", content: body.message });
 
@@ -288,14 +371,124 @@ Priority and urgency are 1-5. Category can be: billing, scheduling, personal, wo
     }
   }
 
+  // Extract and apply triage edits
+  const editPattern = /```edit_triage\s*([\s\S]*?)```/g;
+  const editedItems: string[] = [];
+  let editMatch;
+  while ((editMatch = editPattern.exec(reply)) !== null) {
+    try {
+      const req = JSON.parse(editMatch[1].trim());
+      if (!req.summary_match) continue;
+
+      const setClauses: string[] = [];
+      const params: unknown[] = [];
+
+      const allowedFields: Record<string, string> = {
+        summary: "summary",
+        priority: "priority",
+        urgency: "urgency",
+        category: "category",
+        suggested_action: "suggested_action",
+        status: "status",
+      };
+
+      for (const [key, col] of Object.entries(allowedFields)) {
+        if (req[key] !== undefined) {
+          setClauses.push(`${col} = ?`);
+          params.push(req[key]);
+        }
+      }
+
+      if (setClauses.length === 0) continue;
+
+      setClauses.push("updated_at = datetime('now')");
+      params.push(userId, req.summary_match);
+
+      const result = await c.env.DB.prepare(
+        `UPDATE triage_items SET ${setClauses.join(", ")} WHERE user_id = ? AND LOWER(summary) LIKE '%' || LOWER(?) || '%'`
+      )
+        .bind(...params)
+        .run();
+
+      if (result.meta.changes) {
+        editedItems.push(req.summary_match);
+      }
+    } catch {
+      // ignore malformed blocks
+    }
+  }
+
+  // Extract and execute calendar actions
+  const calendarActions: string[] = [];
+
+  // Create events
+  const createEventPattern = /```create_event\s*([\s\S]*?)```/g;
+  let ceMatch;
+  while ((ceMatch = createEventPattern.exec(reply)) !== null) {
+    try {
+      const evt = JSON.parse(ceMatch[1].trim());
+      if (evt.title && evt.startIso && evt.endIso) {
+        const result = await createEvent(userId, evt, c.env);
+        calendarActions.push(`Created "${evt.title}"`);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Edit events
+  const editEventPattern = /```edit_event\s*([\s\S]*?)```/g;
+  let eeMatch;
+  while ((eeMatch = editEventPattern.exec(reply)) !== null) {
+    try {
+      const req = JSON.parse(eeMatch[1].trim());
+      if (req.calendarId && req.eventId) {
+        await updateEvent(userId, req.calendarId, req.eventId, {
+          summary: req.summary,
+          startIso: req.startIso,
+          endIso: req.endIso,
+          location: req.location,
+          description: req.description,
+        }, c.env);
+        calendarActions.push(`Updated event ${req.eventId}`);
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Delete events
+  const deleteEventPattern = /```delete_event\s*([\s\S]*?)```/g;
+  let deMatch;
+  while ((deMatch = deleteEventPattern.exec(reply)) !== null) {
+    try {
+      const req = JSON.parse(deMatch[1].trim());
+      if (req.calendarId && req.eventId) {
+        await deleteEvent(userId, req.calendarId, req.eventId, c.env);
+        calendarActions.push(`Deleted event ${req.eventId}`);
+      }
+    } catch { /* ignore */ }
+  }
+
   // Strip all action blocks from the reply shown to user
   reply = reply.replace(/```save_context\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```save_triage\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```edit_triage\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```create_event\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```edit_event\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```delete_event\s*[\s\S]*?```\n?/g, "").trim();
+
+  // Persist user message and assistant reply to D1
+  await c.env.DB.prepare(
+    "INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, 'user', ?)"
+  ).bind(crypto.randomUUID(), userId, body.message).run();
+
+  await c.env.DB.prepare(
+    "INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, 'assistant', ?)"
+  ).bind(crypto.randomUUID(), userId, reply).run();
 
   return c.json({
     reply,
     savedContext: saved.length > 0 ? saved : undefined,
     createdItems: createdItems.length > 0 ? createdItems : undefined,
+    editedItems: editedItems.length > 0 ? editedItems : undefined,
+    calendarActions: calendarActions.length > 0 ? calendarActions : undefined,
   });
 });
 
@@ -357,11 +550,29 @@ chat.get("/greeting", async (c) => {
   const hour = parseInt(now.toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: tz }));
   const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
 
+  // Check for past-due items
+  const { results: pastDueItems } = await c.env.DB.prepare(
+    `SELECT summary, due_at, event_at FROM triage_items
+     WHERE user_id = ? AND status = 'open'
+     AND (due_at < datetime('now') OR event_at < datetime('now'))
+     LIMIT 3`
+  )
+    .bind(userId)
+    .all<{ summary: string | null; due_at: string | null; event_at: string | null }>();
+
+  let pastDueContext = "";
+  if (pastDueItems.length > 0) {
+    const lines = pastDueItems.map(
+      (i) => `- "${i.summary}" (was ${i.due_at || i.event_at})`
+    );
+    pastDueContext = `\nPast-due items that need follow-up:\n${lines.join("\n")}`;
+  }
+
   const systemPrompt = `You are a personal assistant greeting the user when they open the app. Generate a brief, warm greeting (2-4 sentences max).
 
 Include:
 - A time-appropriate greeting${userName ? ` using their name "${userName}"` : ""}
-- A quick status summary if there's anything notable
+- A quick status summary if there's anything notable${pastDueItems.length > 0 ? "\n- Ask about 1 past-due item: did it happen, or should we reschedule?" : ""}
 - If context is missing (see below), you may ask ONE casual getting-to-know-you question
 
 Current status:
@@ -369,7 +580,7 @@ Current status:
 - High priority (Hot) items: ${hotCount?.count || 0}
 - Pending calendar suggestions: ${pendingSuggestions}
 - Current date/time: ${localTime}
-- Time of day: ${timeOfDay}
+- Time of day: ${timeOfDay}${pastDueContext}
 ${knownContext}
 
 ${contextRows.length === 0 ? "This appears to be a new user — introduce yourself briefly and ask their name." : ""}
@@ -404,6 +615,30 @@ Keep it concise and natural. Do NOT use save_context blocks in greetings.`;
   const greeting = textBlock?.text || `Good ${timeOfDay}! How can I help?`;
 
   return c.json({ greeting });
+});
+
+// Get chat history
+chat.get("/history", async (c) => {
+  const userId = c.get("userId");
+  const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
+
+  const { results } = await c.env.DB.prepare(
+    "SELECT id, role, content, created_at FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+  )
+    .bind(userId, limit)
+    .all<{ id: string; role: string; content: string; created_at: string }>();
+
+  // Reverse so oldest first
+  return c.json({ messages: results.reverse() });
+});
+
+// Clear chat history
+chat.delete("/history", async (c) => {
+  const userId = c.get("userId");
+  await c.env.DB.prepare("DELETE FROM chat_messages WHERE user_id = ?")
+    .bind(userId)
+    .run();
+  return c.json({ ok: true });
 });
 
 export { chat };

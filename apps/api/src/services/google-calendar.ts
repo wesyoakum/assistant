@@ -238,6 +238,75 @@ export async function createEvent(
   return { id: data.id, htmlLink: data.htmlLink };
 }
 
+/**
+ * Update an event on a calendar.
+ */
+export async function updateEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  updates: {
+    summary?: string;
+    startIso?: string;
+    endIso?: string;
+    location?: string | null;
+    description?: string | null;
+  },
+  env: Env
+): Promise<void> {
+  const accessToken = await getValidAccessToken(userId, env);
+
+  // Fetch current event first (PATCH requires the full resource for some fields)
+  const body: Record<string, unknown> = {};
+  if (updates.summary !== undefined) body.summary = updates.summary;
+  if (updates.location !== undefined) body.location = updates.location;
+  if (updates.description !== undefined) body.description = updates.description;
+  if (updates.startIso) body.start = { dateTime: updates.startIso };
+  if (updates.endIso) body.end = { dateTime: updates.endIso };
+
+  const res = await fetch(
+    `${CAL_API}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Update event failed ${res.status}: ${err}`);
+  }
+}
+
+/**
+ * Delete an event from a calendar.
+ */
+export async function deleteEvent(
+  userId: string,
+  calendarId: string,
+  eventId: string,
+  env: Env
+): Promise<void> {
+  const accessToken = await getValidAccessToken(userId, env);
+
+  const res = await fetch(
+    `${CAL_API}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }
+  );
+
+  if (!res.ok && res.status !== 410) {
+    const err = await res.text();
+    throw new Error(`Delete event failed ${res.status}: ${err}`);
+  }
+}
+
 function toCalendarEvent(evt: GCalEvent, calendarId: string, calendarName: string): CalendarEvent {
   const allDay = !evt.start?.dateTime;
   return {
