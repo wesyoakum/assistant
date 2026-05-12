@@ -48,8 +48,26 @@ Return ONLY valid JSON matching this exact schema:
 
 Do NOT include any text outside the JSON object.`;
 
-export function buildSystemPrompt(feedbackHistory: FeedbackRow[]): string {
-  if (feedbackHistory.length === 0) return SYSTEM_PROMPT;
+export interface ContextEntry {
+  kind: string;
+  label: string;
+  detail: string | null;
+}
+
+export function buildSystemPrompt(
+  feedbackHistory: FeedbackRow[],
+  contextEntries: ContextEntry[] = []
+): string {
+  let prompt = SYSTEM_PROMPT;
+
+  if (contextEntries.length > 0) {
+    const lines = contextEntries.map((e) =>
+      `- ${e.kind}: ${e.label}${e.detail ? ` — ${e.detail}` : ""}`
+    );
+    prompt += `\n\n## User Context\nThe following is background about the user's life. Use this to better understand who senders are, what activities matter, and how to prioritize:\n${lines.join("\n")}`;
+  }
+
+  if (feedbackHistory.length === 0) return prompt;
 
   const examples = feedbackHistory
     .map((fb) => {
@@ -73,7 +91,7 @@ The user confirmed a "${fb.category || "unknown"}" email at priority ${fb.origin
     })
     .join("\n\n");
 
-  return `${SYSTEM_PROMPT}
+  return `${prompt}
 
 ## User Feedback History
 The following examples show how this user has corrected or confirmed past classifications. Learn from these to better match their preferences:

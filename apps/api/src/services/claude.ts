@@ -12,9 +12,10 @@ interface ClaudeResponse {
 export async function classifyEmail(
   email: EmailContent,
   feedbackHistory: FeedbackRow[],
-  anthropicApiKey: string
+  anthropicApiKey: string,
+  contextEntries: { kind: string; label: string; detail: string | null }[] = []
 ): Promise<TriageResult> {
-  const systemPrompt = buildSystemPrompt(feedbackHistory);
+  const systemPrompt = buildSystemPrompt(feedbackHistory, contextEntries);
 
   const userMessage = `From: ${email.from}
 Subject: ${email.subject}
@@ -61,9 +62,10 @@ export async function classifyFile(
   fileBytes: ArrayBuffer,
   contentType: string,
   feedbackHistory: FeedbackRow[],
-  anthropicApiKey: string
+  anthropicApiKey: string,
+  contextEntries: { kind: string; label: string; detail: string | null }[] = []
 ): Promise<TriageResult> {
-  const systemPrompt = buildSystemPrompt(feedbackHistory);
+  const systemPrompt = buildSystemPrompt(feedbackHistory, contextEntries);
   const base64 = arrayBufferToBase64(fileBytes);
 
   let userContent: unknown[];

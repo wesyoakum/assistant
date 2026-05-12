@@ -6,6 +6,7 @@ import { gmail } from "./routes/gmail";
 import { calendar } from "./routes/calendar";
 import { chat } from "./routes/chat";
 import { files } from "./routes/files";
+import { context } from "./routes/context";
 import { classifyFile } from "./services/claude";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
@@ -37,6 +38,7 @@ app.route("/gmail", gmail);
 app.route("/calendar", calendar);
 app.route("/chat", chat);
 app.route("/files", files);
+app.route("/context", context);
 
 app.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");
@@ -192,7 +194,12 @@ async function handleTriageClassify(
     .bind(userId)
     .all<FeedbackRow>();
 
-  const result = await classifyEmail(email, feedbackRows, env.ANTHROPIC_API_KEY);
+  // Load user context
+  const { results: contextRows } = await env.DB.prepare(
+    "SELECT kind, label, detail FROM user_context WHERE user_id = ?"
+  ).bind(userId).all<{ kind: string; label: string; detail: string | null }>();
+
+  const result = await classifyEmail(email, feedbackRows, env.ANTHROPIC_API_KEY, contextRows);
 
   const itemId = crypto.randomUUID();
 
@@ -311,7 +318,11 @@ async function handleFileClassify(
        LIMIT 10`
     ).bind(userId).all<FeedbackRow>();
 
-    const result = await classifyFile(kind, fileBytes, contentType, feedbackRows, env.ANTHROPIC_API_KEY);
+    const { results: ctxRows } = await env.DB.prepare(
+      "SELECT kind, label, detail FROM user_context WHERE user_id = ?"
+    ).bind(userId).all<{ kind: string; label: string; detail: string | null }>();
+
+    const result = await classifyFile(kind, fileBytes, contentType, feedbackRows, env.ANTHROPIC_API_KEY, ctxRows);
 
     const sourceType = kind === "audio" ? "voice" : kind === "pdf" ? "document" : "image";
     const itemId = crypto.randomUUID();

@@ -17,6 +17,8 @@ import { apiFetch } from "../../src/api/client";
 interface CalendarSummary {
   id: string;
   summary: string;
+  alias: string | null;
+  displayName: string;
   primary: boolean;
   backgroundColor: string;
   enabled: boolean;
@@ -24,6 +26,17 @@ interface CalendarSummary {
 
 interface CalendarsResponse {
   calendars: CalendarSummary[];
+}
+
+interface ContextEntry {
+  id: string;
+  kind: string;
+  label: string;
+  detail: string | null;
+}
+
+interface ContextResponse {
+  entries: ContextEntry[];
 }
 
 export default function SettingsScreen() {
@@ -64,6 +77,49 @@ export default function SettingsScreen() {
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
     },
   });
+
+  const { data: ctxData, isLoading: ctxLoading } = useQuery({
+    queryKey: ["user-context"],
+    queryFn: () => apiFetch<ContextResponse>("/context"),
+  });
+
+  const deleteContextMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/context/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["user-context"] });
+    },
+  });
+
+  const contextEntries = ctxData?.entries || [];
+
+  const aliasMutation = useMutation({
+    mutationFn: ({ id, alias }: { id: string; alias: string | null }) =>
+      apiFetch(`/calendar/calendars/${encodeURIComponent(id)}/alias`, {
+        method: "POST",
+        body: JSON.stringify({ alias }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendars"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+
+  const handleRename = (cal: CalendarSummary) => {
+    Alert.prompt(
+      "Rename Calendar",
+      `Enter a nickname for "${cal.summary}"`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear", style: "destructive", onPress: () => aliasMutation.mutate({ id: cal.id, alias: null }) },
+        { text: "Save", onPress: (value) => {
+          if (value?.trim()) aliasMutation.mutate({ id: cal.id, alias: value.trim() });
+        }},
+      ],
+      "plain-text",
+      cal.alias || ""
+    );
+  };
 
   const [calUrl, setCalUrl] = useState("");
 
@@ -115,14 +171,17 @@ export default function SettingsScreen() {
               <View
                 style={[styles.calDot, { backgroundColor: cal.backgroundColor }]}
               />
-              <View style={styles.calInfo}>
+              <Pressable style={styles.calInfo} onPress={() => handleRename(cal)}>
                 <Text style={styles.calName} numberOfLines={1}>
-                  {cal.summary}
+                  {cal.displayName}
                 </Text>
-                {cal.primary && (
+                {cal.alias && (
+                  <Text style={styles.calOriginal} numberOfLines={1}>{cal.summary}</Text>
+                )}
+                {cal.primary && !cal.alias && (
                   <Text style={styles.calPrimary}>Primary</Text>
                 )}
-              </View>
+              </Pressable>
               <Switch
                 value={cal.enabled}
                 onValueChange={(enabled) =>
@@ -159,6 +218,36 @@ export default function SettingsScreen() {
             )}
           </Pressable>
         </View>
+      </View>
+
+      {/* My Context section */}
+      <Text style={styles.sectionTitle}>My Context</Text>
+      <View style={styles.card}>
+        {ctxLoading ? (
+          <ActivityIndicator style={styles.loader} />
+        ) : contextEntries.length === 0 ? (
+          <Text style={styles.emptyText}>
+            Tell the assistant about people, teams, or activities in Chat and they'll appear here.
+          </Text>
+        ) : (
+          contextEntries.map((entry) => (
+            <View key={entry.id} style={styles.ctxRow}>
+              <View style={styles.ctxContent}>
+                <Text style={styles.ctxKind}>{entry.kind}</Text>
+                <Text style={styles.ctxLabel}>{entry.label}</Text>
+                {entry.detail && (
+                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
+                )}
+              </View>
+              <Pressable
+                onPress={() => deleteContextMutation.mutate(entry.id)}
+                style={styles.ctxDelete}
+              >
+                <Text style={styles.ctxDeleteText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
       </View>
 
       {/* Account section */}
@@ -207,6 +296,7 @@ const styles = StyleSheet.create({
   },
   calInfo: { flex: 1, marginRight: 12 },
   calName: { fontSize: 15, color: "#222" },
+  calOriginal: { fontSize: 11, color: "#aaa", marginTop: 1 },
   calPrimary: { fontSize: 12, color: "#999", marginTop: 1 },
   addRow: {
     flexDirection: "row",
@@ -236,6 +326,20 @@ const styles = StyleSheet.create({
   },
   addBtnDisabled: { opacity: 0.4 },
   addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  ctxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eee",
+  },
+  ctxContent: { flex: 1, marginRight: 10 },
+  ctxKind: { fontSize: 11, fontWeight: "600", color: "#4285F4", textTransform: "uppercase" },
+  ctxLabel: { fontSize: 15, color: "#222" },
+  ctxDetail: { fontSize: 13, color: "#888", marginTop: 1 },
+  ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
+  ctxDeleteText: { fontSize: 13, color: "#e53e3e" },
   signOutBtn: {
     paddingVertical: 14,
     alignItems: "center",

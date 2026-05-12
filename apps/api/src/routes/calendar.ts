@@ -55,6 +55,25 @@ calendar.post("/calendars/subscribe", async (c) => {
   }
 });
 
+// Set a calendar alias/nickname
+calendar.post("/calendars/:id/alias", async (c) => {
+  const userId = c.get("userId");
+  const calendarId = c.req.param("id");
+  const body = (await c.req.json()) as { alias: string | null };
+  const alias = body.alias?.trim() || null;
+
+  await c.env.DB.prepare(
+    `INSERT INTO user_calendar_prefs (user_id, calendar_id, enabled, alias, updated_at)
+     VALUES (?, ?, 1, ?, datetime('now'))
+     ON CONFLICT (user_id, calendar_id)
+     DO UPDATE SET alias = excluded.alias, updated_at = datetime('now')`
+  )
+    .bind(userId, calendarId, alias)
+    .run();
+
+  return c.json({ ok: true });
+});
+
 // List pending calendar suggestions
 calendar.get("/suggestions", async (c) => {
   const userId = c.get("userId");

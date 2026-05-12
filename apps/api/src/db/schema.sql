@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS user_calendar_prefs (
   PRIMARY KEY (user_id, calendar_id)
 );
 
+-- User context (people, relationships, activities)
+CREATE TABLE IF NOT EXISTS user_context (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL,
+  label TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_context_user ON user_context(user_id);
+
 -- Gmail sync state
 CREATE TABLE IF NOT EXISTS gmail_sync_state (
   id TEXT PRIMARY KEY,

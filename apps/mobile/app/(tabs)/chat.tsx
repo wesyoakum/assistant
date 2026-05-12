@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,8 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Markdown from "react-native-markdown-display";
 import { apiFetch } from "../../src/api/client";
 
 interface Message {
@@ -24,6 +25,7 @@ interface Message {
 
 interface ChatResponse {
   reply: string;
+  savedContext?: string[];
 }
 
 export default function ChatScreen() {
@@ -40,8 +42,32 @@ export default function ChatScreen() {
     }
     return [];
   });
+  const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const didGreet = useRef(false);
+
+  // Fetch greeting on mount (only if no triage context)
+  useEffect(() => {
+    if (didGreet.current || params.context) return;
+    didGreet.current = true;
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    apiFetch<{ greeting: string }>(`/chat/greeting?tz=${encodeURIComponent(tz)}`)
+      .then((data) => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: "greeting-0",
+            role: "assistant",
+            content: data.greeting,
+          },
+        ]);
+      })
+      .catch(() => {
+        // Fail silently — user can still chat
+      });
+  }, []);
 
   const sendMutation = useMutation({
     mutationFn: async (text: string) => {
@@ -50,7 +76,8 @@ export default function ChatScreen() {
         role: m.role,
         content: m.content,
       }));
-      const body: Record<string, unknown> = { message: text, history };
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const body: Record<string, unknown> = { message: text, history, timezone: tz };
       if (params.triageId) body.triage_item_id = params.triageId;
       return apiFetch<ChatResponse>("/chat", {
         method: "POST",
@@ -66,6 +93,9 @@ export default function ChatScreen() {
           content: data.reply,
         },
       ]);
+      if (data.savedContext?.length) {
+        queryClient.invalidateQueries({ queryKey: ["user-context"] });
+      }
     },
     onError: (err: Error) => {
       setMessages((prev) => [
@@ -114,10 +144,7 @@ export default function ChatScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyTitle}>Assistant</Text>
-              <Text style={styles.emptyText}>
-                Ask questions, provide feedback, or discuss triage items.
-              </Text>
+              <ActivityIndicator size="small" color="#999" />
             </View>
           }
           renderItem={({ item }) => (
@@ -127,14 +154,15 @@ export default function ChatScreen() {
                 item.role === "user" ? styles.userBubble : styles.assistantBubble,
               ]}
             >
-              <Text
-                style={[
-                  styles.messageText,
-                  item.role === "user" ? styles.userText : styles.assistantText,
-                ]}
-              >
-                {item.content}
-              </Text>
+              {item.role === "user" ? (
+                <Text style={[styles.messageText, styles.userText]}>
+                  {item.content}
+                </Text>
+              ) : (
+                <Markdown style={item.role === "assistant" ? mdStyles : mdStylesUser}>
+                  {item.content}
+                </Markdown>
+              )}
             </View>
           )}
         />
@@ -239,3 +267,20 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { opacity: 0.4 },
   sendBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
 });
+
+const mdStyles = {
+  body: { fontSize: 15, lineHeight: 21, color: "#222" },
+  strong: { fontWeight: "700" as const },
+  em: { fontStyle: "italic" as const },
+  paragraph: { marginTop: 0, marginBottom: 0 },
+  bullet_list: { marginTop: 4, marginBottom: 4 },
+  ordered_list: { marginTop: 4, marginBottom: 4 },
+  list_item: { marginBottom: 2 },
+  code_inline: { backgroundColor: "#d5d5d5", paddingHorizontal: 4, borderRadius: 3, fontSize: 14 },
+  fence: { backgroundColor: "#d5d5d5", padding: 8, borderRadius: 6, fontSize: 13 },
+};
+
+const mdStylesUser = {
+  ...mdStyles,
+  body: { ...mdStyles.body, color: "#fff" },
+};

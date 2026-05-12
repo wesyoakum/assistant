@@ -6,6 +6,8 @@ const CAL_API = "https://www.googleapis.com/calendar/v3";
 export interface CalendarSummary {
   id: string;
   summary: string;
+  alias: string | null;
+  displayName: string;
   primary: boolean;
   backgroundColor: string;
   enabled: boolean;
@@ -71,21 +73,25 @@ export async function listCalendars(
 
   // Load preferences
   const { results: prefs } = await env.DB.prepare(
-    "SELECT calendar_id, enabled FROM user_calendar_prefs WHERE user_id = ?"
+    "SELECT calendar_id, enabled, alias FROM user_calendar_prefs WHERE user_id = ?"
   )
     .bind(userId)
-    .all<{ calendar_id: string; enabled: number }>();
+    .all<{ calendar_id: string; enabled: number; alias: string | null }>();
 
-  const prefMap = new Map(prefs.map((p) => [p.calendar_id, p.enabled === 1]));
+  const prefMap = new Map(prefs.map((p) => [p.calendar_id, { enabled: p.enabled === 1, alias: p.alias }]));
 
-  return calendars.map((cal) => ({
-    id: cal.id,
-    summary: cal.summary,
-    primary: !!cal.primary,
-    backgroundColor: cal.backgroundColor || "#4285F4",
-    // Default to enabled if no preference exists
-    enabled: prefMap.has(cal.id) ? prefMap.get(cal.id)! : true,
-  }));
+  return calendars.map((cal) => {
+    const pref = prefMap.get(cal.id);
+    return {
+      id: cal.id,
+      summary: cal.summary,
+      alias: pref?.alias || null,
+      displayName: pref?.alias || cal.summary,
+      primary: !!cal.primary,
+      backgroundColor: cal.backgroundColor || "#4285F4",
+      enabled: pref ? pref.enabled : true,
+    };
+  });
 }
 
 export async function setCalendarEnabled(
@@ -176,7 +182,7 @@ export async function listUpcomingEvents(
 
       const data = (await res.json()) as { items?: GCalEvent[] };
       return (data.items || []).map((evt) =>
-        toCalendarEvent(evt, cal.id, cal.summary)
+        toCalendarEvent(evt, cal.id, cal.displayName)
       );
     })
   );
