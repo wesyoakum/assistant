@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "deploy:setup": "./scripts/deploy-setup.sh",
+    "deploy:setup": "node scripts/deploy-setup.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
