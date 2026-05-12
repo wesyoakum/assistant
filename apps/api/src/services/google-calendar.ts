@@ -193,6 +193,45 @@ export async function listUpcomingEvents(
   return events;
 }
 
+/**
+ * Create an event on the user's primary calendar.
+ */
+export async function createEvent(
+  userId: string,
+  event: { title: string; startIso: string; endIso: string; location?: string; description?: string },
+  env: Env
+): Promise<{ id: string; htmlLink: string }> {
+  const accessToken = await getValidAccessToken(userId, env);
+
+  const body: Record<string, unknown> = {
+    summary: event.title,
+    start: { dateTime: event.startIso },
+    end: { dateTime: event.endIso },
+  };
+  if (event.location) body.location = event.location;
+  if (event.description) body.description = event.description;
+
+  const res = await fetch(
+    `${CAL_API}/calendars/primary/events`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Create event failed ${res.status}: ${err}`);
+  }
+
+  const data = (await res.json()) as { id: string; htmlLink: string };
+  return { id: data.id, htmlLink: data.htmlLink };
+}
+
 function toCalendarEvent(evt: GCalEvent, calendarId: string, calendarName: string): CalendarEvent {
   const allDay = !evt.start?.dateTime;
   return {

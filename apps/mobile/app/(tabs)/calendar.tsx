@@ -9,7 +9,7 @@ import {
   RefreshControl,
   Linking,
 } from "react-native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../../src/api/client";
 
 interface CalendarEvent {
@@ -81,11 +81,50 @@ function timeUntil(iso: string): string | null {
   return `in ${Math.floor(mins / 60)}h`;
 }
 
+interface Suggestion {
+  id: string;
+  title: string;
+  start_iso: string;
+  end_iso: string;
+  location: string | null;
+  triage_summary: string | null;
+}
+
+interface SuggestionsResponse {
+  suggestions: Suggestion[];
+}
+
 export default function CalendarScreen() {
+  const queryClient = useQueryClient();
+
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["calendar-events"],
     queryFn: () => apiFetch<EventsResponse>("/calendar/events"),
   });
+
+  const { data: sugData } = useQuery({
+    queryKey: ["calendar-suggestions"],
+    queryFn: () => apiFetch<SuggestionsResponse>("/calendar/suggestions"),
+  });
+
+  const acceptMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/calendar/suggestions/${id}/accept`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-suggestions"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/calendar/suggestions/${id}/reject`, { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-suggestions"] });
+    },
+  });
+
+  const suggestions = sugData?.suggestions || [];
 
   const sections = useMemo(() => {
     const events = data?.events || [];
@@ -123,6 +162,45 @@ export default function CalendarScreen() {
       }
       contentContainerStyle={
         sections.length === 0 ? styles.center : styles.list
+      }
+      ListHeaderComponent={
+        suggestions.length > 0 ? (
+          <View style={styles.suggestionsWrap}>
+            <Text style={styles.suggestionsTitle}>Suggested Events</Text>
+            {suggestions.map((s) => (
+              <View key={s.id} style={styles.suggestionCard}>
+                <View style={styles.suggestionContent}>
+                  <Text style={styles.suggestionName}>{s.title}</Text>
+                  <Text style={styles.suggestionTime}>
+                    {new Date(s.start_iso).toLocaleString("en-US", {
+                      month: "short", day: "numeric",
+                      hour: "numeric", minute: "2-digit",
+                    })}
+                  </Text>
+                  {s.location && (
+                    <Text style={styles.suggestionMeta}>{s.location}</Text>
+                  )}
+                </View>
+                <View style={styles.suggestionActions}>
+                  <Pressable
+                    style={styles.acceptBtn}
+                    onPress={() => acceptMutation.mutate(s.id)}
+                    disabled={acceptMutation.isPending}
+                  >
+                    <Text style={styles.acceptText}>Add</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.rejectBtn}
+                    onPress={() => rejectMutation.mutate(s.id)}
+                    disabled={rejectMutation.isPending}
+                  >
+                    <Text style={styles.rejectText}>Skip</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null
       }
       ListEmptyComponent={
         <Text style={styles.emptyText}>No upcoming events</Text>
@@ -223,4 +301,43 @@ const styles = StyleSheet.create({
     color: "#ed8936",
     paddingTop: 1,
   },
+  suggestionsWrap: {
+    padding: 16,
+    paddingBottom: 8,
+  },
+  suggestionsTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ed8936",
+    marginBottom: 8,
+  },
+  suggestionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff8f0",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#fde6cc",
+  },
+  suggestionContent: { flex: 1, marginRight: 10 },
+  suggestionName: { fontSize: 15, fontWeight: "600", color: "#333" },
+  suggestionTime: { fontSize: 13, color: "#888", marginTop: 2 },
+  suggestionMeta: { fontSize: 12, color: "#aaa", marginTop: 1 },
+  suggestionActions: { gap: 6 },
+  acceptBtn: {
+    backgroundColor: "#4285F4",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  acceptText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  rejectBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    alignItems: "center",
+  },
+  rejectText: { color: "#999", fontSize: 13 },
 });
