@@ -26,6 +26,7 @@ interface Message {
 interface ChatResponse {
   reply: string;
   savedContext?: string[];
+  createdItems?: string[];
 }
 
 export default function ChatScreen() {
@@ -95,6 +96,9 @@ export default function ChatScreen() {
       ]);
       if (data.savedContext?.length) {
         queryClient.invalidateQueries({ queryKey: ["user-context"] });
+      }
+      if (data.createdItems?.length) {
+        queryClient.invalidateQueries({ queryKey: ["triage"] });
       }
     },
     onError: (err: Error) => {

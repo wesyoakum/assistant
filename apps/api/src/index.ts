@@ -7,6 +7,7 @@ import { calendar } from "./routes/calendar";
 import { chat } from "./routes/chat";
 import { files } from "./routes/files";
 import { context } from "./routes/context";
+import { push } from "./routes/push";
 import { classifyFile } from "./services/claude";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
@@ -39,6 +40,7 @@ app.route("/calendar", calendar);
 app.route("/chat", chat);
 app.route("/files", files);
 app.route("/context", context);
+app.route("/push", push);
 
 app.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");
@@ -240,7 +242,7 @@ async function handleTriageClassify(
   }
 
   // If high priority, trigger push notification
-  if (result.priority >= 4) {
+  if (result.priority >= 4 || result.urgency >= 4) {
     const pushMsg: QueueMessage = {
       type: "push.send",
       userId,
@@ -342,7 +344,7 @@ async function handleFileClassify(
     ).bind(fileId).run();
 
     // Push if high priority
-    if (result.priority >= 4) {
+    if (result.priority >= 4 || result.urgency >= 4) {
       const pushMsg: QueueMessage = { type: "push.send", userId, triageItemId: itemId, summary: result.summary };
       await env.TASKS.send(pushMsg);
     }

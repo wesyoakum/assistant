@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user_id ON oauth_tokens(user_id);
 CREATE TABLE IF NOT EXISTS triage_items (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
-  source_type TEXT NOT NULL CHECK(source_type IN ('email', 'document', 'image', 'voice')),
+  source_type TEXT NOT NULL CHECK(source_type IN ('email', 'document', 'image', 'voice', 'chat', 'calendar', 'event')),
   source_ref TEXT,
   priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
   urgency INTEGER NOT NULL DEFAULT 3 CHECK(urgency BETWEEN 1 AND 5),

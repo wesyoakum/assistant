@@ -250,6 +250,22 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {/* Notifications section */}
+      <Text style={styles.sectionTitle}>Notifications</Text>
+      <View style={styles.card}>
+        <View style={styles.calRow}>
+          <View style={styles.calInfo}>
+            <Text style={styles.calName}>High priority alerts</Text>
+            <Text style={styles.calPrimary}>Push when importance or urgency is 4+</Text>
+          </View>
+          <Switch
+            value={true}
+            disabled
+            trackColor={{ false: "#ddd", true: "#4285F4" }}
+          />
+        </View>
+      </View>
+
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.card}>

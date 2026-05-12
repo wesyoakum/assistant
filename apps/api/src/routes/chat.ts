@@ -6,6 +6,18 @@ import { authMiddleware } from "../middleware/auth";
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-5";
 
+function getQuadrant(priority: number, urgency: number): "Hot" | "Action" | "Plan" | "Noop" {
+  const imp = priority >= 4 ? "high" : priority === 3 ? "medium" : "low";
+  const urg = urgency >= 4 ? "high" : urgency === 3 ? "medium" : "low";
+  if (imp === "high" && urg !== "low") return "Hot";
+  if (imp === "high" && urg === "low") return "Plan";
+  if (urg === "high" && imp !== "high") return "Action";
+  if (imp === "medium" && urg === "medium") return "Plan";
+  if (imp === "medium" && urg === "low") return "Noop";
+  if (imp === "low" && urg === "medium") return "Action";
+  return "Noop";
+}
+
 type ChatApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
 const chat: ChatApp = new Hono();
@@ -85,10 +97,14 @@ chat.post("/", async (c) => {
 
   let triageInbox = "";
   if (triageItems.length > 0) {
-    const lines = triageItems.map(
-      (t) => `- [P${t.priority}U${t.urgency}] ${t.source_type}: ${t.summary || "no summary"}${t.suggested_action ? ` → ${t.suggested_action}` : ""}`
-    );
-    triageInbox = `\n\nOpen triage items (${triageItems.length}):\n${lines.join("\n")}`;
+    const lines = triageItems.map((t) => {
+      const q = getQuadrant(t.priority, t.urgency);
+      return `- [${q}] P${t.priority}U${t.urgency} ${t.source_type}: ${t.summary || "no summary"}${t.suggested_action ? ` → ${t.suggested_action}` : ""}`;
+    });
+    const counts = { Hot: 0, Action: 0, Plan: 0, Noop: 0 };
+    for (const t of triageItems) counts[getQuadrant(t.priority, t.urgency)]++;
+    const countStr = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(", ");
+    triageInbox = `\n\nOpen triage items (${triageItems.length} total: ${countStr}):\n${lines.join("\n")}`;
   }
 
   // Load pending calendar suggestions
@@ -173,7 +189,13 @@ SAVING CONTEXT: When the user tells you about people in their life, relationship
 \`\`\`
 
 Valid kinds: profile, family, person, work, school, sports, health, dates, organization, preferences, other.
-You can include multiple save_context blocks in one response. Save when the user provides new persistent context — names, birthdays, relationships, schedules, important dates, preferences. For profile info use kind "profile" with labels like "name", "birthday", "location". For family use kind "family" with labels like "spouse", "children", "relationship_status". For important dates use kind "dates".${userContext}${triageInbox}${suggestionsContext}${contextPromptHint}${triageContext}${feedbackContext}`;
+You can include multiple save_context blocks in one response. Save when the user provides new persistent context — names, birthdays, relationships, schedules, important dates, preferences. For profile info use kind "profile" with labels like "name", "birthday", "location". For family use kind "family" with labels like "spouse", "children", "relationship_status". For important dates use kind "dates".
+
+CREATING TRIAGE ITEMS: When the user asks you to create a triage item, reminder, task, or to-do, you MUST include a JSON block like this:
+\`\`\`save_triage
+{"summary": "Call dentist to schedule cleaning", "priority": 3, "urgency": 2, "category": "health", "suggested_action": "Call during business hours"}
+\`\`\`
+Priority and urgency are 1-5. Category can be: billing, scheduling, personal, work, newsletter, notification, social, shopping, travel, security, health, legal, other. Always confirm to the user that the item was created.${userContext}${triageInbox}${suggestionsContext}${contextPromptHint}${triageContext}${feedbackContext}`;
 
   // Build messages array with history
   const messages: { role: "user" | "assistant"; content: string }[] = [];
@@ -238,10 +260,43 @@ You can include multiple save_context blocks in one response. Save when the user
     }
   }
 
-  // Strip save_context blocks from the reply shown to user
-  reply = reply.replace(/```save_context\s*[\s\S]*?```\n?/g, "").trim();
+  // Extract and create any triage items from the reply
+  const triagePattern = /```save_triage\s*([\s\S]*?)```/g;
+  const createdItems: string[] = [];
+  let triageMatch;
+  while ((triageMatch = triagePattern.exec(reply)) !== null) {
+    try {
+      const item = JSON.parse(triageMatch[1].trim());
+      if (item.summary) {
+        const itemId = crypto.randomUUID();
+        await c.env.DB.prepare(
+          `INSERT INTO triage_items (id, user_id, source_type, priority, urgency, category, summary, suggested_action, status)
+           VALUES (?, ?, 'chat', ?, ?, ?, ?, ?, 'open')`
+        )
+          .bind(
+            itemId, userId,
+            item.priority || 3, item.urgency || 3,
+            item.category || "other",
+            item.summary,
+            item.suggested_action || null
+          )
+          .run();
+        createdItems.push(item.summary);
+      }
+    } catch {
+      // ignore malformed blocks
+    }
+  }
 
-  return c.json({ reply, savedContext: saved.length > 0 ? saved : undefined });
+  // Strip all action blocks from the reply shown to user
+  reply = reply.replace(/```save_context\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```save_triage\s*[\s\S]*?```\n?/g, "").trim();
+
+  return c.json({
+    reply,
+    savedContext: saved.length > 0 ? saved : undefined,
+    createdItems: createdItems.length > 0 ? createdItems : undefined,
+  });
 });
 
 // Generate a greeting when the app opens

@@ -3,6 +3,7 @@ import { ActivityIndicator, View } from "react-native";
 import { Stack, Redirect, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuth } from "../src/state/auth";
+import { useNotifications } from "../src/hooks/useNotifications";
 
 const queryClient = new QueryClient();
 
@@ -13,6 +14,8 @@ function AuthGate() {
   useEffect(() => {
     loadToken();
   }, []);
+
+  useNotifications();
 
   if (isLoading) {
     return (
