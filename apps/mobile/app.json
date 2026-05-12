@@ -32,6 +32,13 @@
     "plugins": [
       "expo-router",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "04791beb-e3ca-4e3a-aa43-84695a59850f"
+      }
+    },
+    "owner": "wesyoakum"
   }
 }
