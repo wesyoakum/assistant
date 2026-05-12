@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { Slot, useRouter, useSegments } from "expo-router";
+import { ActivityIndicator, View } from "react-native";
+import { Slot, Redirect, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuth } from "../src/state/auth";
 
@@ -8,23 +9,28 @@ const queryClient = new QueryClient();
 function AuthGate() {
   const { isAuthenticated, isLoading, loadToken } = useAuth();
   const segments = useSegments();
-  const router = useRouter();
 
   useEffect(() => {
     loadToken();
-  }, [loadToken]);
+  }, []);
 
-  useEffect(() => {
-    if (isLoading) return;
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
-    const onSignIn = segments[0] === "sign-in";
+  const onSignIn = segments[0] === "sign-in";
 
-    if (!isAuthenticated && !onSignIn) {
-      router.replace("/sign-in");
-    } else if (isAuthenticated && onSignIn) {
-      router.replace("/(tabs)/triage");
-    }
-  }, [isAuthenticated, isLoading, segments, router]);
+  if (!isAuthenticated && !onSignIn) {
+    return <Redirect href="/sign-in" />;
+  }
+
+  if (isAuthenticated && onSignIn) {
+    return <Redirect href="/(tabs)/triage" />;
+  }
 
   return <Slot />;
 }
