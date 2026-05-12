@@ -145,6 +145,7 @@ export default function TriageDetail() {
 
   const [localPriority, setLocalPriority] = useState<number | null>(null);
   const [localUrgency, setLocalUrgency] = useState<number | null>(null);
+  const [scoresExpanded, setScoresExpanded] = useState(false);
 
   const feedbackMutation = useMutation({
     mutationFn: (body: { kind: string; corrected_priority: number; corrected_urgency: number }) =>
@@ -155,6 +156,18 @@ export default function TriageDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["triage", id] });
       queryClient.invalidateQueries({ queryKey: ["triage"] });
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (status: "done" | "dismissed") =>
+      apiFetch(`/triage/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["triage"] });
+      router.back();
     },
   });
 
@@ -224,38 +237,45 @@ export default function TriageDetail() {
             <Text style={styles.category}>{item.category}</Text>
           )}
         </View>
-        <View style={[styles.quadrantBadge, { backgroundColor: quadrant.color }]}>
-          <Text style={styles.badgeText}>{quadrant.label}</Text>
+        <View style={styles.headerBadges}>
+          <View style={[styles.quadrantBadge, { backgroundColor: quadrant.color }]}>
+            <Text style={styles.badgeText}>{quadrant.label}</Text>
+          </View>
+          <Pressable
+            style={styles.puBadge}
+            onPress={() => setScoresExpanded(!scoresExpanded)}
+          >
+            <Text style={styles.puBadgeText}>P{priority}U{urgency}</Text>
+          </Pressable>
         </View>
       </View>
 
-      {/* Summary */}
-      <Text style={styles.summary}>{item.summary || "No summary"}</Text>
-
-      {/* Score pickers */}
-      <View style={styles.scoresSection}>
-        <ScorePicker
-          label="Importance"
-          value={priority}
-          onChange={setLocalPriority}
-        />
-        <ScorePicker
-          label="Urgency"
-          value={urgency}
-          onChange={setLocalUrgency}
-        />
-        {hasChanged && (
-          <Pressable
-            style={styles.saveScoresBtn}
-            onPress={handleSaveScores}
-            disabled={feedbackMutation.isPending}
-          >
-            <Text style={styles.saveScoresText}>
-              {feedbackMutation.isPending ? "Saving..." : "Save Scores"}
-            </Text>
-          </Pressable>
-        )}
-      </View>
+      {/* Score pickers — expanded */}
+      {scoresExpanded && (
+        <View style={styles.scoresSection}>
+          <ScorePicker
+            label="Importance"
+            value={priority}
+            onChange={setLocalPriority}
+          />
+          <ScorePicker
+            label="Urgency"
+            value={urgency}
+            onChange={setLocalUrgency}
+          />
+          {hasChanged && (
+            <Pressable
+              style={styles.saveScoresBtn}
+              onPress={handleSaveScores}
+              disabled={feedbackMutation.isPending}
+            >
+              <Text style={styles.saveScoresText}>
+                {feedbackMutation.isPending ? "Saving..." : "Save Scores"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
 
       {/* Time info */}
       <View style={styles.timeSection}>
@@ -306,6 +326,14 @@ export default function TriageDetail() {
             <Text style={styles.openBtnText}>Open Original</Text>
           </Pressable>
         )}
+
+        <Pressable
+          style={styles.dismissBtn}
+          onPress={() => statusMutation.mutate("dismissed")}
+          disabled={statusMutation.isPending}
+        >
+          <Text style={styles.dismissBtnText}>Dismiss</Text>
+        </Pressable>
       </View>
     </ScrollView>
   );
@@ -331,6 +359,14 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   summary: { fontSize: 20, color: "#111", lineHeight: 28, marginBottom: 20 },
+  headerBadges: { flexDirection: "row", alignItems: "center", gap: 6 },
+  puBadge: {
+    backgroundColor: "#e8e8e8",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  puBadgeText: { fontSize: 11, fontWeight: "700", color: "#666" },
   scoresSection: {
     backgroundColor: "#f8f8f8",
     borderRadius: 10,
@@ -406,4 +442,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   openBtnText: { color: "#333", fontSize: 16, fontWeight: "600" },
+  dismissBtn: {
+    backgroundColor: "#fff",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#ddd",
+  },
+  dismissBtnText: { color: "#999", fontSize: 16, fontWeight: "600" },
 });

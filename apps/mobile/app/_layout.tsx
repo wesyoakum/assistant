@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { Slot, Redirect, useSegments } from "expo-router";
+import { Stack, Redirect, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuth } from "../src/state/auth";
 
@@ -32,7 +32,17 @@ function AuthGate() {
     return <Redirect href="/(tabs)/chat" />;
   }
 
-  return <Slot />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen
+        name="triage"
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen name="sign-in" />
+      <Stack.Screen name="index" />
+    </Stack>
+  );
 }
 
 export default function RootLayout() {
