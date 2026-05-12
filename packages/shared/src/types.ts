@@ -47,9 +47,11 @@ export interface EmailContent {
 export interface TriageResult {
   priority: number;
   urgency: number;
+  confidence: number;
   category: string;
   summary: string;
   suggested_action: string;
+  clarification_question?: string;
   suggested_calendar_event?: {
     title: string;
     start_iso: string;

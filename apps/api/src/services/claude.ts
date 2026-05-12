@@ -40,13 +40,16 @@ Please return ONLY valid JSON matching the schema.`;
   const retryParsed = tryParse(retryResult);
   if (retryParsed) return retryParsed;
 
-  // Fall back to a safe default
+  // Fall back to a safe default — classifier failed, so confidence is minimal
+  // and we ask the user to triage manually.
   return {
     priority: 3,
     urgency: 3,
+    confidence: 1,
     category: "other",
     summary: email.subject || "Unable to classify",
     suggested_action: "Review this email manually",
+    clarification_question: "How would you like to prioritize this email?",
   };
 }
 
