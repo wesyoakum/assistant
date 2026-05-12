@@ -27,12 +27,31 @@ interface TriageItem {
   created_at: string;
 }
 
-function priorityColor(p: number): string {
-  if (p >= 4) return "#e53e3e";
-  if (p === 3) return "#ed8936";
-  if (p === 2) return "#3182ce";
-  return "#a0aec0";
+type Level = "high" | "medium" | "low";
+type Quadrant = "hot" | "action" | "plan" | "noop";
+
+function toLevel(n: number): Level {
+  if (n >= 4) return "high";
+  if (n === 3) return "medium";
+  return "low";
 }
+
+function getQuadrant(importance: Level, urgency: Level): Quadrant {
+  if (importance === "high" && urgency !== "low") return "hot";
+  if (importance === "high" && urgency === "low") return "plan";
+  if (urgency === "high" && importance !== "high") return "action";
+  if (importance === "medium" && urgency === "medium") return "plan";
+  if (importance === "medium" && urgency === "low") return "noop";
+  if (importance === "low" && urgency === "medium") return "action";
+  return "noop";
+}
+
+const QUADRANT_META: Record<Quadrant, { label: string; color: string }> = {
+  hot:    { label: "Hot",    color: "#e53e3e" },
+  action: { label: "Action", color: "#ed8936" },
+  plan:   { label: "Plan",   color: "#3182ce" },
+  noop:   { label: "Noop",   color: "#a0aec0" },
+};
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "Unknown";
@@ -95,6 +114,9 @@ export default function TriageDetail() {
 
   const deadline = formatDeadline(item.deadline);
   const originDate = formatDate(item.origin_date || item.created_at);
+  const imp = toLevel(item.priority);
+  const urg = toLevel(item.urgency);
+  const quadrant = QUADRANT_META[getQuadrant(imp, urg)];
 
   // Parse extended summary from classifier output
   let details: string | null = null;
@@ -135,14 +157,15 @@ export default function TriageDetail() {
             <Text style={styles.category}>{item.category}</Text>
           )}
         </View>
-        <View style={styles.badges}>
-          <View style={[styles.badge, { backgroundColor: priorityColor(item.priority) }]}>
-            <Text style={styles.badgeText}>P{item.priority}</Text>
-          </View>
-          <View style={[styles.badge, { backgroundColor: "#6b7280" }]}>
-            <Text style={styles.badgeText}>U{item.urgency}</Text>
-          </View>
+        <View style={[styles.quadrantBadge, { backgroundColor: quadrant.color }]}>
+          <Text style={styles.badgeText}>{quadrant.label}</Text>
         </View>
+      </View>
+
+      {/* Importance / Urgency */}
+      <View style={styles.levelRow}>
+        <Text style={styles.levelLabel}>Importance: <Text style={styles.levelValue}>{imp}</Text></Text>
+        <Text style={styles.levelLabel}>Urgency: <Text style={styles.levelValue}>{urg}</Text></Text>
       </View>
 
       {/* Summary */}
@@ -215,13 +238,19 @@ const styles = StyleSheet.create({
   headerLeft: { flex: 1, marginRight: 12 },
   sourceLabel: { fontSize: 13, fontWeight: "600", color: "#666", marginBottom: 2 },
   category: { fontSize: 13, fontWeight: "700", color: "#4285F4", textTransform: "uppercase" },
-  badges: { flexDirection: "row", gap: 6 },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  quadrantBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: 12,
   },
-  badgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  badgeText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  levelRow: {
+    flexDirection: "row",
+    gap: 20,
+    marginBottom: 16,
+  },
+  levelLabel: { fontSize: 13, color: "#888" },
+  levelValue: { fontWeight: "700", color: "#444", textTransform: "capitalize" },
   summary: { fontSize: 20, color: "#111", lineHeight: 28, marginBottom: 20 },
   timeSection: {
     backgroundColor: "#f8f8f8",

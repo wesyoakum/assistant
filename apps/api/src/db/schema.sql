@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS push_tokens (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- User calendar preferences
+CREATE TABLE IF NOT EXISTS user_calendar_prefs (
+  user_id TEXT NOT NULL REFERENCES users(id),
+  calendar_id TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, calendar_id)
+);
+
 -- Gmail sync state
 CREATE TABLE IF NOT EXISTS gmail_sync_state (
   id TEXT PRIMARY KEY,
