@@ -29,7 +29,7 @@ function AuthGate() {
   }
 
   if (isAuthenticated && onSignIn) {
-    return <Redirect href="/(tabs)/triage" />;
+    return <Redirect href="/(tabs)/chat" />;
   }
 
   return <Slot />;

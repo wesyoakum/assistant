@@ -1,8 +1,8 @@
-import { useCallback } from "react";
+import { useEffect } from "react";
 import {
   View,
   Text,
-  SectionList,
+  FlatList,
   Pressable,
   StyleSheet,
   ActivityIndicator,
@@ -21,6 +21,9 @@ interface TriageItem {
   summary: string | null;
   suggested_action: string | null;
   status: string;
+  source_ref: string | null;
+  deadline: string | null;
+  origin_date: string | null;
   created_at: string;
 }
 
@@ -29,26 +32,53 @@ interface TriageResponse {
   cursor?: string;
 }
 
-const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
-  urgent: { label: "Urgent", color: "#e53e3e" },
-  normal: { label: "Normal", color: "#3182ce" },
-  low: { label: "Low", color: "#a0aec0" },
+const SOURCE_ICONS: Record<string, string> = {
+  email: "\u2709",
+  calendar: "\uD83D\uDCC5",
+  document: "\uD83D\uDCC4",
+  image: "\uD83D\uDDBC",
+  voice: "\uD83C\uDFA4",
+  chat: "\uD83D\uDCAC",
 };
 
-function getPriorityGroup(priority: number): string {
-  if (priority >= 4) return "urgent";
-  if (priority === 3) return "normal";
-  return "low";
+function priorityColor(p: number): string {
+  if (p >= 4) return "#e53e3e";
+  if (p === 3) return "#ed8936";
+  if (p === 2) return "#3182ce";
+  return "#a0aec0";
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+function formatDeadline(deadline: string | null): string | null {
+  if (!deadline) return null;
+  const d = new Date(deadline);
+  const now = Date.now();
+  const diff = d.getTime() - now;
+
+  if (diff < 0) return "Overdue";
+  if (diff < 60 * 60 * 1000) return `${Math.ceil(diff / 60000)}m left`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.ceil(diff / 3600000)}h left`;
+
+  return `by ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+}
+
+function formatOrigin(originDate: string | null, createdAt: string): string {
+  const date = originDate || createdAt;
+  const d = new Date(date);
+  const now = Date.now();
+  const diff = now - d.getTime();
   const mins = Math.floor(diff / 60000);
+
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function truncateSummary(summary: string | null): string {
+  if (!summary) return "No description";
+  const words = summary.split(/\s+/);
+  if (words.length <= 10) return summary;
+  return words.slice(0, 10).join(" ") + "...";
 }
 
 export default function TriageScreen() {
@@ -63,24 +93,17 @@ export default function TriageScreen() {
   const syncMutation = useMutation({
     mutationFn: () => apiFetch("/gmail/sync", { method: "POST" }),
     onSuccess: () => {
-      // Wait a moment for classification queue to process, then refetch
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["triage"] }), 3000);
+      setTimeout(
+        () => queryClient.invalidateQueries({ queryKey: ["triage"] }),
+        3000
+      );
     },
   });
 
-  const handleRefresh = useCallback(() => {
+  // Auto-sync on mount
+  useEffect(() => {
     syncMutation.mutate();
-    refetch();
-  }, [syncMutation, refetch]);
-
-  const statusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      apiFetch(`/triage/${id}/status`, {
-        method: "POST",
-        body: JSON.stringify({ status }),
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["triage"] }),
-  });
+  }, []);
 
   if (isLoading) {
     return (
@@ -90,158 +113,113 @@ export default function TriageScreen() {
     );
   }
 
-  const items = data?.items || [];
-
-  if (items.length === 0) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.emptyText}>No items to triage</Text>
-        <Pressable
-          style={styles.syncButton}
-          onPress={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-        >
-          <Text style={styles.syncButtonText}>
-            {syncMutation.isPending ? "Syncing..." : "Sync Gmail"}
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  // Group by priority tier
-  const groups: Record<string, TriageItem[]> = {
-    urgent: [],
-    normal: [],
-    low: [],
-  };
-  for (const item of items) {
-    const group = getPriorityGroup(item.priority);
-    groups[group]!.push(item);
-  }
-
-  const sections = Object.entries(groups)
-    .filter(([, items]) => items.length > 0)
-    .map(([key, items]) => ({
-      key,
-      title: PRIORITY_LABELS[key]!.label,
-      color: PRIORITY_LABELS[key]!.color,
-      data: items,
-    }));
+  // Sort by priority desc, then urgency desc
+  const items = [...(data?.items || [])].sort(
+    (a, b) => b.priority - a.priority || b.urgency - a.urgency
+  );
 
   return (
-    <SectionList
-      sections={sections}
+    <FlatList
+      data={items}
       keyExtractor={(item) => item.id}
       refreshControl={
         <RefreshControl
           refreshing={isRefetching || syncMutation.isPending}
-          onRefresh={handleRefresh}
+          onRefresh={() => {
+            syncMutation.mutate();
+            refetch();
+          }}
         />
       }
-      renderSectionHeader={({ section }) => (
-        <View style={styles.sectionHeader}>
-          <View
-            style={[styles.sectionDot, { backgroundColor: section.color }]}
-          />
-          <Text style={styles.sectionTitle}>
-            {section.title} ({section.data.length})
-          </Text>
-        </View>
-      )}
-      renderItem={({ item }) => (
-        <Pressable
-          style={styles.itemRow}
-          onPress={() => router.push(`/triage/${item.id}`)}
-        >
-          <View style={styles.itemContent}>
-            <View style={styles.itemTop}>
-              {item.category && (
-                <Text style={styles.category}>{item.category}</Text>
-              )}
-              <Text style={styles.timeAgo}>{timeAgo(item.created_at)}</Text>
+      contentContainerStyle={items.length === 0 ? styles.center : styles.list}
+      ListEmptyComponent={
+        <Text style={styles.emptyText}>Nothing to triage right now</Text>
+      }
+      renderItem={({ item }) => {
+        const deadline = formatDeadline(item.deadline);
+        const origin = formatOrigin(item.origin_date, item.created_at);
+        const icon = SOURCE_ICONS[item.source_type] || "\u2022";
+
+        return (
+          <Pressable
+            style={styles.row}
+            onPress={() => router.push(`/triage/${item.id}`)}
+          >
+            <View style={styles.leftCol}>
+              <View
+                style={[
+                  styles.priorityBar,
+                  { backgroundColor: priorityColor(item.priority) },
+                ]}
+              />
             </View>
-            <Text style={styles.summary} numberOfLines={2}>
-              {item.summary || "No summary"}
-            </Text>
-            {item.suggested_action && (
-              <Text style={styles.action} numberOfLines={1}>
-                {item.suggested_action}
-              </Text>
-            )}
-          </View>
-          <View style={styles.itemActions}>
-            <Pressable
-              style={styles.doneBtn}
-              onPress={(e) => {
-                e.stopPropagation();
-                statusMutation.mutate({ id: item.id, status: "done" });
-              }}
-            >
-              <Text style={styles.doneBtnText}>Done</Text>
-            </Pressable>
-          </View>
-        </Pressable>
-      )}
-      contentContainerStyle={styles.list}
+
+            <View style={styles.content}>
+              <View style={styles.topRow}>
+                <Text style={styles.sourceIcon}>{icon}</Text>
+                <Text style={styles.summary} numberOfLines={1}>
+                  {truncateSummary(item.summary)}
+                </Text>
+              </View>
+
+              <View style={styles.bottomRow}>
+                <Text style={styles.origin}>{origin}</Text>
+                {deadline && (
+                  <Text
+                    style={[
+                      styles.deadline,
+                      deadline === "Overdue" && styles.deadlineOverdue,
+                    ]}
+                  >
+                    {deadline}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            <View style={styles.priorityBadge}>
+              <Text style={styles.priorityNum}>P{item.priority}</Text>
+            </View>
+          </Pressable>
+        );
+      }}
     />
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  emptyText: { fontSize: 16, color: "#999", marginBottom: 16 },
-  syncButton: {
-    backgroundColor: "#4285F4",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  syncButtonText: { color: "#fff", fontSize: 15, fontWeight: "600" },
   list: { paddingBottom: 20 },
-  sectionHeader: {
+  emptyText: { fontSize: 16, color: "#999" },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: "#f7f7f7",
-  },
-  sectionDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 8,
-  },
-  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#555" },
-  itemRow: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingRight: 16,
+    paddingVertical: 12,
     backgroundColor: "#fff",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
   },
-  itemContent: { flex: 1, marginRight: 12 },
-  itemTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 4,
+  leftCol: { width: 4, marginRight: 14 },
+  priorityBar: {
+    width: 4,
+    height: "100%",
+    borderRadius: 2,
+    minHeight: 36,
   },
-  category: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#4285F4",
-    textTransform: "uppercase",
+  content: { flex: 1, marginRight: 10 },
+  topRow: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  sourceIcon: { fontSize: 14, marginRight: 6 },
+  summary: { fontSize: 15, color: "#222", flex: 1 },
+  bottomRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  origin: { fontSize: 12, color: "#999" },
+  deadline: { fontSize: 12, color: "#ed8936", fontWeight: "600" },
+  deadlineOverdue: { color: "#e53e3e" },
+  priorityBadge: {
+    backgroundColor: "#f0f0f0",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
-  timeAgo: { fontSize: 12, color: "#999" },
-  summary: { fontSize: 15, color: "#222", lineHeight: 20 },
-  action: { fontSize: 13, color: "#666", marginTop: 4 },
-  itemActions: { justifyContent: "center" },
-  doneBtn: {
-    backgroundColor: "#48bb78",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  doneBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  priorityNum: { fontSize: 12, fontWeight: "700", color: "#555" },
 });

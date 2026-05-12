@@ -1,23 +1,83 @@
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  ActivityIndicator,
+  Linking,
+} from "react-native";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../../src/api/client";
 
 interface TriageItem {
   id: string;
   source_type: string;
+  source_ref: string | null;
   priority: number;
   urgency: number;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
   classifier_json: string | null;
+  deadline: string | null;
+  origin_date: string | null;
   status: string;
   created_at: string;
 }
 
+function priorityColor(p: number): string {
+  if (p >= 4) return "#e53e3e";
+  if (p === 3) return "#ed8936";
+  if (p === 2) return "#3182ce";
+  return "#a0aec0";
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "Unknown";
+  return new Date(dateStr).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatDeadline(deadline: string | null): string | null {
+  if (!deadline) return null;
+  const d = new Date(deadline);
+  const now = Date.now();
+  const diff = d.getTime() - now;
+
+  if (diff < 0) return "Overdue";
+  if (diff < 60 * 60 * 1000) return `Expires in ${Math.ceil(diff / 60000)} minutes`;
+  if (diff < 24 * 60 * 60 * 1000) return `Expires in ${Math.ceil(diff / 3600000)} hours`;
+
+  return `Respond by ${d.toLocaleDateString("en-US", { month: "long", day: "numeric" })}`;
+}
+
+function sourceLabel(sourceType: string): string {
+  switch (sourceType) {
+    case "email": return "Email";
+    case "calendar": return "Calendar Event";
+    case "document": return "Document";
+    case "image": return "Image";
+    case "voice": return "Voice Memo";
+    case "chat": return "Chat";
+    default: return sourceType;
+  }
+}
+
+function getGmailUrl(sourceRef: string | null): string | null {
+  if (!sourceRef) return null;
+  // source_ref for email is typically the Gmail message/thread ID
+  return `https://mail.google.com/mail/u/0/#inbox/${sourceRef}`;
+}
+
 export default function TriageDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
 
   const { data: item, isLoading } = useQuery({
     queryKey: ["triage", id],
@@ -33,12 +93,48 @@ export default function TriageDetail() {
     );
   }
 
+  const deadline = formatDeadline(item.deadline);
+  const originDate = formatDate(item.origin_date || item.created_at);
+
+  // Parse extended summary from classifier output
+  let details: string | null = null;
+  if (item.classifier_json) {
+    try {
+      const parsed = JSON.parse(item.classifier_json);
+      details = parsed.details || parsed.extended_summary || null;
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleOpenOriginal = () => {
+    if (item.source_type === "email") {
+      const url = getGmailUrl(item.source_ref);
+      if (url) Linking.openURL(url);
+    }
+    // Future: handle other source types (image viewer, audio player, etc.)
+  };
+
+  const handleDiscussInChat = () => {
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: {
+        triageId: item.id,
+        context: item.summary || "this triage item",
+      },
+    });
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.category}>
-          {item.category?.toUpperCase() || "UNCATEGORIZED"}
-        </Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.sourceLabel}>{sourceLabel(item.source_type)}</Text>
+          {item.category && (
+            <Text style={styles.category}>{item.category}</Text>
+          )}
+        </View>
         <View style={styles.badges}>
           <View style={[styles.badge, { backgroundColor: priorityColor(item.priority) }]}>
             <Text style={styles.badgeText}>P{item.priority}</Text>
@@ -49,51 +145,76 @@ export default function TriageDetail() {
         </View>
       </View>
 
+      {/* Summary */}
       <Text style={styles.summary}>{item.summary || "No summary"}</Text>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Suggested Action</Text>
-        <Text style={styles.sectionBody}>
-          {item.suggested_action || "None"}
-        </Text>
+      {/* Time info */}
+      <View style={styles.timeSection}>
+        <View style={styles.timeRow}>
+          <Text style={styles.timeLabel}>Received</Text>
+          <Text style={styles.timeValue}>{originDate}</Text>
+        </View>
+        {deadline && (
+          <View style={styles.timeRow}>
+            <Text style={styles.timeLabel}>Deadline</Text>
+            <Text
+              style={[
+                styles.timeValue,
+                styles.deadlineValue,
+                deadline === "Overdue" && styles.deadlineOverdue,
+              ]}
+            >
+              {deadline}
+            </Text>
+          </View>
+        )}
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Source</Text>
-        <Text style={styles.sectionBody}>
-          {item.source_type} — {new Date(item.created_at).toLocaleString()}
-        </Text>
-      </View>
-
-      {item.classifier_json && (
+      {/* Details / extended summary */}
+      {details && (
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Classifier Output</Text>
-          <Text style={styles.code}>
-            {JSON.stringify(JSON.parse(item.classifier_json), null, 2)}
-          </Text>
+          <Text style={styles.sectionTitle}>Details</Text>
+          <Text style={styles.sectionBody}>{details}</Text>
         </View>
       )}
+
+      {/* Suggested action */}
+      {item.suggested_action && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Suggested Action</Text>
+          <Text style={styles.sectionBody}>{item.suggested_action}</Text>
+        </View>
+      )}
+
+      {/* Action buttons */}
+      <View style={styles.actions}>
+        <Pressable style={styles.chatBtn} onPress={handleDiscussInChat}>
+          <Text style={styles.chatBtnText}>Discuss in Chat</Text>
+        </Pressable>
+
+        {item.source_ref && (
+          <Pressable style={styles.openBtn} onPress={handleOpenOriginal}>
+            <Text style={styles.openBtnText}>Open Original</Text>
+          </Pressable>
+        )}
+      </View>
     </ScrollView>
   );
-}
-
-function priorityColor(p: number): string {
-  if (p >= 4) return "#e53e3e";
-  if (p === 3) return "#3182ce";
-  return "#a0aec0";
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   container: { flex: 1, backgroundColor: "#fff" },
-  content: { padding: 20 },
+  content: { padding: 20, paddingBottom: 40 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     marginBottom: 16,
   },
-  category: { fontSize: 13, fontWeight: "700", color: "#4285F4" },
+  headerLeft: { flex: 1, marginRight: 12 },
+  sourceLabel: { fontSize: 13, fontWeight: "600", color: "#666", marginBottom: 2 },
+  category: { fontSize: 13, fontWeight: "700", color: "#4285F4", textTransform: "uppercase" },
   badges: { flexDirection: "row", gap: 6 },
   badge: {
     paddingHorizontal: 10,
@@ -101,7 +222,23 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   badgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  summary: { fontSize: 18, color: "#111", lineHeight: 26, marginBottom: 24 },
+  summary: { fontSize: 20, color: "#111", lineHeight: 28, marginBottom: 20 },
+  timeSection: {
+    backgroundColor: "#f8f8f8",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 20,
+  },
+  timeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  timeLabel: { fontSize: 13, color: "#888" },
+  timeValue: { fontSize: 13, color: "#444", fontWeight: "500" },
+  deadlineValue: { color: "#ed8936", fontWeight: "700" },
+  deadlineOverdue: { color: "#e53e3e" },
   section: { marginBottom: 20 },
   sectionTitle: {
     fontSize: 13,
@@ -111,12 +248,19 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   sectionBody: { fontSize: 15, color: "#333", lineHeight: 22 },
-  code: {
-    fontSize: 12,
-    fontFamily: "monospace",
-    backgroundColor: "#f5f5f5",
-    padding: 12,
-    borderRadius: 8,
-    color: "#333",
+  actions: { marginTop: 12, gap: 12 },
+  chatBtn: {
+    backgroundColor: "#4285F4",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
   },
+  chatBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  openBtn: {
+    backgroundColor: "#f0f0f0",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  openBtnText: { color: "#333", fontSize: 16, fontWeight: "600" },
 });
