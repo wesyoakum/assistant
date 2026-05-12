@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 // Idempotent first-time deploy helper for the whyapp Worker.
 // Cross-platform: runs under PowerShell, cmd, or any POSIX shell.
+// Calls wrangler directly via node (no pnpm wrapper) to avoid pnpm's
+// pre-run deps verification on Windows.
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 process.chdir(resolve(dirname(fileURLToPath(import.meta.url)), ".."));
+
+const require = createRequire(import.meta.url);
+const WRANGLER = require.resolve("wrangler/bin/wrangler.js");
 
 const BLUE = "\x1b[34m";
 const GREEN = "\x1b[32m";
@@ -16,15 +22,13 @@ const step = (m) => console.log(`\n${BOLD}${BLUE}==> ${m}${RESET}`);
 const ok = (m) => console.log(`    ${GREEN}✓${RESET} ${m}`);
 const note = (m) => console.log(`    ${m}`);
 
-const PNPM = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-
 function wrangler(args, { input, capture = false } = {}) {
   const stdio = capture
     ? ["pipe", "pipe", "pipe"]
     : input != null
       ? ["pipe", "inherit", "inherit"]
       : "inherit";
-  return spawnSync(PNPM, ["exec", "wrangler", ...args], {
+  return spawnSync(process.execPath, [WRANGLER, ...args], {
     stdio,
     input,
     encoding: "utf8",
@@ -77,7 +81,6 @@ let existing = [];
     try {
       existing = JSON.parse(r.stdout).map((s) => s.name);
     } catch {
-      // wrangler may print a banner; fall back to a regex scrape
       existing = [...r.stdout.matchAll(/"name"\s*:\s*"([^"]+)"/g)].map((m) => m[1]);
     }
   }
