@@ -49,7 +49,7 @@ function getQuadrant(importance: Level, urgency: Level): Quadrant {
 const QUADRANT_META: Record<Quadrant, { label: string; color: string }> = {
   hot:    { label: "Hot",    color: "#e53e3e" },
   action: { label: "Action", color: "#ed8936" },
-  plan:   { label: "Plan",   color: "#3182ce" },
+  plan:   { label: "Plan",   color: "#38a169" },
   noop:   { label: "Noop",   color: "#a0aec0" },
 };
 

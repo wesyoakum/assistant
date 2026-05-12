@@ -60,7 +60,7 @@ function getQuadrant(importance: Level, urgency: Level): Quadrant {
 const QUADRANTS: { key: Quadrant; label: string; color: string }[] = [
   { key: "hot",    label: "Hot",    color: "#e53e3e" },
   { key: "action", label: "Action", color: "#ed8936" },
-  { key: "plan",   label: "Plan",   color: "#3182ce" },
+  { key: "plan",   label: "Plan",   color: "#38a169" },
   { key: "noop",   label: "Noop",   color: "#a0aec0" },
 ];
 

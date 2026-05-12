@@ -1,11 +1,14 @@
+import { useState } from "react";
 import {
   View,
   Text,
+  TextInput,
   Switch,
   Pressable,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../src/state/auth";
@@ -62,6 +65,30 @@ export default function SettingsScreen() {
     },
   });
 
+  const [calUrl, setCalUrl] = useState("");
+
+  const subscribeMutation = useMutation({
+    mutationFn: (url: string) =>
+      apiFetch("/calendar/calendars/subscribe", {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+    onSuccess: () => {
+      setCalUrl("");
+      queryClient.invalidateQueries({ queryKey: ["calendars"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+    onError: (err: Error) => {
+      Alert.alert("Could not add calendar", err.message);
+    },
+  });
+
+  const handleSubscribe = () => {
+    const trimmed = calUrl.trim();
+    if (!trimmed) return;
+    subscribeMutation.mutate(trimmed);
+  };
+
   const handleSignOut = async () => {
     try {
       await apiFetch("/auth/logout", { method: "POST" });
@@ -106,6 +133,32 @@ export default function SettingsScreen() {
             </View>
           ))
         )}
+        {/* Add calendar input */}
+        <View style={styles.addRow}>
+          <TextInput
+            style={styles.addInput}
+            value={calUrl}
+            onChangeText={setCalUrl}
+            placeholder="Calendar ID or ICS URL"
+            placeholderTextColor="#aaa"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            returnKeyType="done"
+            onSubmitEditing={handleSubscribe}
+          />
+          <Pressable
+            style={[styles.addBtn, !calUrl.trim() && styles.addBtnDisabled]}
+            onPress={handleSubscribe}
+            disabled={!calUrl.trim() || subscribeMutation.isPending}
+          >
+            {subscribeMutation.isPending ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.addBtnText}>Add</Text>
+            )}
+          </Pressable>
+        </View>
       </View>
 
       {/* Account section */}
@@ -155,6 +208,34 @@ const styles = StyleSheet.create({
   calInfo: { flex: 1, marginRight: 12 },
   calName: { fontSize: 15, color: "#222" },
   calPrimary: { fontSize: 12, color: "#999", marginTop: 1 },
+  addRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#eee",
+  },
+  addInput: {
+    flex: 1,
+    fontSize: 14,
+    color: "#222",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  addBtn: {
+    backgroundColor: "#4285F4",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    minWidth: 50,
+    alignItems: "center",
+  },
+  addBtnDisabled: { opacity: 0.4 },
+  addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   signOutBtn: {
     paddingVertical: 14,
     alignItems: "center",

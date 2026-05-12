@@ -4,6 +4,7 @@ import { auth } from "./routes/auth";
 import { triage } from "./routes/triage";
 import { gmail } from "./routes/gmail";
 import { calendar } from "./routes/calendar";
+import { chat } from "./routes/chat";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
 import { classifyEmail } from "./services/claude";
@@ -32,6 +33,7 @@ app.route("/auth", auth);
 app.route("/triage", triage);
 app.route("/gmail", gmail);
 app.route("/calendar", calendar);
+app.route("/chat", chat);
 
 app.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");

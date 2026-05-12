@@ -24,6 +24,9 @@ export interface CalendarEvent {
   status: string;
   organizer: string | null;
   responseStatus: string | null;
+  calendarName: string;
+  created: string | null;
+  updated: string | null;
 }
 
 // --- Google API response types ---
@@ -44,6 +47,8 @@ interface GCalEvent {
   end?: { dateTime?: string; date?: string };
   htmlLink?: string;
   status?: string;
+  created?: string;
+  updated?: string;
   organizer?: { email?: string; displayName?: string };
   attendees?: { email?: string; self?: boolean; responseStatus?: string }[];
 }
@@ -99,6 +104,45 @@ export async function setCalendarEnabled(
     .run();
 }
 
+/**
+ * Subscribe to a calendar by Google Calendar ID or ICS URL.
+ * Google treats ICS URLs as calendar IDs when inserted via calendarList.
+ */
+export async function subscribeCalendar(
+  userId: string,
+  input: string,
+  env: Env
+): Promise<CalendarSummary> {
+  const accessToken = await getValidAccessToken(userId, env);
+
+  const res = await fetch(`${CAL_API}/users/me/calendarList`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ id: input }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    if (res.status === 409) {
+      throw new Error("Calendar already added");
+    }
+    throw new Error(`Google API error ${res.status}: ${body}`);
+  }
+
+  const cal = (await res.json()) as GCalListEntry;
+
+  return {
+    id: cal.id,
+    summary: cal.summary,
+    primary: !!cal.primary,
+    backgroundColor: cal.backgroundColor || "#4285F4",
+    enabled: true,
+  };
+}
+
 export async function listUpcomingEvents(
   userId: string,
   env: Env,
@@ -132,7 +176,7 @@ export async function listUpcomingEvents(
 
       const data = (await res.json()) as { items?: GCalEvent[] };
       return (data.items || []).map((evt) =>
-        toCalendarEvent(evt, cal.id)
+        toCalendarEvent(evt, cal.id, cal.summary)
       );
     })
   );
@@ -149,7 +193,7 @@ export async function listUpcomingEvents(
   return events;
 }
 
-function toCalendarEvent(evt: GCalEvent, calendarId: string): CalendarEvent {
+function toCalendarEvent(evt: GCalEvent, calendarId: string, calendarName: string): CalendarEvent {
   const allDay = !evt.start?.dateTime;
   return {
     id: evt.id,
@@ -165,5 +209,8 @@ function toCalendarEvent(evt: GCalEvent, calendarId: string): CalendarEvent {
     organizer: evt.organizer?.displayName || evt.organizer?.email || null,
     responseStatus:
       evt.attendees?.find((a) => a.self)?.responseStatus || null,
+    calendarName,
+    created: evt.created || null,
+    updated: evt.updated || null,
   };
 }

@@ -14,7 +14,7 @@ Goal: ~6–8 weeks at ~10–15 hrs/week. Operating cost ~$20–35/mo.
 ## Locked decisions
 - Mobile: **Expo (React Native) + TypeScript**, distributed via **EAS Build -> TestFlight**.
 - Backend: **Cloudflare Workers + D1 + R2 + Queues** (Hono framework). Requires Workers Paid plan.
-- AI: **Anthropic Claude only**. Model: `claude-sonnet-4-7` for text triage, vision OCR, audio transcription.
+- AI: **Anthropic Claude only**. Model: `claude-sonnet-4-5` for text triage, vision OCR, audio transcription.
 - Auth: **Google OAuth** = app identity.
 - Domain: **`whyapp.us`** via Cloudflare Registrar. API at `api.whyapp.us`. OAuth callback at `https://api.whyapp.us/auth/google/callback`.
 - iOS URL scheme: `whyapp://`
@@ -76,7 +76,7 @@ Cron Trigger every 10 min -> enqueues `gmail.poll` per user -> consumer pulls ne
 File and voice ingestion reuse `triage.classify` with vision/audio content blocks.
 
 ### Claude prompt design (`apps/api/src/prompts/triage-system.ts`)
-- Model: `claude-sonnet-4-7`.
+- Model: `claude-sonnet-4-5`.
 - System prompt defines priority/urgency scales 1-5 and a strict output JSON schema (priority, urgency, category, summary, suggested_action, suggested_calendar_event?).
 - Inject last ~10 feedback rows per user as <example> blocks in the system prompt -- the "trainable" part.
 - Prompt caching: mark static instructions + feedback few-shot as `cache_control: ephemeral`. Per-item content (subject/body) goes outside the cache breakpoint.

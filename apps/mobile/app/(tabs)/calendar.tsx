@@ -15,6 +15,7 @@ import { apiFetch } from "../../src/api/client";
 interface CalendarEvent {
   id: string;
   calendarId: string;
+  calendarName: string;
   summary: string;
   description: string | null;
   location: string | null;
@@ -25,6 +26,8 @@ interface CalendarEvent {
   status: string;
   organizer: string | null;
   responseStatus: string | null;
+  created: string | null;
+  updated: string | null;
 }
 
 interface EventsResponse {
@@ -41,7 +44,7 @@ function formatTime(iso: string, allDay: boolean): string {
 }
 
 function formatDateHeader(dateStr: string): string {
-  const d = new Date(dateStr);
+  const d = new Date(dateStr + "T00:00:00");
   const today = new Date();
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -56,8 +59,17 @@ function formatDateHeader(dateStr: string): string {
   });
 }
 
+function formatShortDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function getDateKey(iso: string): string {
-  // For all-day events, iso is "YYYY-MM-DD"; for timed, parse the dateTime
   return iso.slice(0, 10);
 }
 
@@ -87,10 +99,10 @@ export default function CalendarScreen() {
 
     return Object.entries(grouped)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([dateKey, events]) => ({
+      .map(([dateKey, evts]) => ({
         key: dateKey,
         title: formatDateHeader(dateKey),
-        data: events,
+        data: evts,
       }));
   }, [data]);
 
@@ -122,6 +134,9 @@ export default function CalendarScreen() {
       )}
       renderItem={({ item }) => {
         const soon = timeUntil(item.start);
+        const created = formatShortDate(item.created);
+        const updated = formatShortDate(item.updated);
+        const showUpdated = updated && updated !== created;
 
         return (
           <Pressable
@@ -145,16 +160,28 @@ export default function CalendarScreen() {
               <Text style={styles.summary} numberOfLines={1}>
                 {item.summary}
               </Text>
+
+              <Text style={styles.calName} numberOfLines={1}>
+                {item.calendarName}
+              </Text>
+
               {item.location && (
                 <Text style={styles.location} numberOfLines={1}>
                   {item.location}
                 </Text>
               )}
+
+              <View style={styles.datesMeta}>
+                {created && (
+                  <Text style={styles.metaText}>Created {created}</Text>
+                )}
+                {showUpdated && (
+                  <Text style={styles.metaText}>Modified {updated}</Text>
+                )}
+              </View>
             </View>
 
-            {soon && (
-              <Text style={styles.soon}>{soon}</Text>
-            )}
+            {soon && <Text style={styles.soon}>{soon}</Text>}
           </Pressable>
         );
       }}
@@ -174,22 +201,26 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 14, fontWeight: "700", color: "#555" },
   row: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 16,
     paddingVertical: 12,
     backgroundColor: "#fff",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
   },
-  timeCol: { width: 65, marginRight: 12 },
+  timeCol: { width: 65, marginRight: 12, paddingTop: 1 },
   time: { fontSize: 14, fontWeight: "600", color: "#333" },
   timeEnd: { fontSize: 12, color: "#999" },
   content: { flex: 1, marginRight: 8 },
   summary: { fontSize: 15, color: "#222" },
+  calName: { fontSize: 12, color: "#4285F4", fontWeight: "600", marginTop: 2 },
   location: { fontSize: 13, color: "#888", marginTop: 2 },
+  datesMeta: { flexDirection: "row", gap: 10, marginTop: 3 },
+  metaText: { fontSize: 11, color: "#bbb" },
   soon: {
     fontSize: 12,
     fontWeight: "600",
     color: "#ed8936",
+    paddingTop: 1,
   },
 });

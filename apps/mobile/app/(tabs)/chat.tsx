@@ -5,6 +5,8 @@ import {
   TextInput,
   FlatList,
   Pressable,
+  Keyboard,
+  TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -18,7 +20,6 @@ interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  timestamp: Date;
 }
 
 interface ChatResponse {
@@ -32,9 +33,8 @@ export default function ChatScreen() {
       return [
         {
           id: "system-0",
-          role: "assistant",
+          role: "assistant" as const,
           content: `Let's discuss: ${params.context}`,
-          timestamp: new Date(),
         },
       ];
     }
@@ -45,7 +45,12 @@ export default function ChatScreen() {
 
   const sendMutation = useMutation({
     mutationFn: async (text: string) => {
-      const body: Record<string, string> = { message: text };
+      // Send conversation history for context
+      const history = messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      const body: Record<string, unknown> = { message: text, history };
       if (params.triageId) body.triage_item_id = params.triageId;
       return apiFetch<ChatResponse>("/chat", {
         method: "POST",
@@ -59,7 +64,16 @@ export default function ChatScreen() {
           id: `assistant-${Date.now()}`,
           role: "assistant",
           content: data.reply,
-          timestamp: new Date(),
+        },
+      ]);
+    },
+    onError: (err: Error) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          role: "assistant",
+          content: `Error: ${err.message}`,
         },
       ]);
     },
@@ -75,7 +89,6 @@ export default function ChatScreen() {
         id: `user-${Date.now()}`,
         role: "user",
         content: text,
-        timestamp: new Date(),
       },
     ]);
     setInput("");
@@ -83,56 +96,57 @@ export default function ChatScreen() {
   }, [input, sendMutation]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={90}
-    >
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: true })
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>Assistant</Text>
-            <Text style={styles.emptyText}>
-              Ask questions, provide feedback, or discuss triage items.
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <View
-            style={[
-              styles.messageBubble,
-              item.role === "user" ? styles.userBubble : styles.assistantBubble,
-            ]}
-          >
-            <Text
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={90}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={styles.messageList}
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: true })
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyTitle}>Assistant</Text>
+              <Text style={styles.emptyText}>
+                Ask questions, provide feedback, or discuss triage items.
+              </Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <View
               style={[
-                styles.messageText,
-                item.role === "user"
-                  ? styles.userText
-                  : styles.assistantText,
+                styles.messageBubble,
+                item.role === "user" ? styles.userBubble : styles.assistantBubble,
               ]}
             >
-              {item.content}
-            </Text>
+              <Text
+                style={[
+                  styles.messageText,
+                  item.role === "user" ? styles.userText : styles.assistantText,
+                ]}
+              >
+                {item.content}
+              </Text>
+            </View>
+          )}
+        />
+
+        {sendMutation.isPending && (
+          <View style={styles.typingRow}>
+            <ActivityIndicator size="small" color="#999" />
+            <Text style={styles.typingText}>Thinking...</Text>
           </View>
         )}
-      />
 
-      {sendMutation.isPending && (
-        <View style={styles.typingRow}>
-          <ActivityIndicator size="small" color="#999" />
-          <Text style={styles.typingText}>Thinking...</Text>
-        </View>
-      )}
-
-      <View style={styles.inputRow}>
+        <View style={styles.inputRow}>
         <TextInput
           style={styles.input}
           value={input}
@@ -141,9 +155,9 @@ export default function ChatScreen() {
           placeholderTextColor="#999"
           multiline
           maxLength={2000}
-          onSubmitEditing={handleSend}
           returnKeyType="send"
           blurOnSubmit={false}
+          onSubmitEditing={handleSend}
         />
         <Pressable
           style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
@@ -153,7 +167,8 @@ export default function ChatScreen() {
           <Text style={styles.sendBtnText}>Send</Text>
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 
@@ -194,6 +209,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   typingText: { fontSize: 13, color: "#999" },
+  errorText: { fontSize: 13, color: "#e53e3e" },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
