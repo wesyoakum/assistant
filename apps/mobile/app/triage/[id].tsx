@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   View,
   Text,
@@ -8,7 +9,7 @@ import {
   Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../../src/api/client";
 
 interface TriageItem {
@@ -66,13 +67,10 @@ function formatDate(dateStr: string | null): string {
 function formatDeadline(deadline: string | null): string | null {
   if (!deadline) return null;
   const d = new Date(deadline);
-  const now = Date.now();
-  const diff = d.getTime() - now;
-
+  const diff = d.getTime() - Date.now();
   if (diff < 0) return "Overdue";
   if (diff < 60 * 60 * 1000) return `Expires in ${Math.ceil(diff / 60000)} minutes`;
   if (diff < 24 * 60 * 60 * 1000) return `Expires in ${Math.ceil(diff / 3600000)} hours`;
-
   return `Respond by ${d.toLocaleDateString("en-US", { month: "long", day: "numeric" })}`;
 }
 
@@ -90,18 +88,74 @@ function sourceLabel(sourceType: string): string {
 
 function getGmailUrl(sourceRef: string | null): string | null {
   if (!sourceRef) return null;
-  // source_ref for email is typically the Gmail message/thread ID
   return `https://mail.google.com/mail/u/0/#inbox/${sourceRef}`;
 }
+
+// --- Score picker component ---
+
+function ScorePicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <View style={styles.pickerRow}>
+      <Text style={styles.pickerLabel}>{label}</Text>
+      <View style={styles.pickerButtons}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Pressable
+            key={n}
+            style={[
+              styles.pickerBtn,
+              n === value && styles.pickerBtnActive,
+            ]}
+            onPress={() => onChange(n)}
+          >
+            <Text
+              style={[
+                styles.pickerBtnText,
+                n === value && styles.pickerBtnTextActive,
+              ]}
+            >
+              {n}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// --- Main component ---
 
 export default function TriageDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { data: item, isLoading } = useQuery({
     queryKey: ["triage", id],
     queryFn: () => apiFetch<TriageItem>(`/triage/${id}`),
     enabled: !!id,
+  });
+
+  const [localPriority, setLocalPriority] = useState<number | null>(null);
+  const [localUrgency, setLocalUrgency] = useState<number | null>(null);
+
+  const feedbackMutation = useMutation({
+    mutationFn: (body: { kind: string; corrected_priority: number; corrected_urgency: number }) =>
+      apiFetch(`/triage/${id}/feedback`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["triage", id] });
+      queryClient.invalidateQueries({ queryKey: ["triage"] });
+    },
   });
 
   if (isLoading || !item) {
@@ -112,13 +166,17 @@ export default function TriageDetail() {
     );
   }
 
+  const priority = localPriority ?? item.priority;
+  const urgency = localUrgency ?? item.urgency;
+  const imp = toLevel(priority);
+  const urg = toLevel(urgency);
+  const quadrant = QUADRANT_META[getQuadrant(imp, urg)];
   const deadline = formatDeadline(item.deadline);
   const originDate = formatDate(item.origin_date || item.created_at);
-  const imp = toLevel(item.priority);
-  const urg = toLevel(item.urgency);
-  const quadrant = QUADRANT_META[getQuadrant(imp, urg)];
+  const hasChanged =
+    (localPriority !== null && localPriority !== item.priority) ||
+    (localUrgency !== null && localUrgency !== item.urgency);
 
-  // Parse extended summary from classifier output
   let details: string | null = null;
   if (item.classifier_json) {
     try {
@@ -129,12 +187,21 @@ export default function TriageDetail() {
     }
   }
 
+  const handleSaveScores = () => {
+    feedbackMutation.mutate({
+      kind: "wrong_priority",
+      corrected_priority: priority,
+      corrected_urgency: urgency,
+    });
+    setLocalPriority(null);
+    setLocalUrgency(null);
+  };
+
   const handleOpenOriginal = () => {
     if (item.source_type === "email") {
       const url = getGmailUrl(item.source_ref);
       if (url) Linking.openURL(url);
     }
-    // Future: handle other source types (image viewer, audio player, etc.)
   };
 
   const handleDiscussInChat = () => {
@@ -162,14 +229,33 @@ export default function TriageDetail() {
         </View>
       </View>
 
-      {/* Importance / Urgency */}
-      <View style={styles.levelRow}>
-        <Text style={styles.levelLabel}>Importance: <Text style={styles.levelValue}>{imp}</Text></Text>
-        <Text style={styles.levelLabel}>Urgency: <Text style={styles.levelValue}>{urg}</Text></Text>
-      </View>
-
       {/* Summary */}
       <Text style={styles.summary}>{item.summary || "No summary"}</Text>
+
+      {/* Score pickers */}
+      <View style={styles.scoresSection}>
+        <ScorePicker
+          label="Importance"
+          value={priority}
+          onChange={setLocalPriority}
+        />
+        <ScorePicker
+          label="Urgency"
+          value={urgency}
+          onChange={setLocalUrgency}
+        />
+        {hasChanged && (
+          <Pressable
+            style={styles.saveScoresBtn}
+            onPress={handleSaveScores}
+            disabled={feedbackMutation.isPending}
+          >
+            <Text style={styles.saveScoresText}>
+              {feedbackMutation.isPending ? "Saving..." : "Save Scores"}
+            </Text>
+          </Pressable>
+        )}
+      </View>
 
       {/* Time info */}
       <View style={styles.timeSection}>
@@ -193,7 +279,7 @@ export default function TriageDetail() {
         )}
       </View>
 
-      {/* Details / extended summary */}
+      {/* Details */}
       {details && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Details</Text>
@@ -244,14 +330,42 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   badgeText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  levelRow: {
-    flexDirection: "row",
-    gap: 20,
-    marginBottom: 16,
-  },
-  levelLabel: { fontSize: 13, color: "#888" },
-  levelValue: { fontWeight: "700", color: "#444", textTransform: "capitalize" },
   summary: { fontSize: 20, color: "#111", lineHeight: 28, marginBottom: 20 },
+  scoresSection: {
+    backgroundColor: "#f8f8f8",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 20,
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  pickerLabel: { fontSize: 14, fontWeight: "600", color: "#555", width: 90 },
+  pickerButtons: { flexDirection: "row", gap: 6 },
+  pickerBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#e8e8e8",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  pickerBtnActive: {
+    backgroundColor: "#4285F4",
+  },
+  pickerBtnText: { fontSize: 15, fontWeight: "600", color: "#666" },
+  pickerBtnTextActive: { color: "#fff" },
+  saveScoresBtn: {
+    backgroundColor: "#4285F4",
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  saveScoresText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   timeSection: {
     backgroundColor: "#f8f8f8",
     borderRadius: 10,
