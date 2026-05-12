@@ -31,7 +31,20 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Needed to capture documents and images",
+          "photosPermission": "Needed to select photos for ingestion"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Needed for voice memos"
+        }
+      ]
     ],
     "extra": {
       "router": {},

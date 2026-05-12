@@ -32,6 +32,7 @@ export interface StatusPayload {
 export type QueueMessage =
   | { type: "gmail.poll"; userId: string }
   | { type: "triage.classify"; userId: string; email: EmailContent }
+  | { type: "triage.classify.file"; userId: string; fileId: string; kind: "image" | "pdf" | "audio"; r2Key: string }
   | { type: "push.send"; userId: string; triageItemId: string; summary: string };
 
 export interface EmailContent {

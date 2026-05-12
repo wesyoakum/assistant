@@ -53,9 +53,89 @@ Please return ONLY valid JSON matching the schema.`;
   };
 }
 
+/**
+ * Classify a file (image, PDF, or audio) using Claude vision/audio.
+ */
+export async function classifyFile(
+  kind: "image" | "pdf" | "audio",
+  fileBytes: ArrayBuffer,
+  contentType: string,
+  feedbackHistory: FeedbackRow[],
+  anthropicApiKey: string
+): Promise<TriageResult> {
+  const systemPrompt = buildSystemPrompt(feedbackHistory);
+  const base64 = arrayBufferToBase64(fileBytes);
+
+  let userContent: unknown[];
+  if (kind === "image") {
+    userContent = [
+      {
+        type: "image",
+        source: { type: "base64", media_type: contentType, data: base64 },
+      },
+      { type: "text", text: "Analyze this image and classify it for triage. Extract any text, dates, action items, or important information. Return JSON matching the triage schema." },
+    ];
+  } else if (kind === "pdf") {
+    userContent = [
+      {
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: base64 },
+      },
+      { type: "text", text: "Analyze this PDF document and classify it for triage. Extract key information, dates, action items, and deadlines. Return JSON matching the triage schema." },
+    ];
+  } else {
+    // audio
+    userContent = [
+      {
+        type: "text",
+        text: "The user recorded a voice memo. The audio has been attached. Transcribe and classify it for triage. Extract any action items, dates, or important information. Return JSON matching the triage schema.",
+      },
+      // Audio is sent as base64 in a document block
+      {
+        type: "document",
+        source: { type: "base64", media_type: contentType, data: base64 },
+      },
+    ];
+  }
+
+  const result = await callClaudeMultimodal(systemPrompt, userContent, anthropicApiKey);
+  const parsed = tryParse(result);
+  if (parsed) return parsed;
+
+  return {
+    priority: 3,
+    urgency: 3,
+    confidence: 1,
+    category: "capture",
+    summary: `${kind} capture — unable to fully classify`,
+    suggested_action: "Review this capture manually",
+  };
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 async function callClaude(
   system: string,
   userMessage: string,
+  apiKey: string
+): Promise<string> {
+  return callClaudeMultimodal(
+    system,
+    [{ type: "text", text: userMessage }],
+    apiKey
+  );
+}
+
+async function callClaudeMultimodal(
+  system: string,
+  userContent: unknown[],
   apiKey: string
 ): Promise<string> {
   const res = await fetch(CLAUDE_API, {
@@ -75,7 +155,7 @@ async function callClaude(
           cache_control: { type: "ephemeral" },
         },
       ],
-      messages: [{ role: "user", content: userMessage }],
+      messages: [{ role: "user", content: userContent }],
     }),
   });
 

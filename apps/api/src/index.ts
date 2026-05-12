@@ -5,6 +5,8 @@ import { triage } from "./routes/triage";
 import { gmail } from "./routes/gmail";
 import { calendar } from "./routes/calendar";
 import { chat } from "./routes/chat";
+import { files } from "./routes/files";
+import { classifyFile } from "./services/claude";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
 import { classifyEmail } from "./services/claude";
@@ -34,6 +36,7 @@ app.route("/triage", triage);
 app.route("/gmail", gmail);
 app.route("/calendar", calendar);
 app.route("/chat", chat);
+app.route("/files", files);
 
 app.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");
@@ -85,6 +88,9 @@ export default {
             break;
           case "triage.classify":
             await handleTriageClassify(body.userId, body.email, env);
+            break;
+          case "triage.classify.file":
+            await handleFileClassify(body.userId, body.fileId, body.kind, body.r2Key, env);
             break;
           case "push.send":
             await handlePushSend(body.userId, body.triageItemId, body.summary, env);
@@ -268,4 +274,73 @@ async function handlePushSend(
   });
 
   console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
+}
+
+async function handleFileClassify(
+  userId: string,
+  fileId: string,
+  kind: "image" | "pdf" | "audio",
+  r2Key: string,
+  env: Env
+) {
+  // Update status to processing
+  await env.DB.prepare(
+    "UPDATE ingested_files SET status = 'processing' WHERE id = ?"
+  ).bind(fileId).run();
+
+  try {
+    // Fetch file from R2
+    const obj = await env.FILES.get(r2Key);
+    if (!obj) throw new Error(`File not found in R2: ${r2Key}`);
+
+    const fileBytes = await obj.arrayBuffer();
+    const contentType = obj.httpMetadata?.contentType || (
+      kind === "pdf" ? "application/pdf" :
+      kind === "audio" ? "audio/m4a" :
+      "image/jpeg"
+    );
+
+    // Get user feedback for few-shot
+    const { results: feedbackRows } = await env.DB.prepare(
+      `SELECT f.kind, f.corrected_priority, f.corrected_urgency, f.note,
+              t.summary, t.category, t.priority as original_priority, t.urgency as original_urgency
+       FROM feedback f
+       JOIN triage_items t ON t.id = f.triage_item_id
+       WHERE f.user_id = ?
+       ORDER BY f.created_at DESC
+       LIMIT 10`
+    ).bind(userId).all<FeedbackRow>();
+
+    const result = await classifyFile(kind, fileBytes, contentType, feedbackRows, env.ANTHROPIC_API_KEY);
+
+    const sourceType = kind === "audio" ? "voice" : kind === "pdf" ? "document" : "image";
+    const itemId = crypto.randomUUID();
+
+    await env.DB.prepare(
+      `INSERT INTO triage_items (id, user_id, source_type, source_ref, priority, urgency, category, summary, suggested_action, classifier_json, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
+    ).bind(
+      itemId, userId, sourceType, fileId,
+      result.priority, result.urgency, result.category,
+      result.summary, result.suggested_action, JSON.stringify(result)
+    ).run();
+
+    // Update file status
+    await env.DB.prepare(
+      "UPDATE ingested_files SET status = 'done' WHERE id = ?"
+    ).bind(fileId).run();
+
+    // Push if high priority
+    if (result.priority >= 4) {
+      const pushMsg: QueueMessage = { type: "push.send", userId, triageItemId: itemId, summary: result.summary };
+      await env.TASKS.send(pushMsg);
+    }
+
+    console.log(`Classified ${kind} file ${fileId} for user ${userId}: P${result.priority}/U${result.urgency}`);
+  } catch (err) {
+    console.error(`File classify failed for ${fileId}:`, err);
+    await env.DB.prepare(
+      "UPDATE ingested_files SET status = 'error' WHERE id = ?"
+    ).bind(fileId).run();
+  }
 }
