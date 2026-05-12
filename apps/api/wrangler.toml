@@ -15,6 +15,7 @@ ENVIRONMENT = "production"
 binding = "DB"
 database_name = "whyapp-db"
 database_id = "ecd61511-6a57-492e-8fc3-00e4ee920350"
+migrations_dir = "migrations"
 
 # R2 bucket
 [[r2_buckets]]
