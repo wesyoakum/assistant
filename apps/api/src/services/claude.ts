@@ -3,7 +3,7 @@ import { triageResultSchema, type TriageResult } from "../prompts/triage.schema"
 import type { EmailContent, FeedbackRow } from "@assistant/shared";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-5";
+const MODEL = "claude-opus-4-7";
 
 interface ClaudeResponse {
   content: { type: string; text?: string }[];

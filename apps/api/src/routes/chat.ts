@@ -5,7 +5,7 @@ import { authMiddleware } from "../middleware/auth";
 import { listUpcomingEvents, createEvent, updateEvent, deleteEvent } from "../services/google-calendar";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-sonnet-4-5";
+const MODEL = "claude-opus-4-7";
 
 function getQuadrant(priority: number, urgency: number): "Hot" | "Action" | "Plan" | "Noop" {
   const imp = priority >= 4 ? "high" : priority === 3 ? "medium" : "low";
@@ -114,23 +114,43 @@ chat.post("/", async (c) => {
     feedbackContext = `\n\nRecent user feedback on triage items:\n${lines.join("\n")}`;
   }
 
-  // Load open triage items
+  // Load open triage items with full details
   const { results: triageItems } = await c.env.DB.prepare(
-    `SELECT source_type, source_ref, priority, urgency, category, summary, suggested_action, source_title, created_at
+    `SELECT id, source_type, source_ref, priority, urgency, category, summary, suggested_action, classifier_json, source_title, source_url, event_at, due_at, event_created_at, event_updated_at, created_at
      FROM triage_items WHERE user_id = ? AND status = 'open'
      ORDER BY priority DESC, urgency DESC LIMIT 15`
   )
     .bind(userId)
-    .all<{ source_type: string; source_ref: string | null; priority: number; urgency: number; category: string | null; summary: string | null; suggested_action: string | null; source_title: string | null; created_at: string }>();
+    .all<{ id: string; source_type: string; source_ref: string | null; priority: number; urgency: number; category: string | null; summary: string | null; suggested_action: string | null; classifier_json: string | null; source_title: string | null; source_url: string | null; event_at: string | null; due_at: string | null; event_created_at: string | null; event_updated_at: string | null; created_at: string }>();
 
   let triageInbox = "";
   if (triageItems.length > 0) {
+    const nowMs = Date.now();
     const lines = triageItems.map((t) => {
       const q = getQuadrant(t.priority, t.urgency);
-      let line = `- [${q}] P${t.priority}U${t.urgency} ${t.source_type}: ${t.summary || "no summary"}`;
-      if (t.source_title) line += ` (from: ${t.source_title})`;
-      if (t.suggested_action) line += ` → ${t.suggested_action}`;
-      return line;
+      const parts = [`[id:${t.id}] [${q}] P${t.priority}U${t.urgency} ${t.source_type}`];
+      parts.push(`summary: ${t.summary || "no summary"}`);
+      if (t.category) parts.push(`category: ${t.category}`);
+      if (t.source_title) parts.push(`from: ${t.source_title}`);
+      if (t.source_url) parts.push(`url: ${t.source_url}`);
+      if (t.source_ref) parts.push(`ref: ${t.source_ref}`);
+      const eventTime = t.event_at || t.due_at;
+      if (eventTime) {
+        const isPast = new Date(eventTime).getTime() < nowMs;
+        parts.push(`${isPast ? "PAST " : ""}event: ${eventTime}`);
+      }
+      if (t.event_created_at) parts.push(`created: ${t.event_created_at}`);
+      if (t.suggested_action) parts.push(`action: ${t.suggested_action}`);
+      // Include classifier details if available
+      if (t.classifier_json) {
+        try {
+          const c = JSON.parse(t.classifier_json);
+          if (c.details) parts.push(`details: ${c.details}`);
+          if (c.clarification_question) parts.push(`question: ${c.clarification_question}`);
+        } catch { /* ignore */ }
+      }
+      parts.push(`triaged: ${t.created_at}`);
+      return `- ${parts.join(" | ")}`;
     });
     const counts = { Hot: 0, Action: 0, Plan: 0, Noop: 0 };
     for (const t of triageItems) counts[getQuadrant(t.priority, t.urgency)]++;
@@ -232,7 +252,13 @@ chat.post("/", async (c) => {
 
   const systemPrompt = `You are a helpful personal assistant for managing email, calendar, and tasks. The current date and time is: ${currentDateTime}. You help the user triage, prioritize, and take action on their items. Be concise and actionable in your responses. When discussing triage items, reference the Eisenhower matrix: Hot (high importance + high urgency), Action (low importance + high urgency), Plan (high importance + low urgency), Noop (low importance + low urgency).
 
-PAST EVENTS: If any open triage items reference events, deadlines, or appointments that are now in the past (based on the current date/time), proactively ask the user: did this happen, or does it need to be rescheduled? If it happened, offer to dismiss it. If it needs rescheduling, offer to create a new calendar event. Only ask about 1-2 past items per message — don't overwhelm.
+PAST EVENTS: If any open triage items have a PAST date, proactively ask: did this happen, or reschedule? If it happened, dismiss it immediately. Each triage item is one instance; future occurrences create new items automatically. Only ask about 1-2 past items per message.
+
+When discussing triage items from calendars, always mention which calendar they came from (shown in the source_title or ref fields).
+
+NEVER assume relationships between people. If you see a name (e.g. "Jakob"), do not guess whether they are a spouse, child, sibling, coworker, etc. Instead, ask the user what their relationship is. Only state relationships you have explicitly been told about in the user context.
+
+CRITICAL: Trust your own conversation history. If you already asked about a specific item and the user responded, act on THAT item — do not re-evaluate or switch to a different item. Match the item you discussed to its ID in the triage list and execute. Never say "wait" or "actually I meant a different item." The user answered YOUR question — honor it.
 
 SAVING CONTEXT: When the user tells you about people in their life, relationships, activities, teams, classes, birthdays, important dates, or other recurring context, you MUST save it by including a JSON block in your response like this:
 \`\`\`save_context
@@ -248,12 +274,12 @@ CREATING TRIAGE ITEMS: When the user asks you to create a triage item, reminder,
 \`\`\`
 Priority and urgency are 1-5. Category can be: billing, scheduling, personal, work, newsletter, notification, social, shopping, travel, security, health, legal, other. Always confirm to the user that the item was created.
 
-EDITING TRIAGE ITEMS: When the user asks you to dismiss, complete, update, reprioritize, rename, or change any triage item, you MUST include a JSON block:
+EDITING TRIAGE ITEMS: When the user asks you to dismiss, complete, update, reprioritize, rename, or change any triage item, you MUST include a JSON block using the item's id from the list above:
 \`\`\`edit_triage
-{"summary_match": "call dentist", "status": "dismissed"}
+{"id": "the-item-uuid", "status": "dismissed"}
 \`\`\`
 Fields you can set: summary, priority (1-5), urgency (1-5), category, suggested_action, status ("open", "done", "dismissed").
-Only include fields that are changing. summary_match is a substring that uniquely identifies the item from the open triage list. You can include multiple edit_triage blocks. Always confirm what was changed.
+Only include fields that are changing. Use the exact id from the triage list. When matching items from conversation context, use your best judgment — e.g. if you mentioned "the 3d group meeting" and the list has [id:abc] "3d group meetup", that's the same item, use id "abc". You can include multiple edit_triage blocks. Always confirm what was changed.
 
 CALENDAR ACTIONS: You can create, edit, and delete Google Calendar events.
 
@@ -378,7 +404,7 @@ You have visibility into the next 30 days of events. When the user asks about ev
   while ((editMatch = editPattern.exec(reply)) !== null) {
     try {
       const req = JSON.parse(editMatch[1].trim());
-      if (!req.summary_match) continue;
+      if (!req.id) continue;
 
       const setClauses: string[] = [];
       const params: unknown[] = [];
@@ -402,16 +428,16 @@ You have visibility into the next 30 days of events. When the user asks about ev
       if (setClauses.length === 0) continue;
 
       setClauses.push("updated_at = datetime('now')");
-      params.push(userId, req.summary_match);
+      params.push(req.id, userId);
 
       const result = await c.env.DB.prepare(
-        `UPDATE triage_items SET ${setClauses.join(", ")} WHERE user_id = ? AND LOWER(summary) LIKE '%' || LOWER(?) || '%'`
+        `UPDATE triage_items SET ${setClauses.join(", ")} WHERE id = ? AND user_id = ?`
       )
         .bind(...params)
         .run();
 
       if (result.meta.changes) {
-        editedItems.push(req.summary_match);
+        editedItems.push(req.id);
       }
     } catch {
       // ignore malformed blocks
@@ -552,18 +578,18 @@ chat.get("/greeting", async (c) => {
 
   // Check for past-due items
   const { results: pastDueItems } = await c.env.DB.prepare(
-    `SELECT summary, due_at, event_at FROM triage_items
+    `SELECT id, summary, due_at, event_at FROM triage_items
      WHERE user_id = ? AND status = 'open'
      AND (due_at < datetime('now') OR event_at < datetime('now'))
      LIMIT 3`
   )
     .bind(userId)
-    .all<{ summary: string | null; due_at: string | null; event_at: string | null }>();
+    .all<{ id: string; summary: string | null; due_at: string | null; event_at: string | null }>();
 
   let pastDueContext = "";
   if (pastDueItems.length > 0) {
     const lines = pastDueItems.map(
-      (i) => `- "${i.summary}" (was ${i.due_at || i.event_at})`
+      (i) => `- [id:${i.id}] "${i.summary}" (was ${i.due_at || i.event_at})`
     );
     pastDueContext = `\nPast-due items that need follow-up:\n${lines.join("\n")}`;
   }
@@ -585,7 +611,9 @@ ${knownContext}
 
 ${contextRows.length === 0 ? "This appears to be a new user — introduce yourself briefly and ask their name." : ""}
 
-Keep it concise and natural. Do NOT use save_context blocks in greetings.`;
+Keep it concise and natural. Do NOT use save_context blocks in greetings.
+
+IMPORTANT: When you ask about a past-due item, always mention its summary clearly so the user knows which item you mean. The conversation will continue in chat where the user can confirm — the chat handler has the IDs and can dismiss items. You do NOT need to include edit_triage blocks in greetings.`;
 
   const res = await fetch(CLAUDE_API, {
     method: "POST",
@@ -613,6 +641,11 @@ Keep it concise and natural. Do NOT use save_context blocks in greetings.`;
   };
   const textBlock = data.content.find((b) => b.type === "text");
   const greeting = textBlock?.text || `Good ${timeOfDay}! How can I help?`;
+
+  // Persist greeting so follow-up chat has context
+  await c.env.DB.prepare(
+    "INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, 'assistant', ?)"
+  ).bind(crypto.randomUUID(), userId, greeting).run();
 
   return c.json({ greeting });
 });

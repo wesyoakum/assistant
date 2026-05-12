@@ -11,6 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { useAuth } from "../../src/state/auth";
 import { apiFetch } from "../../src/api/client";
 
@@ -42,6 +43,7 @@ interface ContextResponse {
 export default function SettingsScreen() {
   const { clearToken } = useAuth();
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const { data, isLoading } = useQuery({
     queryKey: ["calendars"],
@@ -277,10 +279,11 @@ export default function SettingsScreen() {
               {
                 text: "Clear",
                 style: "destructive",
-                onPress: () => {
-                  apiFetch("/chat/history", { method: "DELETE" }).then(() => {
-                    queryClient.invalidateQueries({ queryKey: ["chat-history"] });
-                  });
+                onPress: async () => {
+                  await apiFetch("/chat/history", { method: "DELETE" });
+                  Alert.alert("Done", "Chat history cleared. Opening a fresh chat.", [
+                    { text: "OK", onPress: () => router.replace("/(tabs)/chat") },
+                  ]);
                 },
               },
             ]);

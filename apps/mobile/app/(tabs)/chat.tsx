@@ -60,13 +60,30 @@ export default function ChatScreen() {
         // Continue to greeting
       }
 
-      // Show triage context or greeting
-      if (params.context) {
-        setMessages([{
-          id: "system-0",
-          role: "assistant",
-          content: `Let's discuss: ${params.context}`,
-        }]);
+      // If navigating from triage detail, ask assistant to initiate about the item
+      if (params.context && params.triageId) {
+        try {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const data = await apiFetch<ChatResponse>("/chat", {
+            method: "POST",
+            body: JSON.stringify({
+              message: `The user tapped "Discuss in Chat" on this triage item: "${params.context}". Introduce this item briefly, summarize what you know about it, and ask if they'd like to take action, reprioritize, or get more information.`,
+              triage_item_id: params.triageId,
+              timezone: tz,
+            }),
+          });
+          setMessages([{
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            content: data.reply,
+          }]);
+        } catch {
+          setMessages([{
+            id: "system-0",
+            role: "assistant",
+            content: `Let's discuss: ${params.context}`,
+          }]);
+        }
         return;
       }
 
