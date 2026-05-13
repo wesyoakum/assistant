@@ -321,6 +321,16 @@ To delete an event:
 
 You have visibility into the next 30 days of events. When the user asks about events in that window, answer directly from the list above. Always confirm calendar actions to the user. Use ISO 8601 dates with the user's timezone offset.
 
+WEB SEARCH: You can search the internet when needed. Use this when:
+- The user explicitly asks you to search or look something up
+- You need current/real-time information (news, prices, hours, weather, scores)
+- You're not confident in your answer and want to verify
+Do NOT search for things you already know well. To search, include:
+\`\`\`search_web
+{"query": "post office hours near me"}
+\`\`\`
+The search results will be appended and you'll generate a final response incorporating them. Only one search per message.
+
 REMINDERS: When the user asks to be reminded about something at a specific time, create a reminder:
 \`\`\`create_reminder
 {"message": "Call the dentist", "fire_at": "2026-05-15T14:00:00-05:00"}
@@ -373,6 +383,61 @@ The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will
   };
   const textBlock = data.content.find((b) => b.type === "text");
   let reply = textBlock?.text || "Sorry, I couldn't generate a response.";
+
+  // Check for web search request — if found, execute search and re-call Claude
+  const searchMatch = reply.match(/```search_web\s*([\s\S]*?)```/);
+  if (searchMatch && c.env.BRAVE_SEARCH_API_KEY) {
+    try {
+      const searchReq = JSON.parse(searchMatch[1].trim());
+      if (searchReq.query) {
+        const searchRes = await fetch(
+          `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(searchReq.query)}&count=5`,
+          { headers: { "Accept": "application/json", "Accept-Encoding": "gzip", "X-Subscription-Token": c.env.BRAVE_SEARCH_API_KEY } }
+        );
+
+        let searchContext = "No results found.";
+        if (searchRes.ok) {
+          const searchData = (await searchRes.json()) as {
+            web?: { results?: { title: string; url: string; description: string }[] };
+          };
+          const results = searchData.web?.results || [];
+          if (results.length > 0) {
+            searchContext = results.map(
+              (r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.description}`
+            ).join("\n\n");
+          }
+        }
+
+        // Re-call Claude with search results
+        messages.push({ role: "assistant", content: reply });
+        messages.push({ role: "user", content: `Here are the web search results for "${searchReq.query}":\n\n${searchContext}\n\nPlease provide a final answer incorporating these results. Do NOT include another search_web block.` });
+
+        const res2 = await fetch(CLAUDE_API, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": c.env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 1024,
+            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+            messages,
+          }),
+        });
+
+        if (res2.ok) {
+          const data2 = (await res2.json()) as { content: { type: string; text?: string }[] };
+          const text2 = data2.content.find((b) => b.type === "text");
+          if (text2?.text) reply = text2.text;
+        }
+      }
+    } catch {
+      // Search failed — strip the block and use original reply
+      reply = reply.replace(/```search_web\s*[\s\S]*?```\n?/g, "").trim();
+    }
+  }
 
   // Extract and save any context blocks from the reply
   const contextPattern = /```save_context\s*([\s\S]*?)```/g;
@@ -538,6 +603,7 @@ The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will
   reply = reply.replace(/```save_context\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```save_triage\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```edit_triage\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```search_web\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```create_reminder\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```create_event\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```edit_event\s*[\s\S]*?```\n?/g, "").trim();

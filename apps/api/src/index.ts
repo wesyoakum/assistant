@@ -23,6 +23,7 @@ export type Env = {
   SESSION_JWT_SECRET: string;
   ANTHROPIC_API_KEY: string;
   ENVIRONMENT: string;
+  BRAVE_SEARCH_API_KEY: string;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -264,7 +265,7 @@ async function handleTriageClassify(
       userId,
       email.messageId,
       email.from,
-      email.date || null,
+      email.date ? new Date(email.date).toISOString() : null,
       result.priority,
       result.urgency,
       result.category,
