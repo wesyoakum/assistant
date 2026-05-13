@@ -8,7 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Swipeable } from "react-native-gesture-handler";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { apiFetch } from "../../src/api/client";
 
@@ -144,6 +145,18 @@ export default function TriageScreen() {
     queryFn: () => apiFetch<TriageResponse>("/triage?status=open"),
   });
 
+  const dismissMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/triage/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: "dismissed" }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["triage"] });
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+    },
+  });
+
   if (!didSync.current) {
     didSync.current = true;
     apiFetch("/gmail/sync", { method: "POST" }).then(() => {
@@ -208,43 +221,57 @@ export default function TriageScreen() {
         const sourceLabel = SOURCE_LABELS[item.source_type] || item.source_type;
 
         return (
-          <Pressable
-            style={styles.row}
-            onPress={() => router.push(`/triage/${item.id}`)}
+          <Swipeable
+            renderRightActions={() => (
+              <Pressable
+                style={styles.swipeDismiss}
+                onPress={() => dismissMutation.mutate(item.id)}
+              >
+                <Text style={styles.swipeDismissText}>Dismiss</Text>
+              </Pressable>
+            )}
+            onSwipeableOpen={(direction) => {
+              if (direction === "right") dismissMutation.mutate(item.id);
+            }}
           >
-            <View
-              style={[styles.priorityBar, { backgroundColor: section.color }]}
-            />
+            <Pressable
+              style={styles.row}
+              onPress={() => router.push(`/triage/${item.id}`)}
+            >
+              <View
+                style={[styles.priorityBar, { backgroundColor: section.color }]}
+              />
 
-            <View style={styles.content}>
-              <Text style={styles.summary} numberOfLines={1}>
-                {truncateSummary(item.summary)}
-              </Text>
+              <View style={styles.content}>
+                <Text style={styles.summary} numberOfLines={1}>
+                  {truncateSummary(item.summary)}
+                </Text>
 
-              <View style={styles.metaRow}>
-                <Text style={styles.sourceLabel}>{sourceLabel}</Text>
-                <Text style={styles.dot}>{"\u00B7"}</Text>
-                <Text style={styles.origin}>{origin}</Text>
-                {urgencyRef && (
-                  <>
-                    <Text style={styles.dot}>{"\u00B7"}</Text>
-                    <Text
-                      style={[
-                        styles.urgencyRef,
-                        (urgencyRef === "Overdue" || urgencyRef === "Past") && styles.urgencyOverdue,
-                      ]}
-                    >
-                      {urgencyRef}
-                    </Text>
-                  </>
-                )}
+                <View style={styles.metaRow}>
+                  <Text style={styles.sourceLabel}>{sourceLabel}</Text>
+                  <Text style={styles.dot}>{"\u00B7"}</Text>
+                  <Text style={styles.origin}>{origin}</Text>
+                  {urgencyRef && (
+                    <>
+                      <Text style={styles.dot}>{"\u00B7"}</Text>
+                      <Text
+                        style={[
+                          styles.urgencyRef,
+                          (urgencyRef === "Overdue" || urgencyRef === "Past") && styles.urgencyOverdue,
+                        ]}
+                      >
+                        {urgencyRef}
+                      </Text>
+                    </>
+                  )}
+                </View>
               </View>
-            </View>
 
-            <Text style={[styles.priorityNum, { color: section.color }]}>
-              P{item.priority}U{item.urgency}
-            </Text>
-          </Pressable>
+              <Text style={[styles.priorityNum, { color: section.color }]}>
+                P{item.priority}U{item.urgency}
+              </Text>
+            </Pressable>
+          </Swipeable>
         );
       }}
     />
@@ -294,4 +321,11 @@ const styles = StyleSheet.create({
   urgencyRef: { fontSize: 12, color: "#ed8936", fontWeight: "600" },
   urgencyOverdue: { color: "#e53e3e" },
   priorityNum: { fontSize: 13, fontWeight: "700" },
+  swipeDismiss: {
+    backgroundColor: "#e53e3e",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 90,
+  },
+  swipeDismissText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });

@@ -1,13 +1,15 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
   FlatList,
   Pressable,
+  Animated,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { apiFetch } from "../../src/api/client";
@@ -69,6 +71,18 @@ export default function EmailScreen() {
       apiFetch<TriageResponse>("/triage?source_type=email&status=open"),
   });
 
+  const dismissMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/triage/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ status: "dismissed" }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      queryClient.invalidateQueries({ queryKey: ["triage"] });
+    },
+  });
+
   const syncMutation = useMutation({
     mutationFn: () => apiFetch("/gmail/sync", { method: "POST" }),
     onSuccess: () => {
@@ -125,32 +139,46 @@ export default function EmailScreen() {
         </View>
       }
       renderItem={({ item }) => (
-        <Pressable
-          style={styles.row}
-          onPress={() => router.push(`/triage/${item.id}`)}
+        <Swipeable
+          renderRightActions={() => (
+            <Pressable
+              style={styles.swipeDismiss}
+              onPress={() => dismissMutation.mutate(item.id)}
+            >
+              <Text style={styles.swipeDismissText}>Dismiss</Text>
+            </Pressable>
+          )}
+          onSwipeableOpen={(direction) => {
+            if (direction === "right") dismissMutation.mutate(item.id);
+          }}
         >
-          <View
-            style={[styles.priorityDot, { backgroundColor: priorityColor(item.priority) }]}
-          />
-          <View style={styles.rowContent}>
-            {item.source_title && (
-              <Text style={styles.sender} numberOfLines={1}>
-                {item.source_title}
+          <Pressable
+            style={styles.row}
+            onPress={() => router.push(`/triage/${item.id}`)}
+          >
+            <View
+              style={[styles.priorityDot, { backgroundColor: priorityColor(item.priority) }]}
+            />
+            <View style={styles.rowContent}>
+              {item.source_title && (
+                <Text style={styles.sender} numberOfLines={1}>
+                  {item.source_title}
+                </Text>
+              )}
+              <Text style={styles.summary} numberOfLines={2}>
+                {item.summary || "No subject"}
               </Text>
-            )}
-            <Text style={styles.summary} numberOfLines={2}>
-              {item.summary || "No subject"}
+              {item.suggested_action && (
+                <Text style={styles.action} numberOfLines={1}>
+                  {item.suggested_action}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.time}>
+              {formatEmailDate(item.event_at, item.created_at)}
             </Text>
-            {item.suggested_action && (
-              <Text style={styles.action} numberOfLines={1}>
-                {item.suggested_action}
-              </Text>
-            )}
-          </View>
-          <Text style={styles.time}>
-            {formatEmailDate(item.event_at, item.created_at)}
-          </Text>
-        </Pressable>
+          </Pressable>
+        </Swipeable>
       )}
     />
   );
@@ -188,4 +216,11 @@ const styles = StyleSheet.create({
   summary: { fontSize: 15, color: "#222", lineHeight: 20 },
   action: { fontSize: 13, color: "#666", marginTop: 3 },
   time: { fontSize: 12, color: "#999" },
+  swipeDismiss: {
+    backgroundColor: "#e53e3e",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 90,
+  },
+  swipeDismissText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });
