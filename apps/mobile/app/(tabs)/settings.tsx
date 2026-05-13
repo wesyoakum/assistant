@@ -93,7 +93,10 @@ export default function SettingsScreen() {
     },
   });
 
-  const contextEntries = ctxData?.entries || [];
+  const allEntries = ctxData?.entries || [];
+  const contextEntries = allEntries.filter((e) => e.kind !== "feature" && e.kind !== "preference");
+  const preferences = allEntries.filter((e) => e.kind === "preference");
+  const featureRequests = allEntries.filter((e) => e.kind === "feature");
 
   const aliasMutation = useMutation({
     mutationFn: ({ id, alias }: { id: string; alias: string | null }) =>
@@ -236,6 +239,60 @@ export default function SettingsScreen() {
             <View key={entry.id} style={styles.ctxRow}>
               <View style={styles.ctxContent}>
                 <Text style={styles.ctxKind}>{entry.kind}</Text>
+                <Text style={styles.ctxLabel}>{entry.label}</Text>
+                {entry.detail && (
+                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
+                )}
+              </View>
+              <Pressable
+                onPress={() => deleteContextMutation.mutate(entry.id)}
+                style={styles.ctxDelete}
+              >
+                <Text style={styles.ctxDeleteText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Preferences section */}
+      <Text style={styles.sectionTitle}>Assistant Preferences</Text>
+      <View style={styles.card}>
+        {preferences.length === 0 ? (
+          <Text style={styles.emptyText}>
+            Tell the assistant how you'd like it to behave in Chat.
+          </Text>
+        ) : (
+          preferences.map((entry) => (
+            <View key={entry.id} style={styles.ctxRow}>
+              <View style={styles.ctxContent}>
+                <Text style={styles.ctxLabel}>{entry.label}</Text>
+                {entry.detail && (
+                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
+                )}
+              </View>
+              <Pressable
+                onPress={() => deleteContextMutation.mutate(entry.id)}
+                style={styles.ctxDelete}
+              >
+                <Text style={styles.ctxDeleteText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+      </View>
+
+      {/* Feature Requests section */}
+      <Text style={styles.sectionTitle}>Feature Requests</Text>
+      <View style={styles.card}>
+        {featureRequests.length === 0 ? (
+          <Text style={styles.emptyText}>
+            Tell the assistant about features you'd like added.
+          </Text>
+        ) : (
+          featureRequests.map((entry) => (
+            <View key={entry.id} style={styles.ctxRow}>
+              <View style={styles.ctxContent}>
                 <Text style={styles.ctxLabel}>{entry.label}</Text>
                 {entry.detail && (
                   <Text style={styles.ctxDetail}>{entry.detail}</Text>

@@ -205,12 +205,28 @@ chat.post("/", async (c) => {
   const knownKinds = new Set(contextRows.map((r) => r.kind + ":" + r.label.toLowerCase()));
   const knownLabels = contextRows.map((r) => r.label.toLowerCase());
 
+  const regularContext = contextRows.filter((r) => r.kind !== "feature" && r.kind !== "preference");
+  const preferences = contextRows.filter((r) => r.kind === "preference");
+  const features = contextRows.filter((r) => r.kind === "feature");
+
   let userContext = "";
-  if (contextRows.length > 0) {
-    const lines = contextRows.map(
+  if (regularContext.length > 0) {
+    const lines = regularContext.map(
       (r) => `- ${r.kind}: ${r.label}${r.detail ? ` — ${r.detail}` : ""}`
     );
     userContext = `\n\nWhat I know about the user:\n${lines.join("\n")}`;
+  }
+  if (preferences.length > 0) {
+    const lines = preferences.map(
+      (r) => `- ${r.label}: ${r.detail || ""}`
+    );
+    userContext += `\n\nUser's behavior preferences (follow these):\n${lines.join("\n")}`;
+  }
+  if (features.length > 0) {
+    const lines = features.map(
+      (r) => `- ${r.label}: ${r.detail || ""}`
+    );
+    userContext += `\n\nFeature requests (acknowledged, in backlog):\n${lines.join("\n")}`;
   }
 
   // Determine what context is missing
@@ -267,7 +283,9 @@ SAVING CONTEXT: When the user tells you about people in their life, relationship
 {"kind": "person", "label": "Coach Smith", "detail": "Jake's soccer coach, Wildcats team"}
 \`\`\`
 
-Valid kinds: profile, family, person, work, school, sports, health, dates, organization, preferences, other.
+Valid kinds: profile, family, person, work, school, sports, health, dates, organization, preference, feature, other.
+- Use kind "preference" for assistant behavior preferences (e.g. "be more concise", "always suggest calendar events", "don't ask about my schedule"). Label should be a short name, detail should explain the preference.
+- Use kind "feature" for feature requests the user wants added to the app (e.g. "dark mode", "snooze triage items"). Label should be a short title, detail should describe what they want.
 You can include multiple save_context blocks in one response. Save when the user provides new persistent context — names, birthdays, relationships, schedules, important dates, preferences. For profile info use kind "profile" with labels like "name", "birthday", "location". For family use kind "family" with labels like "spouse", "children", "relationship_status". For important dates use kind "dates".
 
 CREATING TRIAGE ITEMS: When the user asks you to create a triage item, reminder, task, or to-do, you MUST include a JSON block like this:
