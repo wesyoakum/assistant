@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Needed for voice memos",
         "NSCameraUsageDescription": "Needed to capture documents and images",
-        "NSPhotoLibraryUsageDescription": "Needed to select photos for ingestion"
+        "NSPhotoLibraryUsageDescription": "Needed to select photos for ingestion",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -27,7 +28,11 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "us.whyapp.mobile"
+      "package": "us.whyapp.mobile",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "plugins": [
       "expo-router",
