@@ -22,6 +22,8 @@ interface TriageItem {
   suggested_action: string | null;
   status: string;
   source_ref: string | null;
+  event_at: string | null;
+  source_title: string | null;
   created_at: string;
 }
 
@@ -30,14 +32,24 @@ interface TriageResponse {
   cursor?: string;
 }
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+function formatEmailDate(dateStr: string | null, fallback: string): string {
+  const d = new Date(dateStr || fallback);
+  if (isNaN(d.getTime())) return "Unknown";
+
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+
+  if (mins >= 0 && mins < 60) return `${mins}m ago`;
+  if (mins >= 0 && mins < 24 * 60) return `${Math.floor(mins / 60)}h ago`;
+
+  // If today, show time
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+
+  // Otherwise show date
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function priorityColor(p: number): string {
@@ -121,6 +133,11 @@ export default function EmailScreen() {
             style={[styles.priorityDot, { backgroundColor: priorityColor(item.priority) }]}
           />
           <View style={styles.rowContent}>
+            {item.source_title && (
+              <Text style={styles.sender} numberOfLines={1}>
+                {item.source_title}
+              </Text>
+            )}
             <Text style={styles.summary} numberOfLines={2}>
               {item.summary || "No subject"}
             </Text>
@@ -130,7 +147,9 @@ export default function EmailScreen() {
               </Text>
             )}
           </View>
-          <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
+          <Text style={styles.time}>
+            {formatEmailDate(item.event_at, item.created_at)}
+          </Text>
         </Pressable>
       )}
     />
@@ -165,6 +184,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   rowContent: { flex: 1, marginRight: 10 },
+  sender: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 2 },
   summary: { fontSize: 15, color: "#222", lineHeight: 20 },
   action: { fontSize: 13, color: "#666", marginTop: 3 },
   time: { fontSize: 12, color: "#999" },

@@ -75,6 +75,56 @@ export default {
     }
 
     console.log(`Cron: enqueued gmail.poll for ${users.length} users`);
+
+    // Auto-dismiss past Noop calendar/event triage items
+    const dismissed = await env.DB.prepare(
+      `UPDATE triage_items SET status = 'dismissed', updated_at = datetime('now')
+       WHERE status = 'open'
+       AND source_type IN ('calendar', 'event')
+       AND priority <= 2 AND urgency <= 2
+       AND event_at IS NOT NULL AND event_at < datetime('now')`
+    ).run();
+    if (dismissed.meta.changes) {
+      console.log(`Cron: auto-dismissed ${dismissed.meta.changes} past Noop items`);
+    }
+
+    // Fire due reminders
+    const { results: dueReminders } = await env.DB.prepare(
+      `SELECT r.id, r.user_id, r.message
+       FROM reminders r
+       WHERE r.status = 'pending' AND r.fire_at <= datetime('now')`
+    ).all<{ id: string; user_id: string; message: string }>();
+
+    for (const rem of dueReminders) {
+      // Get push tokens for this user
+      const { results: tokens } = await env.DB.prepare(
+        "SELECT expo_token FROM push_tokens WHERE user_id = ?"
+      ).bind(rem.user_id).all<{ expo_token: string }>();
+
+      if (tokens.length > 0) {
+        const messages = tokens.map((t) => ({
+          to: t.expo_token,
+          title: "Reminder",
+          body: rem.message,
+          sound: "default",
+        }));
+
+        await fetch("https://exp.host/--/api/v2/push/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(messages),
+        });
+      }
+
+      // Mark as fired
+      await env.DB.prepare(
+        "UPDATE reminders SET status = 'fired' WHERE id = ?"
+      ).bind(rem.id).run();
+    }
+
+    if (dueReminders.length > 0) {
+      console.log(`Cron: fired ${dueReminders.length} reminders`);
+    }
   },
 
   async queue(
@@ -206,19 +256,22 @@ async function handleTriageClassify(
   const itemId = crypto.randomUUID();
 
   await env.DB.prepare(
-    `INSERT INTO triage_items (id, user_id, source_type, source_ref, priority, urgency, category, summary, suggested_action, classifier_json, status)
-     VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, 'open')`
+    `INSERT INTO triage_items (id, user_id, source_type, source_ref, source_title, event_at, priority, urgency, category, summary, suggested_action, classifier_json, source_json, status)
+     VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
   )
     .bind(
       itemId,
       userId,
       email.messageId,
+      email.from,
+      email.date || null,
       result.priority,
       result.urgency,
       result.category,
       result.summary,
       result.suggested_action,
-      JSON.stringify(result)
+      JSON.stringify(result),
+      JSON.stringify(email)
     )
     .run();
 

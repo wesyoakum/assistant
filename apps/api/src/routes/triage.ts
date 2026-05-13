@@ -18,15 +18,27 @@ triage.get("/", async (c) => {
   const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
   const cursor = c.req.query("cursor");
 
+  const sourceType = c.req.query("source_type");
+
   let query = `SELECT * FROM triage_items WHERE user_id = ? AND status = ?`;
   const params: unknown[] = [userId, status];
+
+  if (sourceType) {
+    query += ` AND source_type = ?`;
+    params.push(sourceType);
+  }
 
   if (cursor) {
     query += ` AND created_at < ?`;
     params.push(cursor);
   }
 
-  query += ` ORDER BY priority DESC, urgency DESC, created_at DESC LIMIT ?`;
+  // Email tab: newest first. Triage tab: priority order.
+  if (sourceType) {
+    query += ` ORDER BY created_at DESC LIMIT ?`;
+  } else {
+    query += ` ORDER BY priority DESC, urgency DESC, created_at DESC LIMIT ?`;
+  }
   params.push(limit + 1);
 
   const stmt = env_bind(c.env.DB.prepare(query), params);

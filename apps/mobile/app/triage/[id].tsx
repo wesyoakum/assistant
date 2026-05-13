@@ -213,12 +213,17 @@ export default function TriageDetail() {
   // Build source detail lines
   const sourceDetails: { label: string; value: string }[] = [];
   if (item.source_title) sourceDetails.push({ label: "From", value: item.source_title });
-  if (item.event_at) sourceDetails.push({ label: "Event", value: formatDate(item.event_at) });
+  if (item.source_type === "email" && item.event_at) {
+    sourceDetails.push({ label: "Sent", value: formatDate(item.event_at) });
+  } else if (item.event_at) {
+    sourceDetails.push({ label: "Event", value: formatDate(item.event_at) });
+  }
   if (item.due_at) sourceDetails.push({ label: "Due", value: formatDate(item.due_at) });
   if (item.event_created_at) sourceDetails.push({ label: "Created", value: formatDate(item.event_created_at) });
   if (item.event_updated_at && item.event_updated_at !== item.event_created_at) {
     sourceDetails.push({ label: "Modified", value: formatDate(item.event_updated_at) });
   }
+  sourceDetails.push({ label: "Fetched", value: formatDate(item.created_at) });
 
   const handleSaveScores = () => {
     feedbackMutation.mutate({

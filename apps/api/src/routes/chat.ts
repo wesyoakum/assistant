@@ -319,7 +319,13 @@ To delete an event:
 {"calendarId": "primary", "eventId": "abc123"}
 \`\`\`
 
-You have visibility into the next 30 days of events. When the user asks about events in that window, answer directly from the list above. Always confirm calendar actions to the user. Use ISO 8601 dates with the user's timezone offset.${userContext}${triageInbox}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
+You have visibility into the next 30 days of events. When the user asks about events in that window, answer directly from the list above. Always confirm calendar actions to the user. Use ISO 8601 dates with the user's timezone offset.
+
+REMINDERS: When the user asks to be reminded about something at a specific time, create a reminder:
+\`\`\`create_reminder
+{"message": "Call the dentist", "fire_at": "2026-05-15T14:00:00-05:00"}
+\`\`\`
+The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will trigger a push notification at that time. For relative times like "in 5 minutes" or "in an hour", calculate the absolute time based on the current date/time: ${currentDateTime}. Always confirm the reminder time with the user.${userContext}${triageInbox}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
 
   // Build messages array from persisted history
   const { results: historyRows } = await c.env.DB.prepare(
@@ -464,6 +470,22 @@ You have visibility into the next 30 days of events. When the user asks about ev
     }
   }
 
+  // Extract and create reminders
+  const reminderPattern = /```create_reminder\s*([\s\S]*?)```/g;
+  const createdReminders: string[] = [];
+  let remMatch;
+  while ((remMatch = reminderPattern.exec(reply)) !== null) {
+    try {
+      const rem = JSON.parse(remMatch[1].trim());
+      if (rem.message && rem.fire_at) {
+        await c.env.DB.prepare(
+          "INSERT INTO reminders (id, user_id, message, fire_at) VALUES (?, ?, ?, ?)"
+        ).bind(crypto.randomUUID(), userId, rem.message, rem.fire_at).run();
+        createdReminders.push(rem.message);
+      }
+    } catch { /* ignore */ }
+  }
+
   // Extract and execute calendar actions
   const calendarActions: string[] = [];
 
@@ -516,6 +538,7 @@ You have visibility into the next 30 days of events. When the user asks about ev
   reply = reply.replace(/```save_context\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```save_triage\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```edit_triage\s*[\s\S]*?```\n?/g, "").trim();
+  reply = reply.replace(/```create_reminder\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```create_event\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```edit_event\s*[\s\S]*?```\n?/g, "").trim();
   reply = reply.replace(/```delete_event\s*[\s\S]*?```\n?/g, "").trim();
