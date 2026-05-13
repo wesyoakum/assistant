@@ -15,15 +15,18 @@ import { apiFetch } from "../../src/api/client";
 interface TriageItem {
   id: string;
   source_type: string;
-  priority: number; // importance 1-5
-  urgency: number;  // urgency 1-5
+  priority: number;
+  urgency: number;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
   status: string;
   source_ref: string | null;
-  deadline: string | null;
-  origin_date: string | null;
+  source_title: string | null;
+  event_at: string | null;
+  due_at: string | null;
+  event_created_at: string | null;
+  event_updated_at: string | null;
   created_at: string;
 }
 
@@ -44,16 +47,12 @@ function toLevel(n: number): Level {
 }
 
 function getQuadrant(importance: Level, urgency: Level): Quadrant {
-  // High importance
   if (importance === "high" && urgency !== "low") return "hot";
   if (importance === "high" && urgency === "low") return "plan";
-  // High urgency
   if (urgency === "high" && importance !== "high") return "action";
-  // Medium importance + medium urgency leans toward plan
   if (importance === "medium" && urgency === "medium") return "plan";
   if (importance === "medium" && urgency === "low") return "noop";
   if (importance === "low" && urgency === "medium") return "action";
-  // Low + low
   return "noop";
 }
 
@@ -69,29 +68,61 @@ const QUADRANTS: { key: Quadrant; label: string; color: string }[] = [
 const SOURCE_LABELS: Record<string, string> = {
   email: "Email",
   calendar: "Cal",
+  event: "Event",
   document: "Doc",
   image: "Img",
   voice: "Voice",
   chat: "Chat",
 };
 
-function formatDeadline(deadline: string | null): string | null {
-  if (!deadline) return null;
-  const d = new Date(deadline);
-  const diff = d.getTime() - Date.now();
-  if (diff < 0) return "Overdue";
-  if (diff < 60 * 60 * 1000) return `${Math.ceil(diff / 60000)}m left`;
-  if (diff < 24 * 60 * 60 * 1000) return `${Math.ceil(diff / 3600000)}h left`;
-  return `by ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+/** Origin timestamp based on source type */
+function getOriginDate(item: TriageItem): string {
+  let date: string;
+  switch (item.source_type) {
+    case "email":
+      // Email: use event_at (sent date) if available
+      date = item.event_at || item.created_at;
+      break;
+    case "calendar":
+    case "event":
+      // Calendar: use event_created_at or event_updated_at
+      date = item.event_updated_at || item.event_created_at || item.created_at;
+      break;
+    default:
+      // Capture, chat: date added
+      date = item.created_at;
+  }
+  return formatRelativeDate(date);
 }
 
-function formatOrigin(originDate: string | null, createdAt: string): string {
-  const d = new Date(originDate || createdAt);
+function formatRelativeDate(dateStr: string): string {
+  const d = new Date(dateStr);
   const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (mins < 0) return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Urgency reference — deadline or event time */
+function getUrgencyRef(item: TriageItem): string | null {
+  const deadline = item.due_at || item.event_at;
+  if (!deadline) return null;
+
+  const d = new Date(deadline);
+  const diff = d.getTime() - Date.now();
+
+  if (diff < -24 * 60 * 60 * 1000) return "Overdue";
+  if (diff < 0) return "Past";
+  if (diff < 60 * 60 * 1000) return `${Math.ceil(diff / 60000)}m left`;
+  if (diff < 24 * 60 * 60 * 1000) return `${Math.ceil(diff / 3600000)}h left`;
+  if (diff < 7 * 24 * 60 * 60 * 1000) {
+    return d.toLocaleDateString("en-US", { weekday: "short" });
+  }
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 }
 
 function truncateSummary(summary: string | null): string {
@@ -172,11 +203,9 @@ export default function TriageScreen() {
         </View>
       )}
       renderItem={({ item, section }) => {
-        const deadline = formatDeadline(item.deadline);
-        const origin = formatOrigin(item.origin_date, item.created_at);
+        const origin = getOriginDate(item);
+        const urgencyRef = getUrgencyRef(item);
         const sourceLabel = SOURCE_LABELS[item.source_type] || item.source_type;
-        const imp = toLevel(item.priority);
-        const urg = toLevel(item.urgency);
 
         return (
           <Pressable
@@ -196,27 +225,25 @@ export default function TriageScreen() {
                 <Text style={styles.sourceLabel}>{sourceLabel}</Text>
                 <Text style={styles.dot}>{"\u00B7"}</Text>
                 <Text style={styles.origin}>{origin}</Text>
-                {deadline && (
+                {urgencyRef && (
                   <>
                     <Text style={styles.dot}>{"\u00B7"}</Text>
                     <Text
                       style={[
-                        styles.deadline,
-                        deadline === "Overdue" && styles.deadlineOverdue,
+                        styles.urgencyRef,
+                        (urgencyRef === "Overdue" || urgencyRef === "Past") && styles.urgencyOverdue,
                       ]}
                     >
-                      {deadline}
+                      {urgencyRef}
                     </Text>
                   </>
                 )}
               </View>
             </View>
 
-            <View style={styles.levelPill}>
-              <Text style={styles.levelText}>
-                P{item.priority}U{item.urgency}
-              </Text>
-            </View>
+            <Text style={[styles.priorityNum, { color: section.color }]}>
+              P{item.priority}U{item.urgency}
+            </Text>
           </Pressable>
         );
       }}
@@ -264,13 +291,7 @@ const styles = StyleSheet.create({
   sourceLabel: { fontSize: 12, color: "#4285F4", fontWeight: "600" },
   dot: { fontSize: 12, color: "#ccc", marginHorizontal: 5 },
   origin: { fontSize: 12, color: "#999" },
-  deadline: { fontSize: 12, color: "#ed8936", fontWeight: "600" },
-  deadlineOverdue: { color: "#e53e3e" },
-  levelPill: {
-    backgroundColor: "#f0f0f0",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-  },
-  levelText: { fontSize: 11, fontWeight: "700", color: "#555" },
+  urgencyRef: { fontSize: 12, color: "#ed8936", fontWeight: "600" },
+  urgencyOverdue: { color: "#e53e3e" },
+  priorityNum: { fontSize: 13, fontWeight: "700" },
 });

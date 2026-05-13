@@ -16,14 +16,18 @@ interface TriageItem {
   id: string;
   source_type: string;
   source_ref: string | null;
+  source_title: string | null;
+  source_url: string | null;
   priority: number;
   urgency: number;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
   classifier_json: string | null;
-  deadline: string | null;
-  origin_date: string | null;
+  event_at: string | null;
+  due_at: string | null;
+  event_created_at: string | null;
+  event_updated_at: string | null;
   status: string;
   created_at: string;
 }
@@ -184,8 +188,14 @@ export default function TriageDetail() {
   const imp = toLevel(priority);
   const urg = toLevel(urgency);
   const quadrant = QUADRANT_META[getQuadrant(imp, urg)];
-  const deadline = formatDeadline(item.deadline);
-  const originDate = formatDate(item.origin_date || item.created_at);
+  const deadline = formatDeadline(item.due_at || item.event_at);
+  // Origin: email sent date, calendar created/edited, or triage created
+  const originDate = formatDate(
+    item.source_type === "email" ? (item.event_at || item.created_at) :
+    (item.source_type === "event" || item.source_type === "calendar")
+      ? (item.event_updated_at || item.event_created_at || item.created_at)
+      : item.created_at
+  );
   const hasChanged =
     (localPriority !== null && localPriority !== item.priority) ||
     (localUrgency !== null && localUrgency !== item.urgency);
@@ -200,6 +210,16 @@ export default function TriageDetail() {
     }
   }
 
+  // Build source detail lines
+  const sourceDetails: { label: string; value: string }[] = [];
+  if (item.source_title) sourceDetails.push({ label: "From", value: item.source_title });
+  if (item.event_at) sourceDetails.push({ label: "Event", value: formatDate(item.event_at) });
+  if (item.due_at) sourceDetails.push({ label: "Due", value: formatDate(item.due_at) });
+  if (item.event_created_at) sourceDetails.push({ label: "Created", value: formatDate(item.event_created_at) });
+  if (item.event_updated_at && item.event_updated_at !== item.event_created_at) {
+    sourceDetails.push({ label: "Modified", value: formatDate(item.event_updated_at) });
+  }
+
   const handleSaveScores = () => {
     feedbackMutation.mutate({
       kind: "wrong_priority",
@@ -211,9 +231,19 @@ export default function TriageDetail() {
   };
 
   const handleOpenOriginal = () => {
+    // Use source_url if available (covers events with htmlLink)
+    if (item.source_url) {
+      Linking.openURL(item.source_url);
+      return;
+    }
     if (item.source_type === "email") {
       const url = getGmailUrl(item.source_ref);
       if (url) Linking.openURL(url);
+    } else if (item.source_type === "event" || item.source_type === "calendar") {
+      // Fall back to Google Calendar web
+      if (item.source_ref) {
+        Linking.openURL(`https://calendar.google.com/calendar/event?eid=${item.source_ref}`);
+      }
     }
   };
 
@@ -277,10 +307,10 @@ export default function TriageDetail() {
         </View>
       )}
 
-      {/* Time info */}
+      {/* Source details */}
       <View style={styles.timeSection}>
         <View style={styles.timeRow}>
-          <Text style={styles.timeLabel}>Received</Text>
+          <Text style={styles.timeLabel}>Origin</Text>
           <Text style={styles.timeValue}>{originDate}</Text>
         </View>
         {deadline && (
@@ -297,6 +327,12 @@ export default function TriageDetail() {
             </Text>
           </View>
         )}
+        {sourceDetails.map((d) => (
+          <View key={d.label} style={styles.timeRow}>
+            <Text style={styles.timeLabel}>{d.label}</Text>
+            <Text style={styles.timeValue}>{d.value}</Text>
+          </View>
+        ))}
       </View>
 
       {/* Details */}
@@ -321,7 +357,7 @@ export default function TriageDetail() {
           <Text style={styles.chatBtnText}>Discuss in Chat</Text>
         </Pressable>
 
-        {item.source_ref && (
+        {(item.source_url || item.source_ref) && (
           <Pressable style={styles.openBtn} onPress={handleOpenOriginal}>
             <Text style={styles.openBtnText}>Open Original</Text>
           </Pressable>

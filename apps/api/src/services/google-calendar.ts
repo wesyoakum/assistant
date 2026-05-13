@@ -121,19 +121,28 @@ export async function subscribeCalendar(
 ): Promise<CalendarSummary> {
   const accessToken = await getValidAccessToken(userId, env);
 
+  // Normalize webcal:// to https://
+  let calendarId = input;
+  if (input.startsWith("webcal://")) {
+    calendarId = input.replace("webcal://", "https://");
+  }
+
   const res = await fetch(`${CAL_API}/users/me/calendarList`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ id: input }),
+    body: JSON.stringify({ id: calendarId }),
   });
 
   if (!res.ok) {
     const body = await res.text();
     if (res.status === 409) {
       throw new Error("Calendar already added");
+    }
+    if ((input.includes(".ics") || input.startsWith("http")) && res.status === 404) {
+      throw new Error("Could not subscribe. Make sure it's a valid iCal/ICS feed URL or a Google Calendar ID.");
     }
     throw new Error(`Google API error ${res.status}: ${body}`);
   }
@@ -143,6 +152,8 @@ export async function subscribeCalendar(
   return {
     id: cal.id,
     summary: cal.summary,
+    alias: null,
+    displayName: cal.summary,
     primary: !!cal.primary,
     backgroundColor: cal.backgroundColor || "#4285F4",
     enabled: true,

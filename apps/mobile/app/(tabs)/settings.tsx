@@ -200,7 +200,7 @@ export default function SettingsScreen() {
             style={styles.addInput}
             value={calUrl}
             onChangeText={setCalUrl}
-            placeholder="Calendar ID or ICS URL"
+            placeholder="Calendar ID, ICS URL, or webcal://"
             placeholderTextColor="#aaa"
             autoCapitalize="none"
             autoCorrect={false}
