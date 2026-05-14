@@ -10,7 +10,8 @@ import { useAuth } from "../state/auth";
 // Show notifications even when app is foregrounded
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
@@ -31,36 +32,49 @@ export function useNotifications() {
   // Register for push on mount when authenticated
   useEffect(() => {
     if (!isAuthenticated || didRegister.current) return;
-    didRegister.current = true;
 
-    registerForPush().then((token) => {
-      if (token) {
-        apiFetch("/push/register", {
+    (async () => {
+      try {
+        const token = await registerForPush();
+        if (!token) return;
+        await apiFetch("/push/register", {
           method: "POST",
-          body: JSON.stringify({
-            token,
-            platform: Platform.OS,
-          }),
-        }).catch(() => {
-          // Fail silently — will retry next launch
+          body: JSON.stringify({ token, platform: Platform.OS }),
         });
+        didRegister.current = true;
+      } catch (err) {
+        console.warn("[push] Registration failed, will retry next launch:", err);
       }
-    });
+    })();
   }, [isAuthenticated]);
 
-  // Handle notification taps — deep link to triage item
+  // Handle notification taps from foreground/background
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
-        const url = response.notification.request.content.data?.url;
-        if (typeof url === "string" && url.startsWith("whyapp://triage/")) {
-          const id = url.replace("whyapp://triage/", "");
-          router.push(`/triage/${id}`);
-        }
+        handleNotificationResponse(response, router);
       }
     );
     return () => sub.remove();
   }, [router]);
+
+  // Handle cold-start: app launched by tapping a notification
+  useEffect(() => {
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) handleNotificationResponse(response, router);
+    });
+  }, [router]);
+}
+
+function handleNotificationResponse(
+  response: Notifications.NotificationResponse,
+  router: ReturnType<typeof useRouter>
+) {
+  const url = response.notification.request.content.data?.url;
+  if (typeof url === "string" && url.startsWith("whyapp://triage/")) {
+    const id = url.replace("whyapp://triage/", "");
+    router.push(`/triage/${id}`);
+  }
 }
 
 async function registerForPush(): Promise<string | null> {
