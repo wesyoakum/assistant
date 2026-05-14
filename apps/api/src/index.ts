@@ -109,15 +109,7 @@ export default {
           body: rem.message,
           sound: "default",
         }));
-
-        const pushRes = await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(messages),
-        });
-        if (!pushRes.ok) {
-          console.error(`Reminder push failed: ${pushRes.status} ${await pushRes.text()}`);
-        }
+        await sendExpoPush(env, messages);
       }
 
       // Mark as fired
@@ -333,17 +325,61 @@ async function handlePushSend(
     sound: "default" as const,
     data: { url: `whyapp://triage/${triageItemId}` },
   }));
+  await sendExpoPush(env, messages);
 
-  const pushRes = await fetch("https://exp.host/--/api/v2/push/send", {
+  console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
+}
+
+type ExpoPushMessage = {
+  to: string;
+  title: string;
+  body: string;
+  sound?: string;
+  data?: Record<string, unknown>;
+};
+
+type ExpoPushTicket =
+  | { status: "ok"; id: string }
+  | { status: "error"; message: string; details?: { error?: string } };
+
+async function sendExpoPush(env: Env, messages: ExpoPushMessage[]) {
+  const res = await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(messages),
   });
-  if (!pushRes.ok) {
-    console.error(`Triage push failed: ${pushRes.status} ${await pushRes.text()}`);
+
+  if (!res.ok) {
+    console.error(`Expo push HTTP ${res.status}: ${await res.text()}`);
+    return;
   }
 
-  console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
+  const json = (await res.json()) as { data?: ExpoPushTicket[] };
+  const tickets = json.data ?? [];
+  const deadTokens: string[] = [];
+
+  tickets.forEach((ticket, i) => {
+    if (ticket.status === "error") {
+      const errCode = ticket.details?.error;
+      console.error(
+        `Expo push ticket error for ${messages[i].to}: ${errCode ?? "unknown"} — ${ticket.message}`
+      );
+      // Token is permanently invalid (uninstalled, project-mismatch, etc.) — prune it.
+      if (errCode === "DeviceNotRegistered" || errCode === "InvalidCredentials") {
+        deadTokens.push(messages[i].to);
+      }
+    }
+  });
+
+  if (deadTokens.length > 0) {
+    const placeholders = deadTokens.map(() => "?").join(",");
+    await env.DB.prepare(
+      `DELETE FROM push_tokens WHERE expo_token IN (${placeholders})`
+    )
+      .bind(...deadTokens)
+      .run();
+    console.log(`Pruned ${deadTokens.length} dead push tokens`);
+  }
 }
 
 async function handleFileClassify(

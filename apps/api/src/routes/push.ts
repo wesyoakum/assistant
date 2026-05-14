@@ -34,6 +34,17 @@ push.post("/register", async (c) => {
   return c.json({ ok: true });
 });
 
+// Debug: list this user's tokens
+push.get("/tokens", async (c) => {
+  const userId = c.get("userId");
+  const { results } = await c.env.DB.prepare(
+    "SELECT expo_token, platform, created_at FROM push_tokens WHERE user_id = ? ORDER BY created_at DESC"
+  )
+    .bind(userId)
+    .all<{ expo_token: string; platform: string | null; created_at: string }>();
+  return c.json({ tokens: results });
+});
+
 // Unregister a push token
 push.post("/unregister", async (c) => {
   const userId = c.get("userId");
