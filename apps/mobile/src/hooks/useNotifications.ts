@@ -21,6 +21,13 @@ export function useNotifications() {
   const { isAuthenticated } = useAuth();
   const didRegister = useRef(false);
 
+  // Reset registration flag on sign-out so re-login re-registers
+  useEffect(() => {
+    if (!isAuthenticated) {
+      didRegister.current = false;
+    }
+  }, [isAuthenticated]);
+
   // Register for push on mount when authenticated
   useEffect(() => {
     if (!isAuthenticated || didRegister.current) return;

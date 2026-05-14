@@ -110,11 +110,14 @@ export default {
           sound: "default",
         }));
 
-        await fetch("https://exp.host/--/api/v2/push/send", {
+        const pushRes = await fetch("https://exp.host/--/api/v2/push/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(messages),
         });
+        if (!pushRes.ok) {
+          console.error(`Reminder push failed: ${pushRes.status} ${await pushRes.text()}`);
+        }
       }
 
       // Mark as fired
@@ -327,14 +330,18 @@ async function handlePushSend(
     to: t.expo_token,
     title: "High Priority Item",
     body: summary,
+    sound: "default" as const,
     data: { url: `whyapp://triage/${triageItemId}` },
   }));
 
-  await fetch("https://exp.host/--/api/v2/push/send", {
+  const pushRes = await fetch("https://exp.host/--/api/v2/push/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(messages),
   });
+  if (!pushRes.ok) {
+    console.error(`Triage push failed: ${pushRes.status} ${await pushRes.text()}`);
+  }
 
   console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
 }

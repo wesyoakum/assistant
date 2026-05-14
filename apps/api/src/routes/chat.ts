@@ -133,7 +133,10 @@ chat.post("/", async (c) => {
       if (t.category) parts.push(`category: ${t.category}`);
       if (t.source_title) parts.push(`from: ${t.source_title}`);
       if (t.source_url) parts.push(`url: ${t.source_url}`);
-      if (t.source_ref) parts.push(`ref: ${t.source_ref}`);
+      if (t.source_ref) {
+        parts.push(`ref: ${t.source_ref}`);
+        if (t.source_type === "event") parts.push(`cal:primary|evt:${t.source_ref}`);
+      }
       const eventTime = t.event_at || t.due_at;
       if (eventTime) {
         const isPast = new Date(eventTime).getTime() < nowMs;
@@ -300,6 +303,8 @@ EDITING TRIAGE ITEMS: When the user asks you to dismiss, complete, update, repri
 \`\`\`
 Fields you can set: summary, priority (1-5), urgency (1-5), category, suggested_action, status ("open", "done", "dismissed").
 Only include fields that are changing. Use the exact id from the triage list. When matching items from conversation context, use your best judgment — e.g. if you mentioned "the 3d group meeting" and the list has [id:abc] "3d group meetup", that's the same item, use id "abc". You can include multiple edit_triage blocks. Always confirm what was changed.
+
+IMPORTANT: When editing a calendar event (changing its time, title, location, etc.), you MUST emit BOTH an edit_triage block (to update the triage item) AND an edit_event block (to update the actual Google Calendar event). Calendar-sourced triage items show "cal:primary|evt:eventId" — use those values for calendarId and eventId in the edit_event block. If you only emit edit_triage, the Google Calendar event will NOT be updated.
 
 CALENDAR ACTIONS: You can create, edit, and delete Google Calendar events.
 
@@ -543,9 +548,11 @@ The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will
     try {
       const rem = JSON.parse(remMatch[1].trim());
       if (rem.message && rem.fire_at) {
+        // Convert to UTC so SQLite datetime('now') comparison works
+        const fireAtUtc = new Date(rem.fire_at).toISOString();
         await c.env.DB.prepare(
           "INSERT INTO reminders (id, user_id, message, fire_at) VALUES (?, ?, ?, ?)"
-        ).bind(crypto.randomUUID(), userId, rem.message, rem.fire_at).run();
+        ).bind(crypto.randomUUID(), userId, rem.message, fireAtUtc).run();
         createdReminders.push(rem.message);
       }
     } catch { /* ignore */ }
