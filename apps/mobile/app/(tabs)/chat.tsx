@@ -11,7 +11,10 @@ import {
   Platform,
   StyleSheet,
   ActivityIndicator,
+  ActionSheetIOS,
+  Alert,
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-native-markdown-display";
@@ -50,18 +53,21 @@ export default function ChatScreen() {
 
     (async () => {
       // Load history first
+      let existingMessages: Message[] = [];
       try {
         const history = await apiFetch<HistoryResponse>("/chat/history?limit=50");
         if (history.messages.length > 0) {
-          setMessages(history.messages);
-          return; // Skip greeting if there's existing history
+          existingMessages = history.messages;
         }
       } catch {
-        // Continue to greeting
+        // Continue
       }
 
-      // If navigating from triage detail, ask assistant to initiate about the item
+      // If navigating from triage detail, ask assistant to discuss the item
       if (params.context && params.triageId) {
+        if (existingMessages.length > 0) {
+          setMessages(existingMessages);
+        }
         try {
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const data = await apiFetch<ChatResponse>("/chat", {
@@ -72,18 +78,30 @@ export default function ChatScreen() {
               timezone: tz,
             }),
           });
-          setMessages([{
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: data.reply,
-          }]);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `assistant-${Date.now()}`,
+              role: "assistant",
+              content: data.reply,
+            },
+          ]);
         } catch {
-          setMessages([{
-            id: "system-0",
-            role: "assistant",
-            content: `Let's discuss: ${params.context}`,
-          }]);
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: "system-0",
+              role: "assistant",
+              content: `Let's discuss: ${params.context}`,
+            },
+          ]);
         }
+        return;
+      }
+
+      // Normal load: show history or greeting
+      if (existingMessages.length > 0) {
+        setMessages(existingMessages);
         return;
       }
 
@@ -145,6 +163,20 @@ export default function ChatScreen() {
     },
   });
 
+  const handleLongPress = useCallback((content: string) => {
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: ["Copy", "Cancel"], cancelButtonIndex: 1 },
+        (idx) => {
+          if (idx === 0) Clipboard.setStringAsync(content);
+        }
+      );
+    } else {
+      Clipboard.setStringAsync(content);
+      Alert.alert("Copied to clipboard");
+    }
+  }, []);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || sendMutation.isPending) return;
@@ -184,7 +216,8 @@ export default function ChatScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <View
+            <Pressable
+              onLongPress={() => handleLongPress(item.content)}
               style={[
                 styles.messageBubble,
                 item.role === "user" ? styles.userBubble : styles.assistantBubble,
@@ -199,7 +232,7 @@ export default function ChatScreen() {
                   {item.content}
                 </Markdown>
               )}
-            </View>
+            </Pressable>
           )}
         />
 
