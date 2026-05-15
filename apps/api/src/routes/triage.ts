@@ -124,6 +124,57 @@ triage.post("/:id/feedback", async (c) => {
   return c.json({ ok: true });
 });
 
+// Direct edit (priority, urgency, category)
+const editSchema = z.object({
+  priority: z.number().int().min(1).max(5).optional(),
+  urgency: z.number().int().min(1).max(5).optional(),
+  category: z.string().max(50).optional(),
+});
+
+triage.patch("/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  const body = await c.req.json();
+  const parsed = editSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Invalid edit", details: parsed.error }, 400);
+  }
+
+  const updates = parsed.data;
+  const setClauses: string[] = [];
+  const params: unknown[] = [];
+
+  if (updates.priority !== undefined) {
+    setClauses.push("priority = ?");
+    params.push(updates.priority);
+  }
+  if (updates.urgency !== undefined) {
+    setClauses.push("urgency = ?");
+    params.push(updates.urgency);
+  }
+  if (updates.category !== undefined) {
+    setClauses.push("category = ?");
+    params.push(updates.category);
+  }
+
+  if (setClauses.length === 0) {
+    return c.json({ error: "No fields to update" }, 400);
+  }
+
+  setClauses.push("updated_at = datetime('now')");
+  params.push(id, userId);
+
+  const result = await c.env.DB.prepare(
+    `UPDATE triage_items SET ${setClauses.join(", ")} WHERE id = ? AND user_id = ?`
+  )
+    .bind(...params)
+    .run();
+
+  if (!result.meta.changes) return c.json({ error: "Not found" }, 404);
+  return c.json({ ok: true });
+});
+
 // Update status
 const statusSchema = z.object({
   status: z.enum(["done", "dismissed"]),

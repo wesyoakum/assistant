@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -6,15 +6,79 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  FlatList,
+  Image,
+  RefreshControl,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../src/state/auth";
-import { API_BASE } from "../../src/api/client";
+import { API_BASE, apiFetch } from "../../src/api/client";
 
 type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
+
+interface IngestedFile {
+  id: string;
+  kind: "image" | "pdf" | "audio";
+  r2_key: string;
+  status: "pending" | "processing" | "done" | "error";
+  created_at: string;
+}
+
+interface TriageItemRef {
+  id: string;
+}
+
+function fileIcon(kind: string): keyof typeof Ionicons.glyphMap {
+  switch (kind) {
+    case "image": return "image-outline";
+    case "pdf": return "document-text-outline";
+    case "audio": return "musical-notes-outline";
+    default: return "document-outline";
+  }
+}
+
+function fileKindLabel(kind: string): string {
+  switch (kind) {
+    case "image": return "Image";
+    case "pdf": return "Document";
+    case "audio": return "Voice Memo";
+    default: return "File";
+  }
+}
+
+function statusColor(status: string): string {
+  switch (status) {
+    case "done": return "#38a169";
+    case "processing":
+    case "pending": return "#ed8936";
+    case "error": return "#e53e3e";
+    default: return "#a0aec0";
+  }
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "done": return "Done";
+    case "processing": return "Processing";
+    case "pending": return "Pending";
+    case "error": return "Error";
+    default: return status;
+  }
+}
+
+function formatFileDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 async function uploadFile(
   uri: string,
@@ -41,14 +105,58 @@ async function uploadFile(
   return uploadRes.json();
 }
 
+function FileThumbnail({ file, token }: { file: IngestedFile; token: string }) {
+  const [blobUri, setBlobUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (file.kind === "image" && file.status === "done") {
+      fetch(`${API_BASE}/files/${file.id}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.blob())
+        .then((blob) => {
+          const reader = new FileReader();
+          reader.onload = () => setBlobUri(reader.result as string);
+          reader.readAsDataURL(blob);
+        })
+        .catch(() => {});
+    }
+  }, [file.id, file.kind, file.status, token]);
+
+  if (file.kind === "image" && blobUri) {
+    return (
+      <Image source={{ uri: blobUri }} style={styles.fileThumbnail} />
+    );
+  }
+
+  return (
+    <View style={styles.fileIconWrap}>
+      <Ionicons name={fileIcon(file.kind)} size={24} color="#4285F4" />
+    </View>
+  );
+}
+
 export default function CaptureScreen() {
   const { token } = useAuth();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [state, setState] = useState<UploadState>("idle");
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [isRecording, setIsRecording] = useState(false);
 
+  const {
+    data: filesData,
+    isLoading: filesLoading,
+    refetch: refetchFiles,
+  } = useQuery({
+    queryKey: ["files"],
+    queryFn: () => apiFetch<{ files: IngestedFile[] }>("/files"),
+    enabled: !!token,
+  });
+
   const handleResult = (id: string) => {
     setState("done");
+    queryClient.invalidateQueries({ queryKey: ["files"] });
     Alert.alert("Captured", "Your item is being analyzed and will appear in Triage shortly.", [
       { text: "OK", onPress: () => setState("idle") },
     ]);
@@ -175,10 +283,53 @@ export default function CaptureScreen() {
     }
   };
 
+  const handleFileTap = useCallback(async (file: IngestedFile) => {
+    if (file.status !== "done") return;
+
+    // Find the triage item that references this file
+    try {
+      const data = await apiFetch<{ items: TriageItemRef[] }>(
+        `/triage?source_type=${file.kind === "audio" ? "voice" : file.kind === "pdf" ? "document" : "image"}&limit=50`
+      );
+      const match = data.items.find((item: any) => item.source_ref === file.id);
+      if (match) {
+        router.push(`/triage/${match.id}`);
+      } else {
+        Alert.alert("Not Found", "No triage item found for this file yet.");
+      }
+    } catch {
+      Alert.alert("Error", "Could not look up triage item.");
+    }
+  }, [router]);
+
   const busy = state === "uploading" || state === "processing";
 
-  return (
-    <View style={styles.container}>
+  const renderFileRow = useCallback(({ item: file }: { item: IngestedFile }) => (
+    <Pressable
+      style={styles.fileRow}
+      onPress={() => handleFileTap(file)}
+      disabled={file.status !== "done"}
+    >
+      <FileThumbnail file={file} token={token!} />
+      <View style={styles.fileInfo}>
+        <Text style={styles.fileKind}>{fileKindLabel(file.kind)}</Text>
+        <Text style={styles.fileDate}>{formatFileDate(file.created_at)}</Text>
+      </View>
+      <View style={[styles.statusBadge, { backgroundColor: statusColor(file.status) + "22" }]}>
+        <Text style={[styles.statusText, { color: statusColor(file.status) }]}>
+          {statusLabel(file.status)}
+        </Text>
+      </View>
+      {file.status === "done" && (
+        <Ionicons name="chevron-forward" size={18} color="#ccc" />
+      )}
+    </Pressable>
+  ), [token, handleFileTap]);
+
+  const files = filesData?.files ?? [];
+
+  const ListHeader = (
+    <>
       {busy ? (
         <View style={styles.busyWrap}>
           <ActivityIndicator size="large" />
@@ -222,7 +373,35 @@ export default function CaptureScreen() {
           </View>
         </>
       )}
-    </View>
+
+      {/* Recent captures section header */}
+      <View style={styles.recentHeader}>
+        <Text style={styles.recentTitle}>Recent Captures</Text>
+        {filesLoading && <ActivityIndicator size="small" />}
+      </View>
+    </>
+  );
+
+  return (
+    <FlatList
+      style={styles.container}
+      contentContainerStyle={styles.listContent}
+      data={files}
+      keyExtractor={(item) => item.id}
+      renderItem={renderFileRow}
+      ListHeaderComponent={ListHeader}
+      ListEmptyComponent={
+        !filesLoading ? (
+          <Text style={styles.emptyText}>No files captured yet.</Text>
+        ) : null
+      }
+      refreshControl={
+        <RefreshControl
+          refreshing={false}
+          onRefresh={() => refetchFiles()}
+        />
+      }
+    />
   );
 }
 
@@ -230,8 +409,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
+  },
+  listContent: {
     padding: 24,
-    justifyContent: "center",
+    paddingBottom: 40,
   },
   heading: { fontSize: 28, fontWeight: "700", color: "#111", marginBottom: 8 },
   subtext: { fontSize: 15, color: "#888", lineHeight: 22, marginBottom: 32 },
@@ -252,6 +433,70 @@ const styles = StyleSheet.create({
     backgroundColor: "#fee2e2",
   },
   cardLabel: { fontSize: 14, fontWeight: "600", color: "#555", marginTop: 4 },
-  busyWrap: { alignItems: "center", gap: 12 },
+  busyWrap: { alignItems: "center", gap: 12, paddingVertical: 40 },
   busyText: { fontSize: 16, color: "#888" },
+  // Recent captures section
+  recentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 32,
+    marginBottom: 12,
+  },
+  recentTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111",
+  },
+  emptyText: {
+    fontSize: 14,
+    color: "#aaa",
+    textAlign: "center",
+    paddingVertical: 20,
+  },
+  fileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eee",
+    gap: 12,
+  },
+  fileThumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+  },
+  fileIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fileInfo: {
+    flex: 1,
+  },
+  fileKind: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#333",
+  },
+  fileDate: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 2,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
 });

@@ -2,13 +2,27 @@ import { Hono } from "hono";
 import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
+import { verifyJwt } from "../services/jwt";
 import type { QueueMessage } from "@assistant/shared";
 
 type FilesApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
 const files: FilesApp = new Hono();
 
-files.use("*", authMiddleware);
+// Auth middleware that also accepts ?token= query param (for opening files in browser)
+files.use("*", async (c, next) => {
+  const queryToken = c.req.query("token");
+  if (queryToken && !c.req.header("Authorization")) {
+    const payload = await verifyJwt(queryToken, c.env.SESSION_JWT_SECRET);
+    if (!payload) {
+      return c.json({ error: "Invalid or expired token" }, 401);
+    }
+    c.set("userId", payload.sub);
+    c.set("email", payload.email);
+    return next();
+  }
+  return authMiddleware(c, next);
+});
 
 // Upload a file (image, PDF, or audio) — max 100MB
 files.post("/upload", async (c) => {
@@ -63,6 +77,20 @@ files.post("/upload", async (c) => {
   return c.json({ id: fileId, kind, status: "pending" });
 });
 
+// List user's uploaded files
+files.get("/", async (c) => {
+  const userId = c.get("userId");
+  const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
+
+  const { results } = await c.env.DB.prepare(
+    "SELECT id, kind, r2_key, status, created_at FROM ingested_files WHERE user_id = ? ORDER BY created_at DESC LIMIT ?"
+  )
+    .bind(userId, limit)
+    .all();
+
+  return c.json({ files: results });
+});
+
 // Get file status
 files.get("/:id", async (c) => {
   const userId = c.get("userId");
@@ -76,6 +104,40 @@ files.get("/:id", async (c) => {
 
   if (!file) return c.json({ error: "Not found" }, 404);
   return c.json(file);
+});
+
+// Download file from R2
+files.get("/:id/download", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  const file = await c.env.DB.prepare(
+    "SELECT id, kind, r2_key FROM ingested_files WHERE id = ? AND user_id = ?"
+  )
+    .bind(id, userId)
+    .first<{ id: string; kind: string; r2_key: string }>();
+
+  if (!file) return c.json({ error: "Not found" }, 404);
+
+  const obj = await c.env.FILES.get(file.r2_key);
+  if (!obj) return c.json({ error: "File not found in storage" }, 404);
+
+  const contentType =
+    obj.httpMetadata?.contentType ||
+    (file.kind === "pdf"
+      ? "application/pdf"
+      : file.kind === "audio"
+        ? "audio/m4a"
+        : "image/jpeg");
+
+  const headers = new Headers();
+  headers.set("Content-Type", contentType);
+  headers.set("Cache-Control", "private, max-age=3600");
+  if (obj.size) {
+    headers.set("Content-Length", obj.size.toString());
+  }
+
+  return new Response(obj.body, { headers });
 });
 
 export { files };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,10 +7,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   Linking,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "../../src/api/client";
+import { Ionicons } from "@expo/vector-icons";
+import { apiFetch, API_BASE } from "../../src/api/client";
+import { useAuth } from "../../src/state/auth";
 
 interface TriageItem {
   id: string;
@@ -57,6 +60,12 @@ const QUADRANT_META: Record<Quadrant, { label: string; color: string }> = {
   plan:   { label: "Plan",   color: "#38a169" },
   noop:   { label: "Noop",   color: "#a0aec0" },
 };
+
+const CATEGORIES = [
+  "billing", "scheduling", "personal", "work", "newsletter",
+  "notification", "social", "shopping", "travel", "security",
+  "health", "legal", "other",
+];
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "Unknown";
@@ -134,6 +143,81 @@ function ScorePicker({
   );
 }
 
+// --- File preview component ---
+
+function FilePreview({ sourceType, sourceRef }: { sourceType: string; sourceRef: string | null }) {
+  const { token } = useAuth();
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (sourceType === "image" && sourceRef && token) {
+      setLoading(true);
+      fetch(`${API_BASE}/files/${sourceRef}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.blob())
+        .then((blob) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            setImageUri(reader.result as string);
+            setLoading(false);
+          };
+          reader.readAsDataURL(blob);
+        })
+        .catch(() => setLoading(false));
+    }
+  }, [sourceType, sourceRef, token]);
+
+  if (!sourceRef) return null;
+
+  if (sourceType === "image") {
+    return (
+      <View style={styles.filePreviewSection}>
+        <Text style={styles.sectionTitle}>Captured Image</Text>
+        {loading ? (
+          <ActivityIndicator style={{ paddingVertical: 40 }} />
+        ) : imageUri ? (
+          <Image
+            source={{ uri: imageUri }}
+            style={styles.previewImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <Text style={styles.previewError}>Could not load image</Text>
+        )}
+      </View>
+    );
+  }
+
+  if (sourceType === "document" || sourceType === "voice") {
+    const handleOpen = () => {
+      if (token) {
+        // Open in browser with token as query param (fine for 1-2 testers)
+        Linking.openURL(`${API_BASE}/files/${sourceRef}/download?token=${encodeURIComponent(token)}`);
+      }
+    };
+
+    return (
+      <View style={styles.filePreviewSection}>
+        <Text style={styles.sectionTitle}>
+          {sourceType === "document" ? "Captured Document" : "Voice Memo"}
+        </Text>
+        <Pressable style={styles.viewFileBtn} onPress={handleOpen}>
+          <Ionicons
+            name={sourceType === "document" ? "document-text-outline" : "musical-notes-outline"}
+            size={20}
+            color="#4285F4"
+          />
+          <Text style={styles.viewFileBtnText}>View Original File</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return null;
+}
+
 // --- Main component ---
 
 export default function TriageDetail() {
@@ -149,15 +233,19 @@ export default function TriageDetail() {
 
   const [localPriority, setLocalPriority] = useState<number | null>(null);
   const [localUrgency, setLocalUrgency] = useState<number | null>(null);
+  const [localCategory, setLocalCategory] = useState<string | null>(null);
   const [scoresExpanded, setScoresExpanded] = useState(false);
 
-  const feedbackMutation = useMutation({
-    mutationFn: (body: { kind: string; corrected_priority: number; corrected_urgency: number }) =>
-      apiFetch(`/triage/${id}/feedback`, {
-        method: "POST",
+  const editMutation = useMutation({
+    mutationFn: (body: { priority?: number; urgency?: number; category?: string }) =>
+      apiFetch(`/triage/${id}`, {
+        method: "PATCH",
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
+      setLocalPriority(null);
+      setLocalUrgency(null);
+      setLocalCategory(null);
       queryClient.invalidateQueries({ queryKey: ["triage", id] });
       queryClient.invalidateQueries({ queryKey: ["triage"] });
     },
@@ -196,9 +284,11 @@ export default function TriageDetail() {
       ? (item.event_updated_at || item.event_created_at || item.created_at)
       : item.created_at
   );
+  const category = localCategory ?? item.category ?? "other";
   const hasChanged =
     (localPriority !== null && localPriority !== item.priority) ||
-    (localUrgency !== null && localUrgency !== item.urgency);
+    (localUrgency !== null && localUrgency !== item.urgency) ||
+    (localCategory !== null && localCategory !== (item.category ?? "other"));
 
   let details: string | null = null;
   if (item.classifier_json) {
@@ -225,14 +315,14 @@ export default function TriageDetail() {
   }
   sourceDetails.push({ label: "Fetched", value: formatDate(item.created_at) });
 
-  const handleSaveScores = () => {
-    feedbackMutation.mutate({
-      kind: "wrong_priority",
-      corrected_priority: priority,
-      corrected_urgency: urgency,
-    });
-    setLocalPriority(null);
-    setLocalUrgency(null);
+  const handleSave = () => {
+    const updates: { priority?: number; urgency?: number; category?: string } = {};
+    if (localPriority !== null && localPriority !== item.priority) updates.priority = localPriority;
+    if (localUrgency !== null && localUrgency !== item.urgency) updates.urgency = localUrgency;
+    if (localCategory !== null && localCategory !== (item.category ?? "other")) updates.category = localCategory;
+    if (Object.keys(updates).length > 0) {
+      editMutation.mutate(updates);
+    }
   };
 
   const handleOpenOriginal = () => {
@@ -288,7 +378,7 @@ export default function TriageDetail() {
       {/* Summary */}
       <Text style={styles.summary}>{item.summary || "No summary"}</Text>
 
-      {/* Score pickers — expanded */}
+      {/* Score pickers + category — expanded */}
       {scoresExpanded && (
         <View style={styles.scoresSection}>
           <ScorePicker
@@ -301,14 +391,30 @@ export default function TriageDetail() {
             value={urgency}
             onChange={setLocalUrgency}
           />
+          <View style={styles.categoryPicker}>
+            <Text style={styles.pickerLabel}>Category</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+              {CATEGORIES.map((cat) => (
+                <Pressable
+                  key={cat}
+                  style={[styles.categoryChip, category === cat && styles.categoryChipActive]}
+                  onPress={() => setLocalCategory(cat)}
+                >
+                  <Text style={[styles.categoryChipText, category === cat && styles.categoryChipTextActive]}>
+                    {cat}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
           {hasChanged && (
             <Pressable
               style={styles.saveScoresBtn}
-              onPress={handleSaveScores}
-              disabled={feedbackMutation.isPending}
+              onPress={handleSave}
+              disabled={editMutation.isPending}
             >
               <Text style={styles.saveScoresText}>
-                {feedbackMutation.isPending ? "Saving..." : "Save Scores"}
+                {editMutation.isPending ? "Saving..." : "Save Changes"}
               </Text>
             </Pressable>
           )}
@@ -357,6 +463,11 @@ export default function TriageDetail() {
           <Text style={styles.sectionTitle}>Suggested Action</Text>
           <Text style={styles.sectionBody}>{item.suggested_action}</Text>
         </View>
+      )}
+
+      {/* File preview for captured items */}
+      {(item.source_type === "image" || item.source_type === "document" || item.source_type === "voice") && (
+        <FilePreview sourceType={item.source_type} sourceRef={item.source_ref} />
       )}
 
       {/* Action buttons */}
@@ -438,6 +549,30 @@ const styles = StyleSheet.create({
   },
   pickerBtnText: { fontSize: 15, fontWeight: "600", color: "#666" },
   pickerBtnTextActive: { color: "#fff" },
+  categoryPicker: {
+    marginBottom: 10,
+  },
+  categoryScroll: {
+    marginTop: 6,
+  },
+  categoryChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+    backgroundColor: "#e8e8e8",
+    marginRight: 6,
+  },
+  categoryChipActive: {
+    backgroundColor: "#4285F4",
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#666",
+  },
+  categoryChipTextActive: {
+    color: "#fff",
+  },
   saveScoresBtn: {
     backgroundColor: "#4285F4",
     paddingVertical: 10,
@@ -495,4 +630,34 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
   },
   dismissBtnText: { color: "#999", fontSize: 16, fontWeight: "600" },
+  // File preview styles
+  filePreviewSection: {
+    marginBottom: 20,
+  },
+  previewImage: {
+    width: "100%",
+    height: 280,
+    borderRadius: 12,
+    backgroundColor: "#f0f0f0",
+  },
+  previewError: {
+    fontSize: 14,
+    color: "#999",
+    textAlign: "center",
+    paddingVertical: 20,
+  },
+  viewFileBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#f0f0f0",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
+  viewFileBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#4285F4",
+  },
 });
