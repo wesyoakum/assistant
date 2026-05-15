@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Platform } from "react-native";
+import { Platform, Linking } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
@@ -17,8 +17,8 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Shared action buttons used by most categories
-const UNIFIED_ACTIONS: Notifications.NotificationAction[] = [
+// Shared action buttons for most categories
+const BASE_ACTIONS: Notifications.NotificationAction[] = [
   {
     identifier: "dismiss",
     buttonTitle: "Dismiss",
@@ -38,10 +38,28 @@ const UNIFIED_ACTIONS: Notifications.NotificationAction[] = [
 
 // Register notification categories with action buttons
 async function registerCategories() {
-  await Notifications.setNotificationCategoryAsync("triage", UNIFIED_ACTIONS);
+  // General triage (calendar events, files, chat-created items)
+  await Notifications.setNotificationCategoryAsync("triage", BASE_ACTIONS);
 
-  await Notifications.setNotificationCategoryAsync("reminder", UNIFIED_ACTIONS);
+  // Email triage — adds Open Original and Reply
+  await Notifications.setNotificationCategoryAsync("triage-email", [
+    ...BASE_ACTIONS,
+    {
+      identifier: "open-original",
+      buttonTitle: "Open in Gmail",
+      options: { opensAppToForeground: false },
+    },
+    {
+      identifier: "reply",
+      buttonTitle: "Reply in Gmail",
+      options: { opensAppToForeground: false },
+    },
+  ]);
 
+  // Reminders
+  await Notifications.setNotificationCategoryAsync("reminder", BASE_ACTIONS);
+
+  // Morning briefing
   await Notifications.setNotificationCategoryAsync("briefing", [
     {
       identifier: "open",
@@ -50,7 +68,15 @@ async function registerCategories() {
     },
   ]);
 
-  await Notifications.setNotificationCategoryAsync("event-headsup", UNIFIED_ACTIONS);
+  // Event heads-up — adds Open in Calendar
+  await Notifications.setNotificationCategoryAsync("event-headsup", [
+    ...BASE_ACTIONS,
+    {
+      identifier: "open-original",
+      buttonTitle: "Open in Calendar",
+      options: { opensAppToForeground: false },
+    },
+  ]);
 }
 
 export function useNotifications() {
@@ -113,11 +139,12 @@ function handleNotificationResponse(
   const actionId = response.actionIdentifier;
   const data = response.notification.request.content.data;
   const url = data?.url as string | undefined;
+  const sourceUrl = data?.sourceUrl as string | undefined;
   const triageItemId = url?.startsWith("whyapp://triage/")
     ? url.replace("whyapp://triage/", "")
     : null;
 
-  // Handle action buttons — fire-and-forget API calls
+  // Dismiss — mark triage item as dismissed
   if (actionId === "dismiss" && triageItemId) {
     apiFetch(`/triage/${triageItemId}/status`, {
       method: "POST",
@@ -126,6 +153,7 @@ function handleNotificationResponse(
     return;
   }
 
+  // Snooze — create a reminder 15 min from now
   if (actionId === "snooze") {
     const message =
       response.notification.request.content.body ?? "Snoozed item";
@@ -139,7 +167,19 @@ function handleNotificationResponse(
     return;
   }
 
-  // Default tap or "open" action — navigate to the item
+  // Open Original — open source URL (Gmail, Calendar, etc.) in browser
+  if (actionId === "open-original" && sourceUrl) {
+    Linking.openURL(sourceUrl);
+    return;
+  }
+
+  // Reply — open Gmail thread (reply is done in Gmail itself)
+  if (actionId === "reply" && sourceUrl) {
+    Linking.openURL(sourceUrl);
+    return;
+  }
+
+  // Default tap or "open" action — navigate to the triage item
   if (triageItemId) {
     router.push(`/triage/${triageItemId}`);
   }

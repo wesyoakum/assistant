@@ -506,20 +506,44 @@ async function handlePushSend(
 
   if (tokens.length === 0) return;
 
+  // Look up source info for deep actions (Open Original, Reply)
+  const item = await env.DB.prepare(
+    "SELECT source_type, source_ref, source_url FROM triage_items WHERE id = ?"
+  ).bind(triageItemId).first<{ source_type: string; source_ref: string | null; source_url: string | null }>();
+
+  let sourceUrl: string | null = null;
+  let sourceType: string | null = null;
+  if (item) {
+    sourceType = item.source_type;
+    sourceUrl = item.source_url || null;
+    if (!sourceUrl && item.source_type === "email" && item.source_ref) {
+      sourceUrl = `https://mail.google.com/mail/u/0/#inbox/${item.source_ref}`;
+    } else if (!sourceUrl && (item.source_type === "event" || item.source_type === "calendar") && item.source_ref) {
+      sourceUrl = `https://calendar.google.com/calendar/event?eid=${item.source_ref}`;
+    }
+  }
+
+  // Use email-specific category for emails (has Reply button)
+  const categoryId = sourceType === "email" ? "triage-email" : "triage";
+
   const messages = tokens.map((t) => ({
     to: t.expo_token,
     title: "High Priority Item",
     body: summary,
     sound: "default" as const,
-    categoryId: "triage",
+    categoryId,
     priority: "high" as const,
     _contentAvailable: true,
-    data: { url: `whyapp://triage/${triageItemId}` },
+    data: {
+      url: `whyapp://triage/${triageItemId}`,
+      sourceUrl: sourceUrl || undefined,
+      sourceType: sourceType || undefined,
+    },
   }));
   await sendExpoPush(env, messages);
   await env.DB.prepare(
     "INSERT INTO notification_log (id, user_id, title, body, category, triage_item_id) VALUES (?, ?, ?, ?, ?, ?)"
-  ).bind(crypto.randomUUID(), userId, "High Priority Item", summary, "triage", triageItemId).run();
+  ).bind(crypto.randomUUID(), userId, "High Priority Item", summary, categoryId, triageItemId).run();
 
   console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
 }
