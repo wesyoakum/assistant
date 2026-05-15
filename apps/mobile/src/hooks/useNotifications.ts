@@ -17,6 +17,48 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Register notification categories with action buttons
+async function registerCategories() {
+  await Notifications.setNotificationCategoryAsync("triage-high", [
+    {
+      identifier: "done",
+      buttonTitle: "Mark Done",
+      options: { opensAppToForeground: false },
+    },
+    {
+      identifier: "dismiss",
+      buttonTitle: "Dismiss",
+      options: { isDestructive: true, opensAppToForeground: false },
+    },
+    {
+      identifier: "open",
+      buttonTitle: "Open",
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("triage-normal", [
+    {
+      identifier: "done",
+      buttonTitle: "Mark Done",
+      options: { opensAppToForeground: false },
+    },
+    {
+      identifier: "dismiss",
+      buttonTitle: "Dismiss",
+      options: { isDestructive: true, opensAppToForeground: false },
+    },
+  ]);
+
+  await Notifications.setNotificationCategoryAsync("reminder", [
+    {
+      identifier: "done",
+      buttonTitle: "Done",
+      options: { opensAppToForeground: false },
+    },
+  ]);
+}
+
 export function useNotifications() {
   const router = useRouter();
   const { isAuthenticated } = useAuth();
@@ -29,9 +71,13 @@ export function useNotifications() {
     }
   }, [isAuthenticated]);
 
-  // Register for push on mount when authenticated
+  // Register categories and push token on mount when authenticated
   useEffect(() => {
-    if (!isAuthenticated || didRegister.current) return;
+    if (!isAuthenticated) return;
+
+    registerCategories();
+
+    if (didRegister.current) return;
 
     (async () => {
       try {
@@ -48,7 +94,7 @@ export function useNotifications() {
     })();
   }, [isAuthenticated]);
 
-  // Handle notification taps from foreground/background
+  // Handle notification taps and action button presses
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener(
       (response) => {
@@ -70,16 +116,33 @@ function handleNotificationResponse(
   response: Notifications.NotificationResponse,
   router: ReturnType<typeof useRouter>
 ) {
-  const url = response.notification.request.content.data?.url;
-  if (typeof url === "string" && url.startsWith("whyapp://triage/")) {
-    const id = url.replace("whyapp://triage/", "");
-    router.push(`/triage/${id}`);
+  const actionId = response.actionIdentifier;
+  const data = response.notification.request.content.data;
+  const url = data?.url as string | undefined;
+  const triageItemId = url?.startsWith("whyapp://triage/")
+    ? url.replace("whyapp://triage/", "")
+    : null;
+
+  // Handle action buttons (done/dismiss) — fire-and-forget API call
+  if (triageItemId && (actionId === "done" || actionId === "dismiss")) {
+    const status = actionId === "done" ? "done" : "dismissed";
+    apiFetch(`/triage/${triageItemId}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }).catch(() => {
+      // Fail silently — user can do it manually
+    });
+    return;
+  }
+
+  // Default tap or "open" action — navigate to the item
+  if (triageItemId) {
+    router.push(`/triage/${triageItemId}`);
   }
 }
 
 async function registerForPush(): Promise<string | null> {
   if (!Device.isDevice) {
-    // Push tokens don't work on simulators, but Expo Go on a real device is fine
     console.log("[push] Not a physical device, skipping");
     return null;
   }

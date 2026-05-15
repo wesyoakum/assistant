@@ -113,6 +113,9 @@ export default {
           title: "Reminder",
           body: rem.message,
           sound: "default",
+          categoryId: "reminder",
+          priority: "high" as const,
+          _contentAvailable: true,
         }));
         await sendExpoPush(env, messages);
       }
@@ -328,6 +331,9 @@ async function handlePushSend(
     title: "High Priority Item",
     body: summary,
     sound: "default" as const,
+    categoryId: "triage-high",
+    priority: "high" as const,
+    _contentAvailable: true,
     data: { url: `whyapp://triage/${triageItemId}` },
   }));
   await sendExpoPush(env, messages);
@@ -340,6 +346,9 @@ type ExpoPushMessage = {
   title: string;
   body: string;
   sound?: string;
+  categoryId?: string;
+  priority?: "default" | "normal" | "high";
+  _contentAvailable?: boolean;
   data?: Record<string, unknown>;
 };
 
