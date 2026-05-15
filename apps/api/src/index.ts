@@ -61,15 +61,13 @@ export default {
   fetch: app.fetch,
 
   async scheduled(
-    controller: ScheduledController,
+    _controller: ScheduledController,
     env: Env,
     _ctx: ExecutionContext
   ) {
     // Gmail poll only on the 10-minute cron (*/10)
     // The 1-minute cron fires reminders and auto-dismiss only
-    const isFullPoll = controller.cron === "*/10 * * * *";
-
-    if (isFullPoll) {
+    {
       const { results: users } = await env.DB.prepare(
         "SELECT id FROM users"
       ).all<{ id: string }>();
