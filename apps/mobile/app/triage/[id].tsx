@@ -285,6 +285,9 @@ export default function TriageDetail() {
         </View>
       </View>
 
+      {/* Summary */}
+      <Text style={styles.summary}>{item.summary || "No summary"}</Text>
+
       {/* Score pickers — expanded */}
       {scoresExpanded && (
         <View style={styles.scoresSection}>

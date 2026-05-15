@@ -14,7 +14,7 @@ interface AuthState {
 
 export const useAuth = create<AuthState>((set) => ({
   token: null,
-  isLoading: false,
+  isLoading: true,
   isAuthenticated: false,
 
   loadToken: async () => {

@@ -1,4 +1,4 @@
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useEffect } from "react";
 import {
   View,
   Text,
@@ -157,12 +157,14 @@ export default function TriageScreen() {
     },
   });
 
-  if (!didSync.current) {
+  // Auto-sync on mount
+  useEffect(() => {
+    if (didSync.current) return;
     didSync.current = true;
     apiFetch("/gmail/sync", { method: "POST" }).then(() => {
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ["triage"] }), 3000);
     });
-  }
+  }, [queryClient]);
 
   const sections = useMemo(() => {
     const items = data?.items || [];

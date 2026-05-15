@@ -1,6 +1,6 @@
 import { useAuth } from "../state/auth";
 
-const API_BASE = "https://api.whyapp.us";
+export const API_BASE = "https://api.whyapp.us";
 
 export async function apiFetch<T>(
   path: string,

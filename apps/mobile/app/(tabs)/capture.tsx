@@ -10,9 +10,9 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../src/state/auth";
-
-const API_BASE = "https://api.whyapp.us";
+import { API_BASE } from "../../src/api/client";
 
 type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -196,17 +196,17 @@ export default function CaptureScreen() {
 
           <View style={styles.grid}>
             <Pressable style={styles.card} onPress={pickPhoto}>
-              <Text style={styles.cardIcon}>C</Text>
+              <Ionicons name="camera-outline" size={32} color="#4285F4" />
               <Text style={styles.cardLabel}>Camera</Text>
             </Pressable>
 
             <Pressable style={styles.card} onPress={pickImage}>
-              <Text style={styles.cardIcon}>P</Text>
+              <Ionicons name="images-outline" size={32} color="#4285F4" />
               <Text style={styles.cardLabel}>Photo Library</Text>
             </Pressable>
 
             <Pressable style={styles.card} onPress={pickDocument}>
-              <Text style={styles.cardIcon}>D</Text>
+              <Ionicons name="document-outline" size={32} color="#4285F4" />
               <Text style={styles.cardLabel}>Document</Text>
             </Pressable>
 
@@ -214,7 +214,7 @@ export default function CaptureScreen() {
               style={[styles.card, isRecording && styles.cardRecording]}
               onPress={isRecording ? stopRecording : startRecording}
             >
-              <Text style={styles.cardIcon}>{isRecording ? "S" : "V"}</Text>
+              <Ionicons name={isRecording ? "stop-circle-outline" : "mic-outline"} size={32} color={isRecording ? "#e53e3e" : "#4285F4"} />
               <Text style={styles.cardLabel}>
                 {isRecording ? "Stop Recording" : "Voice Memo"}
               </Text>
@@ -251,8 +251,7 @@ const styles = StyleSheet.create({
   cardRecording: {
     backgroundColor: "#fee2e2",
   },
-  cardIcon: { fontSize: 28, fontWeight: "700", color: "#4285F4" },
-  cardLabel: { fontSize: 14, fontWeight: "600", color: "#555" },
+  cardLabel: { fontSize: 14, fontWeight: "600", color: "#555", marginTop: 4 },
   busyWrap: { alignItems: "center", gap: 12 },
   busyText: { fontSize: 16, color: "#888" },
 });

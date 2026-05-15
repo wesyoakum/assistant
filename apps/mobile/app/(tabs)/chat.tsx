@@ -228,7 +228,7 @@ export default function ChatScreen() {
                   {item.content}
                 </Text>
               ) : (
-                <Markdown style={item.role === "assistant" ? mdStyles : mdStylesUser}>
+                <Markdown style={mdStyles}>
                   {item.content}
                 </Markdown>
               )}
@@ -278,8 +278,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 120,
   },
-  emptyTitle: { fontSize: 24, fontWeight: "700", color: "#333", marginBottom: 8 },
-  emptyText: { fontSize: 15, color: "#999", textAlign: "center", maxWidth: 260 },
   messageBubble: {
     maxWidth: "80%",
     paddingHorizontal: 14,
@@ -297,7 +295,6 @@ const styles = StyleSheet.create({
   },
   messageText: { fontSize: 15, lineHeight: 21 },
   userText: { color: "#fff" },
-  assistantText: { color: "#222" },
   typingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -306,7 +303,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   typingText: { fontSize: 13, color: "#999" },
-  errorText: { fontSize: 13, color: "#e53e3e" },
   inputRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -349,7 +345,3 @@ const mdStyles = {
   fence: { backgroundColor: "#d5d5d5", padding: 8, borderRadius: 6, fontSize: 13 },
 };
 
-const mdStylesUser = {
-  ...mdStyles,
-  body: { ...mdStyles.body, color: "#fff" },
-};
