@@ -548,7 +548,14 @@ The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will
     try {
       const rem = JSON.parse(remMatch[1].trim());
       if (rem.message && rem.fire_at) {
-        // Convert to UTC so SQLite datetime('now') comparison works
+        // fire_at must carry a timezone (Z or ±HH:MM). Without one,
+        // new Date() reads it as the Worker's local time (UTC), which
+        // silently shifts reminders by the user's offset.
+        const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(rem.fire_at);
+        if (!hasTz) {
+          console.warn(`Skipping reminder with naive fire_at: ${rem.fire_at}`);
+          continue;
+        }
         const fireAtUtc = new Date(rem.fire_at).toISOString();
         await c.env.DB.prepare(
           "INSERT INTO reminders (id, user_id, message, fire_at) VALUES (?, ?, ?, ?)"
@@ -696,7 +703,7 @@ chat.get("/greeting", async (c) => {
   const { results: pastDueItems } = await c.env.DB.prepare(
     `SELECT id, summary, due_at, event_at FROM triage_items
      WHERE user_id = ? AND status = 'open'
-     AND (due_at < datetime('now') OR event_at < datetime('now'))
+     AND (datetime(due_at) < datetime('now') OR datetime(event_at) < datetime('now'))
      LIMIT 3`
   )
     .bind(userId)

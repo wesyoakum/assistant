@@ -83,17 +83,19 @@ export default {
        WHERE status = 'open'
        AND source_type IN ('calendar', 'event')
        AND priority <= 2 AND urgency <= 2
-       AND event_at IS NOT NULL AND event_at < datetime('now')`
+       AND event_at IS NOT NULL AND datetime(event_at) < datetime('now')`
     ).run();
     if (dismissed.meta.changes) {
       console.log(`Cron: auto-dismissed ${dismissed.meta.changes} past Noop items`);
     }
 
-    // Fire due reminders
+    // Fire due reminders. Wrap both sides in datetime() so an ISO `fire_at`
+    // (`...T...Z`) and SQLite's space-separated `datetime('now')` are compared
+    // as parsed timestamps, not as raw strings.
     const { results: dueReminders } = await env.DB.prepare(
       `SELECT r.id, r.user_id, r.message
        FROM reminders r
-       WHERE r.status = 'pending' AND r.fire_at <= datetime('now')`
+       WHERE r.status = 'pending' AND datetime(r.fire_at) <= datetime('now')`
     ).all<{ id: string; user_id: string; message: string }>();
 
     for (const rem of dueReminders) {
