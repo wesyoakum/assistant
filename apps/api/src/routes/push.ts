@@ -79,4 +79,44 @@ push.get("/history", async (c) => {
   return c.json({ notifications: results });
 });
 
+// Snooze — create a reminder 15 minutes from now
+push.post("/snooze", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json()) as {
+    triageItemId?: string;
+    message?: string;
+  };
+
+  let message = body.message || "Snoozed reminder";
+
+  // If a triage item was referenced, pull its summary for the reminder text
+  if (body.triageItemId) {
+    const item = await c.env.DB.prepare(
+      "SELECT summary FROM triage_items WHERE id = ? AND user_id = ?"
+    )
+      .bind(body.triageItemId, userId)
+      .first<{ summary: string }>();
+    if (item?.summary) {
+      message = item.summary;
+    }
+  }
+
+  const fireAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+  await c.env.DB.prepare(
+    `INSERT INTO reminders (id, user_id, message, fire_at, triage_item_id, status)
+     VALUES (?, ?, ?, ?, ?, 'pending')`
+  )
+    .bind(
+      crypto.randomUUID(),
+      userId,
+      message,
+      fireAt,
+      body.triageItemId ?? null
+    )
+    .run();
+
+  return c.json({ ok: true, fire_at: fireAt });
+});
+
 export { push };

@@ -132,6 +132,183 @@ export default {
     if (dueReminders.length > 0) {
       console.log(`Cron: fired ${dueReminders.length} reminders`);
     }
+
+    // --- Overdue urgency bump (non-calendar items past due_at or event_at) ---
+    const bumped = await env.DB.prepare(
+      `UPDATE triage_items SET urgency = 5, updated_at = datetime('now')
+       WHERE status = 'open' AND urgency < 5
+       AND (
+         (due_at IS NOT NULL AND datetime(due_at) < datetime('now'))
+         OR (event_at IS NOT NULL AND datetime(event_at) < datetime('now')
+             AND source_type NOT IN ('calendar', 'event'))
+       )`
+    ).run();
+    if (bumped.meta.changes) {
+      console.log(`Cron: urgency-bumped ${bumped.meta.changes} overdue items`);
+    }
+
+    // --- Auto-archive stale low-priority items (14+ days, P<=2, U<=2) ---
+    const archived = await env.DB.prepare(
+      `UPDATE triage_items SET status = 'dismissed', updated_at = datetime('now')
+       WHERE status = 'open' AND priority <= 2 AND urgency <= 2
+       AND created_at < datetime('now', '-14 days')`
+    ).run();
+    if (archived.meta.changes) {
+      console.log(`Cron: auto-archived ${archived.meta.changes} stale items`);
+    }
+
+    // --- Event heads-up (30 min before) ---
+    {
+      const { results: upcoming } = await env.DB.prepare(
+        `SELECT id, user_id, summary, event_at FROM triage_items
+         WHERE source_type IN ('calendar', 'event')
+         AND status = 'open'
+         AND event_at IS NOT NULL
+         AND datetime(event_at) > datetime('now')
+         AND datetime(event_at) <= datetime('now', '+31 minutes')`
+      ).all<{ id: string; user_id: string; summary: string; event_at: string }>();
+
+      for (const item of upcoming) {
+        // Deduplicate: skip if already notified for this item recently
+        const already = await env.DB.prepare(
+          `SELECT id FROM notification_log
+           WHERE triage_item_id = ? AND category = 'event-headsup'
+           AND created_at > datetime('now', '-1 hour')`
+        ).bind(item.id).first();
+        if (already) continue;
+
+        const { results: tokens } = await env.DB.prepare(
+          "SELECT expo_token FROM push_tokens WHERE user_id = ?"
+        ).bind(item.user_id).all<{ expo_token: string }>();
+
+        if (tokens.length > 0) {
+          const eventTime = new Date(item.event_at).toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            timeZone: "America/Chicago",
+          });
+          const body = `${item.summary} at ${eventTime}`;
+          const messages = tokens.map((t) => ({
+            to: t.expo_token,
+            title: "Coming up soon",
+            body,
+            sound: "default" as const,
+            categoryId: "event-headsup",
+            priority: "high" as const,
+            _contentAvailable: true,
+            data: { url: `whyapp://triage/${item.id}` },
+          }));
+          await sendExpoPush(env, messages);
+          await env.DB.prepare(
+            "INSERT INTO notification_log (id, user_id, title, body, category, triage_item_id) VALUES (?, ?, ?, ?, ?, ?)"
+          ).bind(crypto.randomUUID(), item.user_id, "Coming up soon", body, "event-headsup", item.id).run();
+        }
+      }
+
+      if (upcoming.length > 0) {
+        console.log(`Cron: checked ${upcoming.length} upcoming events for heads-up`);
+      }
+    }
+
+    // --- Daily notifications (overdue + morning briefing) at 13:00 UTC / ~7-8 AM CDT ---
+    const now = new Date();
+    if (now.getUTCHours() === 13 && now.getUTCMinutes() === 0) {
+      const { results: allUsers } = await env.DB.prepare(
+        "SELECT id FROM users"
+      ).all<{ id: string }>();
+
+      for (const user of allUsers) {
+        const { results: userTokens } = await env.DB.prepare(
+          "SELECT expo_token FROM push_tokens WHERE user_id = ?"
+        ).bind(user.id).all<{ expo_token: string }>();
+        if (userTokens.length === 0) continue;
+
+        // --- Overdue notification ---
+        const { results: overdueItems } = await env.DB.prepare(
+          `SELECT summary FROM triage_items
+           WHERE user_id = ? AND status = 'open' AND priority >= 3
+           AND (
+             (due_at IS NOT NULL AND datetime(due_at) < datetime('now'))
+             OR (event_at IS NOT NULL AND datetime(event_at) < datetime('now')
+                 AND source_type NOT IN ('calendar', 'event'))
+           )
+           ORDER BY priority DESC, urgency DESC
+           LIMIT 5`
+        ).bind(user.id).all<{ summary: string }>();
+
+        if (overdueItems.length > 0) {
+          const listing = overdueItems.map((r) => `• ${r.summary}`).join("\n");
+          const overdueBody = `${overdueItems.length} overdue item${overdueItems.length > 1 ? "s" : ""}:\n${listing}`;
+          const msgs = userTokens.map((t) => ({
+            to: t.expo_token,
+            title: "Overdue Items",
+            body: overdueBody,
+            sound: "default" as const,
+            categoryId: "triage",
+            priority: "high" as const,
+            _contentAvailable: true,
+          }));
+          await sendExpoPush(env, msgs);
+          await env.DB.prepare(
+            "INSERT INTO notification_log (id, user_id, title, body, category) VALUES (?, ?, ?, ?, ?)"
+          ).bind(crypto.randomUUID(), user.id, "Overdue Items", overdueBody, "triage").run();
+        }
+
+        // --- Morning briefing ---
+        const counts = await env.DB.prepare(
+          `SELECT
+             SUM(CASE WHEN priority >= 4 AND urgency >= 4 THEN 1 ELSE 0 END) as hot,
+             SUM(CASE WHEN priority >= 4 AND urgency < 4 THEN 1 ELSE 0 END) as important,
+             SUM(CASE WHEN priority < 4 AND urgency >= 4 THEN 1 ELSE 0 END) as urgent,
+             SUM(CASE WHEN priority < 4 AND urgency < 4 THEN 1 ELSE 0 END) as low,
+             COUNT(*) as total
+           FROM triage_items
+           WHERE user_id = ? AND status = 'open'`
+        ).bind(user.id).first<{
+          hot: number; important: number; urgent: number; low: number; total: number;
+        }>();
+
+        const todayEvents = await env.DB.prepare(
+          `SELECT COUNT(*) as cnt FROM triage_items
+           WHERE user_id = ? AND source_type IN ('calendar', 'event')
+           AND status = 'open'
+           AND event_at IS NOT NULL
+           AND date(event_at) = date('now')`
+        ).bind(user.id).first<{ cnt: number }>();
+
+        const hot = counts?.hot ?? 0;
+        const evtCount = todayEvents?.cnt ?? 0;
+        const total = counts?.total ?? 0;
+        const overdueCount = overdueItems.length;
+
+        const parts: string[] = [];
+        if (hot > 0) parts.push(`${hot} Hot item${hot > 1 ? "s" : ""}`);
+        if ((counts?.important ?? 0) > 0) parts.push(`${counts!.important} important`);
+        if ((counts?.urgent ?? 0) > 0) parts.push(`${counts!.urgent} urgent`);
+        if (evtCount > 0) parts.push(`${evtCount} event${evtCount > 1 ? "s" : ""} today`);
+        if (overdueCount > 0) parts.push(`${overdueCount} overdue`);
+
+        const briefBody = parts.length > 0
+          ? `Good morning! ${parts.join(", ")}. ${total} open total.`
+          : `Good morning! All clear — ${total} open items.`;
+
+        const briefMsgs = userTokens.map((t) => ({
+          to: t.expo_token,
+          title: "Morning Briefing",
+          body: briefBody,
+          sound: "default" as const,
+          categoryId: "briefing",
+          priority: "default" as const,
+          _contentAvailable: true,
+        }));
+        await sendExpoPush(env, briefMsgs);
+        await env.DB.prepare(
+          "INSERT INTO notification_log (id, user_id, title, body, category) VALUES (?, ?, ?, ?, ?)"
+        ).bind(crypto.randomUUID(), user.id, "Morning Briefing", briefBody, "briefing").run();
+      }
+
+      console.log("Cron: sent daily overdue + morning briefing notifications");
+    }
   },
 
   async queue(
@@ -334,7 +511,7 @@ async function handlePushSend(
     title: "High Priority Item",
     body: summary,
     sound: "default" as const,
-    categoryId: "triage-high",
+    categoryId: "triage",
     priority: "high" as const,
     _contentAvailable: true,
     data: { url: `whyapp://triage/${triageItemId}` },
@@ -342,7 +519,7 @@ async function handlePushSend(
   await sendExpoPush(env, messages);
   await env.DB.prepare(
     "INSERT INTO notification_log (id, user_id, title, body, category, triage_item_id) VALUES (?, ?, ?, ?, ?, ?)"
-  ).bind(crypto.randomUUID(), userId, "High Priority Item", summary, "triage-high", triageItemId).run();
+  ).bind(crypto.randomUUID(), userId, "High Priority Item", summary, "triage", triageItemId).run();
 
   console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
 }

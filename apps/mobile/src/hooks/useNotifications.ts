@@ -17,19 +17,32 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Shared action buttons used by most categories
+const UNIFIED_ACTIONS: Notifications.NotificationAction[] = [
+  {
+    identifier: "dismiss",
+    buttonTitle: "Dismiss",
+    options: { isDestructive: true, opensAppToForeground: false },
+  },
+  {
+    identifier: "open",
+    buttonTitle: "Open",
+    options: { opensAppToForeground: true },
+  },
+  {
+    identifier: "snooze",
+    buttonTitle: "Snooze 15 min",
+    options: { opensAppToForeground: false },
+  },
+];
+
 // Register notification categories with action buttons
 async function registerCategories() {
-  await Notifications.setNotificationCategoryAsync("triage-high", [
-    {
-      identifier: "done",
-      buttonTitle: "Mark Done",
-      options: { opensAppToForeground: false },
-    },
-    {
-      identifier: "dismiss",
-      buttonTitle: "Dismiss",
-      options: { isDestructive: true, opensAppToForeground: false },
-    },
+  await Notifications.setNotificationCategoryAsync("triage", UNIFIED_ACTIONS);
+
+  await Notifications.setNotificationCategoryAsync("reminder", UNIFIED_ACTIONS);
+
+  await Notifications.setNotificationCategoryAsync("briefing", [
     {
       identifier: "open",
       buttonTitle: "Open",
@@ -37,26 +50,7 @@ async function registerCategories() {
     },
   ]);
 
-  await Notifications.setNotificationCategoryAsync("triage-normal", [
-    {
-      identifier: "done",
-      buttonTitle: "Mark Done",
-      options: { opensAppToForeground: false },
-    },
-    {
-      identifier: "dismiss",
-      buttonTitle: "Dismiss",
-      options: { isDestructive: true, opensAppToForeground: false },
-    },
-  ]);
-
-  await Notifications.setNotificationCategoryAsync("reminder", [
-    {
-      identifier: "done",
-      buttonTitle: "Done",
-      options: { opensAppToForeground: false },
-    },
-  ]);
+  await Notifications.setNotificationCategoryAsync("event-headsup", UNIFIED_ACTIONS);
 }
 
 export function useNotifications() {
@@ -123,15 +117,25 @@ function handleNotificationResponse(
     ? url.replace("whyapp://triage/", "")
     : null;
 
-  // Handle action buttons (done/dismiss) — fire-and-forget API call
-  if (triageItemId && (actionId === "done" || actionId === "dismiss")) {
-    const status = actionId === "done" ? "done" : "dismissed";
+  // Handle action buttons — fire-and-forget API calls
+  if (actionId === "dismiss" && triageItemId) {
     apiFetch(`/triage/${triageItemId}/status`, {
       method: "POST",
-      body: JSON.stringify({ status }),
-    }).catch(() => {
-      // Fail silently — user can do it manually
-    });
+      body: JSON.stringify({ status: "dismissed" }),
+    }).catch(() => {});
+    return;
+  }
+
+  if (actionId === "snooze") {
+    const message =
+      response.notification.request.content.body ?? "Snoozed item";
+    apiFetch("/push/snooze", {
+      method: "POST",
+      body: JSON.stringify({
+        triageItemId: triageItemId ?? undefined,
+        message,
+      }),
+    }).catch(() => {});
     return;
   }
 
