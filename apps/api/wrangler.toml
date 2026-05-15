@@ -35,7 +35,7 @@ max_batch_timeout = 30
 
 # Cron: poll Gmail every 10 minutes
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["* * * * *", "*/10 * * * *"]
 
 # Secrets (set via `wrangler secret put <NAME>`):
 # - GOOGLE_CLIENT_SECRET

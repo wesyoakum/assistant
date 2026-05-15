@@ -61,21 +61,26 @@ export default {
   fetch: app.fetch,
 
   async scheduled(
-    _controller: ScheduledController,
+    controller: ScheduledController,
     env: Env,
     _ctx: ExecutionContext
   ) {
-    // Enqueue gmail.poll for each user
-    const { results: users } = await env.DB.prepare(
-      "SELECT id FROM users"
-    ).all<{ id: string }>();
+    // Gmail poll only on the 10-minute cron (*/10)
+    // The 1-minute cron fires reminders and auto-dismiss only
+    const isFullPoll = controller.cron === "*/10 * * * *";
 
-    for (const user of users) {
-      const msg: QueueMessage = { type: "gmail.poll", userId: user.id };
-      await env.TASKS.send(msg);
+    if (isFullPoll) {
+      const { results: users } = await env.DB.prepare(
+        "SELECT id FROM users"
+      ).all<{ id: string }>();
+
+      for (const user of users) {
+        const msg: QueueMessage = { type: "gmail.poll", userId: user.id };
+        await env.TASKS.send(msg);
+      }
+
+      console.log(`Cron: enqueued gmail.poll for ${users.length} users`);
     }
-
-    console.log(`Cron: enqueued gmail.poll for ${users.length} users`);
 
     // Auto-dismiss past Noop calendar/event triage items
     const dismissed = await env.DB.prepare(
