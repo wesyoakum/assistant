@@ -323,6 +323,12 @@ export default function SettingsScreen() {
             trackColor={{ false: "#ddd", true: "#4285F4" }}
           />
         </View>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => router.push("/notifications")}
+        >
+          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>View Notification History</Text>
+        </Pressable>
       </View>
 
       {/* Account section */}

@@ -42,6 +42,10 @@ function AuthGate() {
         name="triage"
         options={{ headerShown: false }}
       />
+      <Stack.Screen
+        name="notifications"
+        options={{ headerShown: true, title: "Notification History" }}
+      />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="index" />
     </Stack>

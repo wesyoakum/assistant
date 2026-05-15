@@ -63,4 +63,20 @@ push.post("/unregister", async (c) => {
   return c.json({ ok: true });
 });
 
+// Notification history
+push.get("/history", async (c) => {
+  const userId = c.get("userId");
+  const limit = Math.min(parseInt(c.req.query("limit") || "50"), 100);
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, title, body, category, triage_item_id, created_at
+     FROM notification_log WHERE user_id = ?
+     ORDER BY created_at DESC LIMIT ?`
+  )
+    .bind(userId, limit)
+    .all<{ id: string; title: string; body: string; category: string | null; triage_item_id: string | null; created_at: string }>();
+
+  return c.json({ notifications: results });
+});
+
 export { push };

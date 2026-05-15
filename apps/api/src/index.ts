@@ -118,6 +118,9 @@ export default {
           _contentAvailable: true,
         }));
         await sendExpoPush(env, messages);
+        await env.DB.prepare(
+          "INSERT INTO notification_log (id, user_id, title, body, category) VALUES (?, ?, ?, ?, ?)"
+        ).bind(crypto.randomUUID(), rem.user_id, "Reminder", rem.message, "reminder").run();
       }
 
       // Mark as fired
@@ -337,6 +340,9 @@ async function handlePushSend(
     data: { url: `whyapp://triage/${triageItemId}` },
   }));
   await sendExpoPush(env, messages);
+  await env.DB.prepare(
+    "INSERT INTO notification_log (id, user_id, title, body, category, triage_item_id) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(crypto.randomUUID(), userId, "High Priority Item", summary, "triage-high", triageItemId).run();
 
   console.log(`Push sent to ${tokens.length} devices for user ${userId}`);
 }
