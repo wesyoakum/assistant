@@ -340,7 +340,13 @@ REMINDERS: When the user asks to be reminded about something at a specific time,
 \`\`\`create_reminder
 {"message": "Call the dentist", "fire_at": "2026-05-15T14:00:00-05:00"}
 \`\`\`
-The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will trigger a push notification at that time. For relative times like "in 5 minutes" or "in an hour", calculate the absolute time based on the current date/time: ${currentDateTime}. Always confirm the reminder time with the user.${userContext}${triageInbox}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
+The fire_at must be EITHER:
+- An ISO 8601 datetime with timezone offset for absolute times (e.g. "2026-05-15T14:00:00-05:00")
+- A relative offset starting with "+" for relative times (e.g. "+5m", "+1h", "+2h30m", "+90s")
+
+IMPORTANT: For relative times like "in 5 minutes", "in an hour", ALWAYS use the relative "+" format (e.g. "+5m", "+1h"). Do NOT try to calculate the absolute time yourself — the server will compute it precisely at the moment the reminder is created. This avoids clock drift.
+
+For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timezone offset. The current date/time for reference: ${currentDateTime}. Always confirm the reminder time with the user.${userContext}${triageInbox}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
 
   // Build messages array from persisted history
   const { results: historyRows } = await c.env.DB.prepare(
@@ -548,15 +554,30 @@ The fire_at must be an ISO 8601 datetime with timezone offset. The reminder will
     try {
       const rem = JSON.parse(remMatch[1].trim());
       if (rem.message && rem.fire_at) {
-        // fire_at must carry a timezone (Z or ±HH:MM). Without one,
-        // new Date() reads it as the Worker's local time (UTC), which
-        // silently shifts reminders by the user's offset.
-        const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(rem.fire_at);
-        if (!hasTz) {
-          console.warn(`Skipping reminder with naive fire_at: ${rem.fire_at}`);
-          continue;
+        let fireAtUtc: string;
+
+        // Relative offset: "+5m", "+1h", "+2h30m", "+90s"
+        const relMatch = rem.fire_at.match(/^\+(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+        if (relMatch) {
+          const hours = parseInt(relMatch[1] || "0");
+          const mins = parseInt(relMatch[2] || "0");
+          const secs = parseInt(relMatch[3] || "0");
+          const ms = (hours * 3600 + mins * 60 + secs) * 1000;
+          if (ms <= 0) {
+            console.warn(`Skipping reminder with zero offset: ${rem.fire_at}`);
+            continue;
+          }
+          fireAtUtc = new Date(Date.now() + ms).toISOString();
+        } else {
+          // Absolute time — must carry a timezone (Z or ±HH:MM)
+          const hasTz = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(rem.fire_at);
+          if (!hasTz) {
+            console.warn(`Skipping reminder with naive fire_at: ${rem.fire_at}`);
+            continue;
+          }
+          fireAtUtc = new Date(rem.fire_at).toISOString();
         }
-        const fireAtUtc = new Date(rem.fire_at).toISOString();
+
         await c.env.DB.prepare(
           "INSERT INTO reminders (id, user_id, message, fire_at) VALUES (?, ?, ?, ?)"
         ).bind(crypto.randomUUID(), userId, rem.message, fireAtUtc).run();
