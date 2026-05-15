@@ -9,6 +9,7 @@ import {
   subscribeCalendar,
   createEvent,
 } from "../services/google-calendar";
+import { syncIcalFeed, listIcalEvents } from "../services/ical";
 
 type CalendarApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
@@ -16,10 +17,24 @@ const calendar: CalendarApp = new Hono();
 
 calendar.use("*", authMiddleware);
 
-// List upcoming events from enabled calendars
+// List upcoming events from enabled calendars (Google + iCal merged)
 calendar.get("/events", async (c) => {
   const userId = c.get("userId");
-  const events = await listUpcomingEvents(userId, c.env);
+
+  const [googleEvents, icalEvents] = await Promise.allSettled([
+    listUpcomingEvents(userId, c.env),
+    listIcalEvents(userId, c.env),
+  ]);
+
+  const events = [
+    ...(googleEvents.status === "fulfilled" ? googleEvents.value : []),
+    ...(icalEvents.status === "fulfilled" ? icalEvents.value : []),
+  ];
+
+  events.sort(
+    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
+  );
+
   return c.json({ events });
 });
 
@@ -156,6 +171,98 @@ calendar.post("/events", async (c) => {
 
   const event = await createEvent(userId, body, c.env);
   return c.json({ ok: true, googleEventId: event.id, htmlLink: event.htmlLink });
+});
+
+// --- iCal feed management ---
+
+// Add a new ICS feed
+calendar.post("/feeds", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json()) as { url: string; name?: string };
+  const url = body.url?.trim();
+  if (!url) return c.json({ error: "url is required" }, 400);
+
+  // Normalize webcal:// to https://
+  const normalizedUrl = url.startsWith("webcal://")
+    ? url.replace("webcal://", "https://")
+    : url;
+
+  const id = crypto.randomUUID();
+  const name = body.name?.trim() || null;
+
+  await c.env.DB.prepare(
+    `INSERT INTO ical_feeds (id, user_id, url, name) VALUES (?, ?, ?, ?)`
+  )
+    .bind(id, userId, normalizedUrl, name)
+    .run();
+
+  // Immediately sync
+  try {
+    await syncIcalFeed(id, c.env);
+  } catch (err) {
+    // Feed is created but sync failed — that's okay, error_message is stored on the row
+    console.error(`Initial iCal sync failed for feed ${id}:`, err);
+  }
+
+  const feed = await c.env.DB.prepare(
+    "SELECT * FROM ical_feeds WHERE id = ?"
+  )
+    .bind(id)
+    .first();
+
+  return c.json({ ok: true, feed });
+});
+
+// List user's ICS feeds
+calendar.get("/feeds", async (c) => {
+  const userId = c.get("userId");
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, url, name, color, enabled, last_synced_at, error_message, created_at
+     FROM ical_feeds WHERE user_id = ? ORDER BY created_at DESC`
+  )
+    .bind(userId)
+    .all();
+
+  return c.json({ feeds: results });
+});
+
+// Remove an ICS feed (cascade deletes events via D1 FK)
+calendar.delete("/feeds/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  const result = await c.env.DB.prepare(
+    "DELETE FROM ical_feeds WHERE id = ? AND user_id = ?"
+  )
+    .bind(id, userId)
+    .run();
+
+  if (!result.meta.changes) return c.json({ error: "Not found" }, 404);
+  return c.json({ ok: true });
+});
+
+// Manual sync trigger for a specific feed
+calendar.post("/feeds/:id/sync", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  // Verify ownership
+  const feed = await c.env.DB.prepare(
+    "SELECT id FROM ical_feeds WHERE id = ? AND user_id = ?"
+  )
+    .bind(id, userId)
+    .first();
+
+  if (!feed) return c.json({ error: "Not found" }, 404);
+
+  try {
+    await syncIcalFeed(id, c.env);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Sync failed";
+    return c.json({ error: msg }, 500);
+  }
+
+  return c.json({ ok: true });
 });
 
 export { calendar };

@@ -29,6 +29,20 @@ interface CalendarsResponse {
   calendars: CalendarSummary[];
 }
 
+interface IcalFeed {
+  id: string;
+  url: string;
+  name: string | null;
+  color: string;
+  enabled: number;
+  last_synced_at: string | null;
+  error_message: string | null;
+}
+
+interface IcalFeedsResponse {
+  feeds: IcalFeed[];
+}
+
 interface ContextEntry {
   id: string;
   kind: string;
@@ -143,6 +157,72 @@ export default function SettingsScreen() {
       Alert.alert("Could not add calendar", err.message);
     },
   });
+
+  // --- iCal Feeds ---
+  const { data: feedsData, isLoading: feedsLoading } = useQuery({
+    queryKey: ["ical-feeds"],
+    queryFn: () => apiFetch<IcalFeedsResponse>("/calendar/feeds"),
+  });
+
+  const addFeedMutation = useMutation({
+    mutationFn: (url: string) =>
+      apiFetch("/calendar/feeds", {
+        method: "POST",
+        body: JSON.stringify({ url }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ical-feeds"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+    onError: (err: Error) => {
+      Alert.alert("Could not add feed", err.message);
+    },
+  });
+
+  const deleteFeedMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/calendar/feeds/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ical-feeds"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+
+  const handleAddFeed = () => {
+    Alert.prompt(
+      "Add iCal Feed",
+      "Enter the ICS feed URL (https:// or webcal://)",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Add",
+          onPress: (value) => {
+            const trimmed = value?.trim();
+            if (trimmed) addFeedMutation.mutate(trimmed);
+          },
+        },
+      ],
+      "plain-text",
+      ""
+    );
+  };
+
+  const handleDeleteFeed = (feed: IcalFeed) => {
+    Alert.alert(
+      "Remove Feed",
+      `Remove "${feed.name || feed.url}"?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => deleteFeedMutation.mutate(feed.id),
+        },
+      ]
+    );
+  };
+
+  const icalFeeds = feedsData?.feeds || [];
 
   const handleSubscribe = () => {
     const trimmed = calUrl.trim();
@@ -309,6 +389,55 @@ export default function SettingsScreen() {
         )}
       </View>
 
+      {/* iCal Feeds section */}
+      <Text style={styles.sectionTitle}>iCal Feeds</Text>
+      <View style={styles.card}>
+        {feedsLoading ? (
+          <ActivityIndicator style={styles.loader} />
+        ) : icalFeeds.length === 0 ? (
+          <Text style={styles.emptyText}>No iCal feeds added yet</Text>
+        ) : (
+          icalFeeds.map((feed) => (
+            <View key={feed.id} style={styles.calRow}>
+              <View style={[styles.calDot, { backgroundColor: feed.color || "#8B5CF6" }]} />
+              <View style={styles.calInfo}>
+                <Text style={styles.calName} numberOfLines={1}>
+                  {feed.name || feed.url}
+                </Text>
+                {feed.name && (
+                  <Text style={styles.calOriginal} numberOfLines={1}>{feed.url}</Text>
+                )}
+                {feed.error_message && (
+                  <Text style={styles.feedError} numberOfLines={1}>{feed.error_message}</Text>
+                )}
+                {feed.last_synced_at && !feed.error_message && (
+                  <Text style={styles.calPrimary}>
+                    Synced {new Date(feed.last_synced_at).toLocaleDateString()}
+                  </Text>
+                )}
+              </View>
+              <Pressable
+                onPress={() => handleDeleteFeed(feed)}
+                style={styles.ctxDelete}
+              >
+                <Text style={styles.ctxDeleteText}>Remove</Text>
+              </Pressable>
+            </View>
+          ))
+        )}
+        <Pressable
+          style={styles.addFeedBtn}
+          onPress={handleAddFeed}
+          disabled={addFeedMutation.isPending}
+        >
+          {addFeedMutation.isPending ? (
+            <ActivityIndicator size="small" color="#4285F4" />
+          ) : (
+            <Text style={styles.addFeedBtnText}>+ Add iCal Feed</Text>
+          )}
+        </Pressable>
+      </View>
+
       {/* Notifications section */}
       <Text style={styles.sectionTitle}>Notifications</Text>
       <View style={styles.card}>
@@ -453,4 +582,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   signOutText: { fontSize: 16, fontWeight: "600", color: "#e53e3e" },
+  feedError: { fontSize: 11, color: "#e53e3e", marginTop: 1 },
+  addFeedBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#eee",
+  },
+  addFeedBtnText: { fontSize: 15, fontWeight: "600", color: "#4285F4" },
 });
