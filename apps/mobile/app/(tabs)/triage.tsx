@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
@@ -34,6 +35,34 @@ interface TriageItem {
 interface TriageResponse {
   items: TriageItem[];
   cursor?: string;
+}
+
+interface ControlStatus {
+  mode: "normal" | "controlled";
+  batchSize: number;
+  collected: number;
+  pending: number;
+  items: { subject: string; from: string; snippet: string; collected_at: string }[];
+}
+
+interface CollectResponse {
+  collected: number;
+  total: number;
+  items: ControlStatus["items"];
+}
+
+interface ClassifyNextResponse {
+  classified: {
+    subject: string;
+    from: string;
+    priority: number;
+    urgency: number;
+    category: string;
+    summary: string;
+    suggested_action: string;
+    triage_item_id: string;
+  }[];
+  remaining: number;
 }
 
 // --- Eisenhower matrix ---
@@ -145,6 +174,50 @@ export default function TriageScreen() {
     queryFn: () => apiFetch<TriageResponse>("/triage?status=open"),
   });
 
+  const { data: control } = useQuery({
+    queryKey: ["control-status"],
+    queryFn: () => apiFetch<ControlStatus>("/control/status"),
+  });
+
+  const isControlled = control?.mode === "controlled";
+
+  const collectMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<CollectResponse>("/control/collect", { method: "POST" }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["control-status"] });
+      Alert.alert(
+        "Context collected",
+        res.collected > 0
+          ? `Pulled ${res.collected} new email${res.collected > 1 ? "s" : ""}. ${res.total} awaiting classification.`
+          : `No new emails. ${res.total} awaiting classification.`
+      );
+    },
+    onError: (err: Error) => Alert.alert("Collect failed", err.message),
+  });
+
+  const classifyMutation = useMutation({
+    mutationFn: () =>
+      apiFetch<ClassifyNextResponse>("/control/classify-next", { method: "POST" }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ["control-status"] });
+      queryClient.invalidateQueries({ queryKey: ["triage"] });
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
+      if (res.classified.length === 0) {
+        Alert.alert("Nothing to classify", "Collect new context first.");
+        return;
+      }
+      const lines = res.classified
+        .map((c) => `• P${c.priority}U${c.urgency} — ${c.summary}`)
+        .join("\n");
+      Alert.alert(
+        `Classified ${res.classified.length}`,
+        `${lines}\n\n${res.remaining} still awaiting classification.`
+      );
+    },
+    onError: (err: Error) => Alert.alert("Classify failed", err.message),
+  });
+
   const dismissMutation = useMutation({
     mutationFn: (id: string) =>
       apiFetch(`/triage/${id}/status`, {
@@ -157,14 +230,16 @@ export default function TriageScreen() {
     },
   });
 
-  // Auto-sync on mount
+  // Auto-sync on mount — disabled in controlled mode (manual collect/classify).
   useEffect(() => {
+    if (control === undefined) return; // wait until mode is known
+    if (isControlled) return;
     if (didSync.current) return;
     didSync.current = true;
     apiFetch("/gmail/sync", { method: "POST" }).then(() => {
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ["triage"] }), 3000);
     });
-  }, [queryClient]);
+  }, [queryClient, control, isControlled]);
 
   const sections = useMemo(() => {
     const items = data?.items || [];
@@ -203,10 +278,72 @@ export default function TriageScreen() {
         <RefreshControl refreshing={isRefetching} onRefresh={refetch} />
       }
       contentContainerStyle={
-        sections.length === 0 ? styles.center : styles.list
+        sections.length === 0 && !isControlled ? styles.center : styles.list
+      }
+      ListHeaderComponent={
+        isControlled ? (
+          <View style={styles.controlPanel}>
+            <View style={styles.controlHeaderRow}>
+              <Text style={styles.controlTitle}>Controlled Mode</Text>
+              <Text style={styles.controlBadge}>spend control</Text>
+            </View>
+            <Text style={styles.controlStat}>
+              {control!.collected} collected · awaiting classification
+            </Text>
+            {control!.items.length > 0 && (
+              <View style={styles.collectedList}>
+                {control!.items.slice(0, 5).map((it, i) => (
+                  <Text key={i} style={styles.collectedItem} numberOfLines={1}>
+                    • {it.subject}
+                  </Text>
+                ))}
+                {control!.items.length > 5 && (
+                  <Text style={styles.collectedMore}>
+                    +{control!.items.length - 5} more
+                  </Text>
+                )}
+              </View>
+            )}
+            <View style={styles.controlButtons}>
+              <Pressable
+                style={[styles.controlBtn, styles.controlBtnSecondary]}
+                onPress={() => collectMutation.mutate()}
+                disabled={collectMutation.isPending}
+              >
+                {collectMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#4285F4" />
+                ) : (
+                  <Text style={styles.controlBtnSecondaryText}>
+                    Collect new context
+                  </Text>
+                )}
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.controlBtn,
+                  styles.controlBtnPrimary,
+                  (control!.collected === 0 || classifyMutation.isPending) &&
+                    styles.controlBtnDisabled,
+                ]}
+                onPress={() => classifyMutation.mutate()}
+                disabled={control!.collected === 0 || classifyMutation.isPending}
+              >
+                {classifyMutation.isPending ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.controlBtnPrimaryText}>
+                    Classify next ({control!.batchSize})
+                  </Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ) : null
       }
       ListEmptyComponent={
-        <Text style={styles.emptyText}>Nothing to triage right now</Text>
+        isControlled ? null : (
+          <Text style={styles.emptyText}>Nothing to triage right now</Text>
+        )
       }
       renderSectionHeader={({ section }) => (
         <View style={styles.sectionHeader}>
@@ -330,4 +467,56 @@ const styles = StyleSheet.create({
     width: 90,
   },
   swipeDismissText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  controlPanel: {
+    backgroundColor: "#fff",
+    margin: 12,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  controlHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  controlTitle: { fontSize: 16, fontWeight: "700", color: "#222" },
+  controlBadge: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#7c3aed",
+    backgroundColor: "#ede9fe",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    overflow: "hidden",
+    textTransform: "uppercase",
+  },
+  controlStat: { fontSize: 13, color: "#666", marginBottom: 10 },
+  collectedList: {
+    backgroundColor: "#f7f7f9",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  collectedItem: { fontSize: 13, color: "#444", marginVertical: 1 },
+  collectedMore: { fontSize: 12, color: "#999", marginTop: 4 },
+  controlButtons: { flexDirection: "row", gap: 10 },
+  controlBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  controlBtnPrimary: { backgroundColor: "#4285F4" },
+  controlBtnPrimaryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  controlBtnSecondary: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#4285F4",
+  },
+  controlBtnSecondaryText: { color: "#4285F4", fontSize: 14, fontWeight: "700" },
+  controlBtnDisabled: { opacity: 0.4 },
 });

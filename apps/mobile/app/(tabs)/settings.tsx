@@ -54,10 +54,64 @@ interface ContextResponse {
   entries: ContextEntry[];
 }
 
+interface ControlStatus {
+  mode: "normal" | "controlled";
+  batchSize: number;
+  collected: number;
+  pending: number;
+}
+
+type SettingsTab = "general" | "calendars" | "context";
+
+const TABS: { key: SettingsTab; label: string }[] = [
+  { key: "general", label: "General" },
+  { key: "calendars", label: "Calendars" },
+  { key: "context", label: "Context" },
+];
+
 export default function SettingsScreen() {
   const { clearToken } = useAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [tab, setTab] = useState<SettingsTab>("general");
+
+  // --- Spend control (controlled mode) ---
+  const { data: control } = useQuery({
+    queryKey: ["control-status"],
+    queryFn: () => apiFetch<ControlStatus>("/control/status"),
+  });
+
+  const modeMutation = useMutation({
+    mutationFn: (patch: { mode?: "normal" | "controlled"; batch_size?: number }) =>
+      apiFetch<{ mode: string; batchSize: number }>("/control/mode", {
+        method: "POST",
+        body: JSON.stringify(patch),
+      }),
+    onMutate: async (patch) => {
+      await queryClient.cancelQueries({ queryKey: ["control-status"] });
+      const prev = queryClient.getQueryData<ControlStatus>(["control-status"]);
+      queryClient.setQueryData<ControlStatus>(["control-status"], (old) =>
+        old
+          ? {
+              ...old,
+              mode: patch.mode ?? old.mode,
+              batchSize: patch.batch_size ?? old.batchSize,
+            }
+          : old
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(["control-status"], ctx.prev);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["control-status"] });
+      queryClient.invalidateQueries({ queryKey: ["triage"] });
+    },
+  });
+
+  const controlled = control?.mode === "controlled";
+  const batchSize = control?.batchSize ?? 1;
 
   const { data, isLoading } = useQuery({
     queryKey: ["calendars"],
@@ -243,7 +297,98 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Tab bar */}
+      <View style={styles.tabBar}>
+        {TABS.map((t) => (
+          <Pressable
+            key={t.key}
+            style={[styles.tabItem, tab === t.key && styles.tabItemActive]}
+            onPress={() => setTab(t.key)}
+          >
+            <Text
+              style={[styles.tabText, tab === t.key && styles.tabTextActive]}
+            >
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Spend Control section (General) */}
+      {tab === "general" && (
+        <>
+          <Text style={styles.sectionTitle}>Spend Control</Text>
+          <View style={styles.card}>
+            <View style={styles.calRow}>
+              <View style={styles.calInfo}>
+                <Text style={styles.calName}>Controlled mode</Text>
+                <Text style={styles.calPrimary}>
+                  Pause automatic polling & classification. Collect and classify
+                  one batch at a time. Disables high-priority push.
+                </Text>
+              </View>
+              <Switch
+                value={controlled}
+                onValueChange={(v) =>
+                  modeMutation.mutate({ mode: v ? "controlled" : "normal" })
+                }
+                trackColor={{ false: "#ddd", true: "#7c3aed" }}
+              />
+            </View>
+            {controlled && (
+              <View style={styles.calRow}>
+                <View style={styles.calInfo}>
+                  <Text style={styles.calName}>Classify batch size</Text>
+                  <Text style={styles.calPrimary}>
+                    Items classified per "Classify next" press
+                  </Text>
+                </View>
+                <View style={styles.stepper}>
+                  <Pressable
+                    style={styles.stepperBtn}
+                    onPress={() =>
+                      modeMutation.mutate({
+                        batch_size: Math.max(1, batchSize - 1),
+                      })
+                    }
+                    disabled={batchSize <= 1}
+                  >
+                    <Text style={styles.stepperBtnText}>−</Text>
+                  </Pressable>
+                  <Text style={styles.stepperValue}>{batchSize}</Text>
+                  <Pressable
+                    style={styles.stepperBtn}
+                    onPress={() =>
+                      modeMutation.mutate({
+                        batch_size: Math.min(20, batchSize + 1),
+                      })
+                    }
+                    disabled={batchSize >= 20}
+                  >
+                    <Text style={styles.stepperBtnText}>+</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+            {controlled && (
+              <View style={styles.calRow}>
+                <View style={styles.calInfo}>
+                  <Text style={styles.calName}>
+                    {control?.collected ?? 0} collected · awaiting classification
+                  </Text>
+                  <Text style={styles.calPrimary}>
+                    Collect & classify from the Triage tab
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+        </>
+      )}
+
       {/* Calendars section */}
+      {tab === "calendars" && (
+      <>
       <Text style={styles.sectionTitle}>Calendars</Text>
       <View style={styles.card}>
         {isLoading ? (
@@ -304,8 +449,12 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
       </View>
+      </>
+      )}
 
       {/* My Context section */}
+      {tab === "context" && (
+      <>
       <Text style={styles.sectionTitle}>My Context</Text>
       <View style={styles.card}>
         {ctxLoading ? (
@@ -388,8 +537,12 @@ export default function SettingsScreen() {
           ))
         )}
       </View>
+      </>
+      )}
 
       {/* iCal Feeds section */}
+      {tab === "calendars" && (
+      <>
       <Text style={styles.sectionTitle}>iCal Feeds</Text>
       <View style={styles.card}>
         {feedsLoading ? (
@@ -437,17 +590,25 @@ export default function SettingsScreen() {
           )}
         </Pressable>
       </View>
+      </>
+      )}
 
       {/* Notifications section */}
+      {tab === "general" && (
+      <>
       <Text style={styles.sectionTitle}>Notifications</Text>
       <View style={styles.card}>
         <View style={styles.calRow}>
           <View style={styles.calInfo}>
             <Text style={styles.calName}>High priority alerts</Text>
-            <Text style={styles.calPrimary}>Push when importance or urgency is 4+</Text>
+            <Text style={styles.calPrimary}>
+              {controlled
+                ? "Disabled while in controlled mode"
+                : "Push when importance or urgency is 4+"}
+            </Text>
           </View>
           <Switch
-            value={true}
+            value={!controlled}
             disabled
             trackColor={{ false: "#ddd", true: "#4285F4" }}
           />
@@ -487,6 +648,8 @@ export default function SettingsScreen() {
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
       </View>
+      </>
+      )}
     </ScrollView>
   );
 }
@@ -494,6 +657,44 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f2f2f7" },
   content: { padding: 16, paddingBottom: 40 },
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: "#e5e5ea",
+    borderRadius: 9,
+    padding: 3,
+    marginBottom: 8,
+  },
+  tabItem: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 7,
+    alignItems: "center",
+  },
+  tabItemActive: {
+    backgroundColor: "#fff",
+  },
+  tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
+  tabTextActive: { color: "#111" },
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  stepperBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#f0f0f3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepperBtnText: { fontSize: 20, fontWeight: "600", color: "#4285F4" },
+  stepperValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#222",
+    minWidth: 36,
+    textAlign: "center",
+  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "600",

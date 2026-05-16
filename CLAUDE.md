@@ -8,8 +8,17 @@ A simplified personal-assistant iOS app for solo distribution to 1–2 testers v
 - Voice capture + transcription (Claude audio)
 - Trainable priority/urgency that learns from per-item feedback
 - Push notifications for high-priority items
+- Conversational chat, reminders, and external iCal feed subscriptions
+- **Controlled mode** (spend control): per-user toggle that pauses all
+  automatic polling/classification and instead does it one manual,
+  batch-sized step at a time, with high-priority push disabled.
 
 Goal: ~6–8 weeks at ~10–15 hrs/week. Operating cost ~$20–35/mo.
+
+> Note: the codebase has progressed well past the original week-by-week
+> plan. Auth, Gmail triage, calendar, capture, push, chat, reminders, and
+> iCal feeds are all implemented. There is also an `apps/web` Worker.
+> Treat the milestones below as historical context, not current TODOs.
 
 ## Locked decisions
 - Mobile: **Expo (React Native) + TypeScript**, distributed via **EAS Build -> TestFlight**.
@@ -59,6 +68,9 @@ Stack: Hono on Workers; D1 for data; R2 for files/audio; Workers Queues for asyn
 - `ingested_files` -- kind (pdf|image|audio), r2_key (`users/<uid>/files/<id>.<ext>`), status.
 - `push_tokens` -- expo_token (unique), platform.
 - `gmail_sync_state` -- history_id, last_synced_at (per user).
+- `user_settings` -- per-user `mode` (normal|controlled) + `controlled_batch_size`. Defaults assumed when no row exists.
+- `pending_emails` -- controlled-mode buffer: emails pulled by a manual "collect" but not yet classified. Unique `(user_id, message_id)`.
+- (also live, not in original brief: `chat_messages`, `reminders`, `notification_log`, `ical_feeds`, `user_context`, `user_calendar_prefs`.)
 
 ### API surface (Hono routes)
 All authed endpoints require `Authorization: Bearer <session_jwt>`. JWT is HS256, signed with `SESSION_JWT_SECRET`, 30-day expiry.
@@ -69,6 +81,17 @@ All authed endpoints require `Authorization: Bearer <session_jwt>`. JWT is HS256
 - Calendar: `GET /calendar/events`, `GET /calendar/suggestions`, `POST /calendar/suggestions/:id/accept`, `POST /calendar/suggestions/:id/reject`, `POST /calendar/events`
 - Files: `POST /files/upload` (proxy through Worker, <=100MB), `POST /files/:id/complete`, `GET /files/:id`
 - Push: `POST /push/register`, `POST /push/unregister`
+- Control (spend / controlled mode):
+  - `GET /control/status` -- current mode, batch size, collected count + preview of what's awaiting classification
+  - `POST /control/mode` -- set `{ mode?, batch_size? }`
+  - `POST /control/collect` -- step 1: raw Gmail pull only (no Claude); buffers into `pending_emails`
+  - `POST /control/classify-next` -- step 2: classify up to `batch_size` buffered emails (optional `{ batch_size }` override)
+
+### Controlled mode behavior
+- Cron skips `gmail.poll` for controlled users; `handleGmailPoll` and `POST /gmail/sync` also no-op as defense in depth.
+- `push.send` is suppressed for controlled users (single choke point), so high-priority push is off in controlled mode.
+- Email classify+store is centralized in `services/classify.ts` (`classifyAndStoreEmail`), shared by the queue consumer and `/control/classify-next`.
+- Mobile: Settings is tabbed (General / Calendars / Context); the Controlled-mode toggle + batch-size stepper live under General. The Triage tab shows Collect / Classify-next controls when controlled.
 
 ### Triage loop
 Cron Trigger every 10 min -> enqueues `gmail.poll` per user -> consumer pulls new threads since `history_id` (cap ~20 unread) -> enqueues `triage.classify` per item -> Claude call writes `triage_items` row + optional `calendar_suggestions` row -> if priority >= 4, enqueues `push.send` -> POST to `https://exp.host/--/api/v2/push/send`.

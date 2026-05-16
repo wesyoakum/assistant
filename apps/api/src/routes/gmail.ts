@@ -3,6 +3,7 @@ import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
 import { getValidAccessToken, fetchNewMessages, getGmailProfile } from "../services/gmail";
+import { isControlled } from "../services/settings";
 import type { QueueMessage } from "@assistant/shared";
 
 type GmailApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
@@ -14,6 +15,12 @@ gmail.use("*", authMiddleware);
 // Manual sync trigger
 gmail.post("/sync", async (c) => {
   const userId = c.get("userId");
+
+  // In controlled mode, syncing is manual via /control/collect — never
+  // auto-fan-out classification here.
+  if (await isControlled(userId, c.env)) {
+    return c.json({ synced: 0, enqueued: 0, controlled: true });
+  }
 
   const accessToken = await getValidAccessToken(userId, c.env);
 
