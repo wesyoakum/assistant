@@ -8,11 +8,13 @@ import { chat } from "./routes/chat";
 import { files } from "./routes/files";
 import { context } from "./routes/context";
 import { push } from "./routes/push";
+import { control } from "./routes/control";
 import { classifyFile } from "./services/claude";
 import { syncIcalFeed } from "./services/ical";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
-import { classifyEmail } from "./services/claude";
+import { classifyAndStoreEmail } from "./services/classify";
+import { isControlled } from "./services/settings";
 import type { QueueMessage, FeedbackRow } from "@assistant/shared";
 
 export type Env = {
@@ -43,6 +45,7 @@ app.route("/chat", chat);
 app.route("/files", files);
 app.route("/context", context);
 app.route("/push", push);
+app.route("/control", control);
 
 app.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");
@@ -69,8 +72,13 @@ export default {
     // Gmail poll only on the 10-minute cron (*/10)
     // The 1-minute cron fires reminders and auto-dismiss only
     {
+      // Controlled-mode users are skipped: in controlled mode all polling
+      // and classification is manual (see /control/collect).
       const { results: users } = await env.DB.prepare(
-        "SELECT id FROM users"
+        `SELECT id FROM users
+         WHERE id NOT IN (
+           SELECT user_id FROM user_settings WHERE mode = 'controlled'
+         )`
       ).all<{ id: string }>();
 
       for (const user of users) {
@@ -365,6 +373,12 @@ export default {
 };
 
 async function handleGmailPoll(userId: string, env: Env) {
+  // Defense in depth: controlled-mode users poll manually via /control/collect.
+  if (await isControlled(userId, env)) {
+    console.log(`User ${userId}: controlled mode, skipping gmail.poll`);
+    return;
+  }
+
   let accessToken: string;
   try {
     accessToken = await getValidAccessToken(userId, env);
@@ -435,79 +449,7 @@ async function handleTriageClassify(
   email: { messageId: string; threadId: string; subject: string; from: string; date: string; bodyText: string },
   env: Env
 ) {
-  // Get user's recent feedback for few-shot learning
-  const { results: feedbackRows } = await env.DB.prepare(
-    `SELECT f.kind, f.corrected_priority, f.corrected_urgency, f.note,
-            t.summary, t.category, t.priority as original_priority, t.urgency as original_urgency
-     FROM feedback f
-     JOIN triage_items t ON t.id = f.triage_item_id
-     WHERE f.user_id = ?
-     ORDER BY f.created_at DESC
-     LIMIT 10`
-  )
-    .bind(userId)
-    .all<FeedbackRow>();
-
-  // Load user context
-  const { results: contextRows } = await env.DB.prepare(
-    "SELECT kind, label, detail FROM user_context WHERE user_id = ?"
-  ).bind(userId).all<{ kind: string; label: string; detail: string | null }>();
-
-  const result = await classifyEmail(email, feedbackRows, env.ANTHROPIC_API_KEY, contextRows);
-
-  const itemId = crypto.randomUUID();
-
-  await env.DB.prepare(
-    `INSERT INTO triage_items (id, user_id, source_type, source_ref, source_title, event_at, priority, urgency, category, summary, suggested_action, classifier_json, source_json, status)
-     VALUES (?, ?, 'email', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
-  )
-    .bind(
-      itemId,
-      userId,
-      email.messageId,
-      email.from,
-      email.date ? new Date(email.date).toISOString() : null,
-      result.priority,
-      result.urgency,
-      result.category,
-      result.summary,
-      result.suggested_action,
-      JSON.stringify(result),
-      JSON.stringify(email)
-    )
-    .run();
-
-  // Create calendar suggestion if present
-  if (result.suggested_calendar_event) {
-    const evt = result.suggested_calendar_event;
-    await env.DB.prepare(
-      `INSERT INTO calendar_suggestions (id, user_id, triage_item_id, title, start_iso, end_iso, location, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`
-    )
-      .bind(
-        crypto.randomUUID(),
-        userId,
-        itemId,
-        evt.title,
-        evt.start_iso,
-        evt.end_iso,
-        evt.location ?? null
-      )
-      .run();
-  }
-
-  // If high priority, trigger push notification
-  if (result.priority >= 4 || result.urgency >= 4) {
-    const pushMsg: QueueMessage = {
-      type: "push.send",
-      userId,
-      triageItemId: itemId,
-      summary: result.summary,
-    };
-    await env.TASKS.send(pushMsg);
-  }
-
-  console.log(`Classified email ${email.messageId} for user ${userId}: P${result.priority}/U${result.urgency}`);
+  await classifyAndStoreEmail(userId, email, env);
 }
 
 async function handlePushSend(
@@ -516,6 +458,12 @@ async function handlePushSend(
   summary: string,
   env: Env
 ) {
+  // Controlled mode deactivates high-priority push notifications.
+  if (await isControlled(userId, env)) {
+    console.log(`User ${userId}: controlled mode, suppressing high-priority push`);
+    return;
+  }
+
   const { results: tokens } = await env.DB.prepare(
     "SELECT expo_token FROM push_tokens WHERE user_id = ?"
   )
