@@ -56,6 +56,8 @@ export interface EvalFixture {
     createsCalendarEvent: boolean;
     /** If set, the classifier should flag updates_existing. */
     shouldMerge?: boolean;
+    /** Expected number of items (for compound inputs). Default 1. */
+    expectedCount?: number;
   };
 }
 
@@ -72,9 +74,12 @@ export interface EvalResult {
     urgencyBucket: { expected: ScoreBucket; actual: ScoreBucket; pass: boolean };
     calendarEvent: { expected: boolean; actual: boolean; pass: boolean };
     merge?: { expected: boolean; actual: boolean; pass: boolean };
+    itemCount?: { expected: number; actual: number; pass: boolean };
   };
-  /** Raw classifier output for inspection. */
+  /** Raw classifier output for inspection (first item for single, all for compound). */
   raw: Record<string, unknown>;
+  /** All items returned by the classifier (for compound inputs). */
+  allItems?: Record<string, unknown>[];
   /** Cost in cents for this classification. */
   costCents: number;
   /** Latency in milliseconds. */

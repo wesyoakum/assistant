@@ -25,6 +25,7 @@ interface TriageItem {
   urgency: number;
   quadrant: string | null;
   next_check_at: string | null;
+  compound_idx: number | null;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
@@ -490,6 +491,13 @@ export default function TriageDetail() {
       {/* Summary */}
       <Text style={styles.summary}>{item.summary || "No summary"}</Text>
 
+      {/* Compound item badge */}
+      {item.compound_idx != null && (
+        <Text style={styles.compoundBadge}>
+          Part of a multi-item input (item {item.compound_idx + 1})
+        </Text>
+      )}
+
       {/* Score pickers + category — expanded */}
       {scoresExpanded && (
         <View style={styles.scoresSection}>
@@ -672,6 +680,7 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   summary: { fontSize: 20, color: "#111", lineHeight: 28, marginBottom: 20 },
+  compoundBadge: { fontSize: 12, color: "#666", backgroundColor: "#f0f0f0", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginBottom: 12, alignSelf: "flex-start" as const, overflow: "hidden" as const },
   headerBadges: { flexDirection: "row", alignItems: "center", gap: 6 },
   puBadge: {
     backgroundColor: "#e8e8e8",

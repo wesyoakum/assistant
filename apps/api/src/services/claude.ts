@@ -1,5 +1,5 @@
 import { buildSystemPrompt } from "../prompts/triage-system";
-import { triageResultSchema, type TriageResult } from "../prompts/triage.schema";
+import { triageResultSchema, triageItemSchema, type TriageResult } from "../prompts/triage.schema";
 import type { EmailContent, FeedbackRow } from "@assistant/shared";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
@@ -30,7 +30,7 @@ export async function logUsage(
   usage: ClaudeResponse["usage"]
 ) {
   if (!usage) return;
-  const p = PRICING[MODEL] || PRICING["claude-opus-4-7"];
+  const p = PRICING[MODEL] ?? PRICING["claude-opus-4-7"]!;
   const inputTokens = usage.input_tokens || 0;
   const outputTokens = usage.output_tokens || 0;
   const cacheRead = usage.cache_read_input_tokens || 0;
@@ -54,7 +54,7 @@ export async function classifyEmail(
   contextEntries: { kind: string; label: string; detail: string | null }[] = [],
   db?: D1Database,
   userId?: string
-): Promise<TriageResult> {
+): Promise<TriageResult[]> {
   const now = new Date();
   const currentDateTime = now.toLocaleString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -80,14 +80,14 @@ ${email.bodyText}`;
 Your previous response was not valid JSON. The parsing error was:
 ${getParseError(result.text)}
 
-Please return ONLY valid JSON matching the schema.`;
+Please return ONLY valid JSON matching the schema. Remember to wrap items in { "items": [...] }.`;
 
   const retryResult = await callClaude(systemPrompt, retryMessage, anthropicApiKey);
   if (db && userId) await logUsage(db, userId, "classify-email-retry", retryResult.usage);
   const retryParsed = tryParse(retryResult.text);
   if (retryParsed) return retryParsed;
 
-  return {
+  return [{
     quadrant: "action" as const,
     impact: 3, meaning: 3, responsibility: 3, time_sensitivity: 3, immediacy: 3,
     importance: 3,
@@ -97,7 +97,7 @@ Please return ONLY valid JSON matching the schema.`;
     summary: email.subject || "Unable to classify",
     suggested_action: "Review this email manually",
     clarification_question: "How would you like to prioritize this email?",
-  };
+  }];
 }
 
 /**
@@ -112,7 +112,7 @@ export async function classifyFile(
   contextEntries: { kind: string; label: string; detail: string | null }[] = [],
   db?: D1Database,
   userId?: string
-): Promise<TriageResult> {
+): Promise<TriageResult[]> {
   const now = new Date();
   const currentDateTime = now.toLocaleString("en-US", {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -157,7 +157,7 @@ export async function classifyFile(
   const parsed = tryParse(result.text);
   if (parsed) return parsed;
 
-  return {
+  return [{
     quadrant: "action" as const,
     impact: 3, meaning: 3, responsibility: 3, time_sensitivity: 3, immediacy: 3,
     importance: 3,
@@ -166,7 +166,7 @@ export async function classifyFile(
     category: "capture",
     summary: `${kind} capture — unable to fully classify`,
     suggested_action: "Review this capture manually",
-  };
+  }];
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
@@ -209,7 +209,7 @@ async function callClaudeMultimodal(
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: [
         {
           type: "text",
@@ -231,13 +231,27 @@ async function callClaudeMultimodal(
   return { text: textBlock?.text || "", usage: data.usage };
 }
 
-function tryParse(text: string): TriageResult | null {
+/**
+ * Parse the classifier response. Handles both:
+ * - New format: { "items": [...] }
+ * - Legacy single-object format: { "quadrant": "...", ... }
+ */
+function tryParse(text: string): TriageResult[] | null {
   try {
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
                       text.match(/(\{[\s\S]*\})/);
     const jsonStr = jsonMatch ? jsonMatch[1]! : text;
     const obj = JSON.parse(jsonStr);
-    return triageResultSchema.parse(obj);
+
+    // Try new { items: [...] } format first
+    if (obj.items && Array.isArray(obj.items)) {
+      const parsed = triageResultSchema.parse(obj);
+      return parsed.items;
+    }
+
+    // Fall back to legacy single-object format
+    const single = triageItemSchema.parse(obj);
+    return [single];
   } catch {
     return null;
   }
@@ -249,7 +263,11 @@ function getParseError(text: string): string {
                       text.match(/(\{[\s\S]*\})/);
     const jsonStr = jsonMatch ? jsonMatch[1]! : text;
     const obj = JSON.parse(jsonStr);
-    triageResultSchema.parse(obj);
+    if (obj.items && Array.isArray(obj.items)) {
+      triageResultSchema.parse(obj);
+    } else {
+      triageItemSchema.parse(obj);
+    }
     return "Unknown error";
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

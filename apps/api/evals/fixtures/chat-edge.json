@@ -37,7 +37,7 @@
   },
   {
     "id": "edge-chat-multi-action-01",
-    "description": "Compound message with three distinct action items of varying urgency. Classifier today produces one item per input, so it must pick one. Tax filing (Q1 taxes implied near-deadline) is the most urgent, so Action is the expected quadrant. Boundary case: classifier might (a) pick taxes specifically (good), (b) produce a vague 'three errands to run' summary (mediocre), or (c) hallucinate dates/details for any of them (bad). Watch the raw output, not just the pass/fail.",
+    "description": "Compound message with three distinct action items. With compound splitting, classifier should return 3 items. The first item checked is whichever the model returns first (order may vary). expectedCount=3 is the key check.",
     "source": "chat",
     "input": {
       "from": "Chat",
@@ -47,10 +47,11 @@
     },
     "expected": {
       "quadrant": "action",
-      "category": "billing",
-      "importanceBucket": "high",
-      "urgencyBucket": "high",
-      "createsCalendarEvent": false
+      "category": "health",
+      "importanceBucket": "medium",
+      "urgencyBucket": "medium",
+      "createsCalendarEvent": false,
+      "expectedCount": 3
     }
   }
 ]

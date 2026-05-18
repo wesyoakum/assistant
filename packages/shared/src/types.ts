@@ -14,6 +14,7 @@ export interface TriageItem {
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
+  compound_idx: number | null;
   classifier_json: string | null;
   status: "open" | "done" | "dismissed";
   created_at: string;

@@ -15,7 +15,7 @@ import { readdir, readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { buildSystemPrompt } from "../src/prompts/triage-system";
-import { triageResultSchema } from "../src/prompts/triage.schema";
+import { triageResultSchema, triageItemSchema } from "../src/prompts/triage.schema";
 import type { EvalFixture, EvalResult, EvalSummary, Quadrant } from "./types";
 import { toBucket } from "./types";
 
@@ -125,14 +125,23 @@ async function classify(
   return { text: textBlock?.text || "", usage: data.usage };
 }
 
-function tryParse(text: string): Record<string, unknown> | null {
+/** Parse classifier output. Returns array of items (handles both { items: [...] } and legacy single-object). */
+function tryParse(text: string): Record<string, unknown>[] | null {
   try {
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
                       text.match(/(\{[\s\S]*\})/);
     const jsonStr = jsonMatch ? jsonMatch[1]! : text;
     const obj = JSON.parse(jsonStr);
-    triageResultSchema.parse(obj);
-    return obj as Record<string, unknown>;
+
+    // New format: { items: [...] }
+    if (obj.items && Array.isArray(obj.items)) {
+      const parsed = triageResultSchema.parse(obj);
+      return parsed.items as unknown as Record<string, unknown>[];
+    }
+
+    // Legacy single-object format
+    triageItemSchema.parse(obj);
+    return [obj as Record<string, unknown>];
   } catch {
     return null;
   }
@@ -157,8 +166,8 @@ ${fixture.input.bodyText}`;
   const { text, usage } = await classify(apiKey, systemPrompt, userMessage);
   const latencyMs = Date.now() - start;
 
-  const parsed = tryParse(text);
-  if (!parsed) {
+  const allItems = tryParse(text);
+  if (!allItems) {
     return {
       fixtureId: fixture.id,
       pass: false,
@@ -175,6 +184,8 @@ ${fixture.input.bodyText}`;
     };
   }
 
+  // For single-item fixtures, check the first item. For compound fixtures, check item count.
+  const parsed = allItems[0];
   const actualQuadrant = parsed.quadrant as string;
   const actualCategory = parsed.category as string;
   const actualImportance = toBucket(parsed.importance as number);
@@ -218,6 +229,16 @@ ${fixture.input.bodyText}`;
     };
   }
 
+  // Check item count for compound fixtures
+  const expectedCount = fixture.expected.expectedCount ?? 1;
+  if (expectedCount > 1 || allItems.length > 1) {
+    checks.itemCount = {
+      expected: expectedCount,
+      actual: allItems.length,
+      pass: allItems.length === expectedCount,
+    };
+  }
+
   const pass = Object.values(checks).every((c) => c.pass);
 
   return {
@@ -225,6 +246,7 @@ ${fixture.input.bodyText}`;
     pass,
     checks,
     raw: parsed,
+    allItems: allItems.length > 1 ? allItems : undefined,
     costCents: computeCost(usage),
     latencyMs,
   };

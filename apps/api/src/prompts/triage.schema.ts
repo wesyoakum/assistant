@@ -3,7 +3,7 @@ import { z } from "zod/v4";
 export const QUADRANTS = ["hot", "action", "plan", "monitor", "noop"] as const;
 export type Quadrant = (typeof QUADRANTS)[number];
 
-export const triageResultSchema = z
+export const triageItemSchema = z
   .object({
     // Primary classification
     quadrant: z.enum(QUADRANTS),
@@ -44,4 +44,13 @@ export const triageResultSchema = z
     }
   );
 
-export type TriageResult = z.infer<typeof triageResultSchema>;
+/** The wrapper schema: classifier returns { items: [...] }. */
+export const triageResultSchema = z.object({
+  items: z.array(triageItemSchema).min(1),
+});
+
+/** A single triage item from the classifier. */
+export type TriageResult = z.infer<typeof triageItemSchema>;
+
+/** The full classifier response (array of items). */
+export type TriageResponse = z.infer<typeof triageResultSchema>;

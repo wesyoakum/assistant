@@ -73,6 +73,21 @@ async function fetchClassifyContext(userId: string, env: Env) {
 }
 
 // ---------------------------------------------------------------------------
+// Result type for classifyAndStore — now returns multiple items
+// ---------------------------------------------------------------------------
+
+export interface ClassifyStoreResult {
+  /** IDs of all created/merged triage items. */
+  itemIds: string[];
+  /** All classifier results. */
+  results: TriageResult[];
+  /** First item ID (backward compat). */
+  itemId: string;
+  /** First result (backward compat). */
+  result: TriageResult;
+}
+
+// ---------------------------------------------------------------------------
 // Unified classify + store
 // ---------------------------------------------------------------------------
 
@@ -80,32 +95,29 @@ export async function classifyAndStore(
   userId: string,
   input: ClassifyInput,
   env: Env
-): Promise<{ itemId: string; result: TriageResult }> {
+): Promise<ClassifyStoreResult> {
   const { feedbackRows, contextEntries } = await fetchClassifyContext(userId, env);
 
   // Source-specific: determine sourceType, sourceRef, call classifier
-  let result: TriageResult;
+  let items: TriageResult[];
   let sourceType: string;
   let sourceRef: string;
   let sourceTitle: string | null = null;
   let sourceJson: unknown = null;
   let eventAt: string | null = null;
-  let extractedContent: string | null = null;
 
   if (input.kind === "email") {
     sourceType = "email";
     sourceRef = input.messageId;
     sourceTitle = input.from;
     sourceJson = input;
-    if (input.date) eventAt = null; // email doesn't set event_at
-    result = await classifyEmail(input, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
+    items = await classifyEmail(input, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
   } else if (input.kind === "calendar") {
     sourceType = "event";
     sourceRef = input.eventId;
     sourceTitle = input.calendarName;
     sourceJson = input;
     eventAt = input.start;
-    // Render calendar event as user message for the classifier
     const calendarContent = `Calendar Event: "${input.summary}"\nCalendar: ${input.calendarName}\nStart: ${input.start}\nEnd: ${input.end}${input.location ? `\nLocation: ${input.location}` : ""}${input.description ? `\nDescription: ${input.description}` : ""}`;
     const emailShape = {
       messageId: input.eventId,
@@ -115,18 +127,15 @@ export async function classifyAndStore(
       date: input.start,
       bodyText: calendarContent,
     };
-    result = await classifyEmail(emailShape, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
+    items = await classifyEmail(emailShape, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
   } else if (input.kind === "file") {
     sourceType = input.fileKind === "audio" ? "voice" : input.fileKind === "pdf" ? "document" : "image";
     sourceRef = input.fileId;
-    // Fetch file from R2 and classify with vision/audio
     const obj = await env.FILES.get(input.r2Key);
     if (!obj) throw new Error(`File not found in R2: ${input.r2Key}`);
     const fileBytes = await obj.arrayBuffer();
     const contentType = obj.httpMetadata?.contentType || "application/octet-stream";
-    result = await classifyFile(input.fileKind, fileBytes, contentType, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
-    // TODO: extract content from the classifier response for document memory
-    // extractedContent = result.extracted_content;  // needs two-pass classifier
+    items = await classifyFile(input.fileKind, fileBytes, contentType, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
   } else {
     // kind === "chat"
     sourceType = "chat";
@@ -139,19 +148,22 @@ export async function classifyAndStore(
       date: new Date().toISOString(),
       bodyText: input.userMessage,
     };
-    result = await classifyEmail(emailShape, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
+    items = await classifyEmail(emailShape, feedbackRows, env.ANTHROPIC_API_KEY, contextEntries, env.DB, userId);
   }
 
-  result = ensureNextCheckAt(result);
+  // Apply defaults
+  items = items.map(ensureNextCheckAt);
 
-  // Dedup check
+  const isCompound = items.length > 1;
+
+  // Dedup check (only for email/calendar — the whole source, not per-item)
   if (input.kind === "email") {
     const existingByRef = await env.DB.prepare(
       "SELECT id FROM triage_items WHERE user_id = ? AND source_ref = ? AND source_type = 'email'"
     ).bind(userId, sourceRef).first();
     if (existingByRef) {
       console.log(`Skipping duplicate classify for ${sourceRef}`);
-      return { itemId: existingByRef.id as string, result };
+      return { itemIds: [existingByRef.id as string], results: items, itemId: existingByRef.id as string, result: items[0]! };
     }
   } else if (input.kind === "calendar") {
     const existingByRef = await env.DB.prepare(
@@ -159,87 +171,107 @@ export async function classifyAndStore(
     ).bind(userId, sourceRef).first();
     if (existingByRef) {
       console.log(`Skipping duplicate classify for calendar event ${sourceRef}`);
-      return { itemId: existingByRef.id as string, result };
+      return { itemIds: [existingByRef.id as string], results: items, itemId: existingByRef.id as string, result: items[0]! };
     }
   }
 
-  // Merge path: if classifier says this updates an existing item
-  if (result.updates_existing) {
-    const target = await env.DB.prepare(
-      "SELECT id, source_json, classifier_json FROM triage_items WHERE id = ? AND user_id = ?"
-    ).bind(result.updates_existing, userId).first<{ id: string; source_json: string | null; classifier_json: string | null }>();
+  // Store each item
+  const itemIds: string[] = [];
+  let hotPushSent = false;
 
-    if (target) {
-      let sources: unknown[] = [];
-      if (target.source_json) {
-        try {
-          const existing = JSON.parse(target.source_json);
-          sources = Array.isArray(existing) ? existing : [existing];
-        } catch { sources = []; }
+  for (let idx = 0; idx < items.length; idx++) {
+    const result = items[idx]!;
+    const compoundIdx = isCompound ? idx : null;
+
+    // Merge path: if classifier says this updates an existing item
+    if (result.updates_existing) {
+      const target = await env.DB.prepare(
+        "SELECT id, source_json, classifier_json FROM triage_items WHERE id = ? AND user_id = ?"
+      ).bind(result.updates_existing, userId).first<{ id: string; source_json: string | null; classifier_json: string | null }>();
+
+      if (target) {
+        let sources: unknown[] = [];
+        if (target.source_json) {
+          try {
+            const existing = JSON.parse(target.source_json);
+            sources = Array.isArray(existing) ? existing : [existing];
+          } catch { sources = []; }
+        }
+        if (sourceJson) sources.push(sourceJson);
+
+        await env.DB.prepare(
+          `UPDATE triage_items SET
+             priority = ?, urgency = ?, quadrant = ?, next_check_at = ?,
+             category = ?, summary = ?,
+             suggested_action = ?, classifier_json = ?, source_json = ?,
+             source_title = ?, updated_at = datetime('now')
+           WHERE id = ?`
+        ).bind(
+          result.importance, result.urgency, result.quadrant, result.next_check_at ?? null,
+          result.category, result.summary,
+          result.suggested_action, JSON.stringify(result), JSON.stringify(sources),
+          sourceTitle, target.id
+        ).run();
+
+        console.log(`Merged ${input.kind} ${sourceRef} into existing item ${target.id}: ${result.quadrant} I${result.importance}/U${result.urgency}`);
+
+        if (result.quadrant === "hot" && !hotPushSent) {
+          await env.TASKS.send({
+            type: "push.send", userId, triageItemId: target.id, summary: result.summary,
+          } as QueueMessage);
+          hotPushSent = true;
+        }
+
+        itemIds.push(target.id);
+        continue;
       }
-      if (sourceJson) sources.push(sourceJson);
-
-      await env.DB.prepare(
-        `UPDATE triage_items SET
-           priority = ?, urgency = ?, quadrant = ?, next_check_at = ?,
-           category = ?, summary = ?,
-           suggested_action = ?, classifier_json = ?, source_json = ?,
-           source_title = ?, updated_at = datetime('now')
-         WHERE id = ?`
-      ).bind(
-        result.importance, result.urgency, result.quadrant, result.next_check_at ?? null,
-        result.category, result.summary,
-        result.suggested_action, JSON.stringify(result), JSON.stringify(sources),
-        sourceTitle, target.id
-      ).run();
-
-      console.log(`Merged ${input.kind} ${sourceRef} into existing item ${target.id}: ${result.quadrant} I${result.importance}/U${result.urgency}`);
-
-      if (result.quadrant === "hot") {
-        await env.TASKS.send({
-          type: "push.send", userId, triageItemId: target.id, summary: result.summary,
-        } as QueueMessage);
-      }
-
-      return { itemId: target.id, result };
     }
-  }
 
-  // Create new triage item
-  const itemId = crypto.randomUUID();
+    // Create new triage item
+    const itemId = crypto.randomUUID();
 
-  // Compute event_at: for calendar items use start; for emails use suggested event start if present
-  if (!eventAt && result.suggested_calendar_event?.start_iso) {
-    try {
-      eventAt = new Date(result.suggested_calendar_event.start_iso).toISOString();
-    } catch { /* ignore bad dates */ }
-  }
+    // Compute event_at
+    let itemEventAt = eventAt;
+    if (!itemEventAt && result.suggested_calendar_event?.start_iso) {
+      try {
+        itemEventAt = new Date(result.suggested_calendar_event.start_iso).toISOString();
+      } catch { /* ignore bad dates */ }
+    }
 
-  await env.DB.prepare(
-    `INSERT INTO triage_items (id, user_id, source_type, source_ref, source_title, event_at, priority, urgency, quadrant, next_check_at, category, summary, suggested_action, classifier_json, source_json, extracted_content, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
-  ).bind(
-    itemId, userId, sourceType, sourceRef, sourceTitle, eventAt,
-    result.importance, result.urgency, result.quadrant, result.next_check_at ?? null,
-    result.category, result.summary, result.suggested_action,
-    JSON.stringify(result), sourceJson ? JSON.stringify(sourceJson) : null,
-    extractedContent
-  ).run();
-
-  // Calendar suggestion (from email or calendar source)
-  if (result.suggested_calendar_event) {
-    const evt = result.suggested_calendar_event;
     await env.DB.prepare(
-      `INSERT INTO calendar_suggestions (id, user_id, triage_item_id, title, start_iso, end_iso, location, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`
-    ).bind(crypto.randomUUID(), userId, itemId, evt.title, evt.start_iso, evt.end_iso, evt.location ?? null).run();
-  }
+      `INSERT INTO triage_items (id, user_id, source_type, source_ref, source_title, event_at, priority, urgency, quadrant, next_check_at, category, summary, suggested_action, classifier_json, source_json, extracted_content, compound_idx, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
+    ).bind(
+      itemId, userId, sourceType, sourceRef, sourceTitle, itemEventAt,
+      result.importance, result.urgency, result.quadrant, result.next_check_at ?? null,
+      result.category, result.summary, result.suggested_action,
+      JSON.stringify(result), sourceJson ? JSON.stringify(sourceJson) : null,
+      null, // extractedContent
+      compoundIdx
+    ).run();
 
-  // Push for hot items
-  if (result.quadrant === "hot") {
-    await env.TASKS.send({
-      type: "push.send", userId, triageItemId: itemId, summary: result.summary,
-    } as QueueMessage);
+    // Calendar suggestion
+    if (result.suggested_calendar_event) {
+      const evt = result.suggested_calendar_event;
+      await env.DB.prepare(
+        `INSERT INTO calendar_suggestions (id, user_id, triage_item_id, title, start_iso, end_iso, location, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`
+      ).bind(crypto.randomUUID(), userId, itemId, evt.title, evt.start_iso, evt.end_iso, evt.location ?? null).run();
+    }
+
+    // Push for hot items (once per compound)
+    if (result.quadrant === "hot" && !hotPushSent) {
+      await env.TASKS.send({
+        type: "push.send", userId, triageItemId: itemId, summary: result.summary,
+      } as QueueMessage);
+      hotPushSent = true;
+    }
+
+    itemIds.push(itemId);
+
+    console.log(
+      `Classified ${input.kind} ${sourceRef}${isCompound ? `[${idx}]` : ""} for user ${userId}: ${result.quadrant} I${result.importance}/U${result.urgency}`
+    );
   }
 
   // Update ingested_files status for file inputs
@@ -249,11 +281,12 @@ export async function classifyAndStore(
     ).bind(input.fileId).run();
   }
 
-  console.log(
-    `Classified ${input.kind} ${sourceRef} for user ${userId}: ${result.quadrant} I${result.importance}/U${result.urgency}`
-  );
-
-  return { itemId, result };
+  return {
+    itemIds,
+    results: items,
+    itemId: itemIds[0]!,
+    result: items[0]!,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,6 +297,6 @@ export async function classifyAndStoreEmail(
   userId: string,
   email: ClassifyEmailInput,
   env: Env
-): Promise<{ itemId: string; result: TriageResult }> {
+): Promise<ClassifyStoreResult> {
   return classifyAndStore(userId, email, env);
 }
