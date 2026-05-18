@@ -109,7 +109,7 @@ async function classify(
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 4096,
       system: [{ type: "text", text: systemPrompt }],
       messages: [{ role: "user", content: userMessage }],
     }),
@@ -184,8 +184,25 @@ ${fixture.input.bodyText}`;
     };
   }
 
-  // For single-item fixtures, check the first item. For compound fixtures, check item count.
-  const parsed = allItems[0];
+  // For compound fixtures (expectedCount > 1), find the best-matching item by
+  // quadrant (then category as tiebreaker) since ordering is non-deterministic.
+  // For single-item fixtures, use items[0].
+  const expectedCount = fixture.expected.expectedCount ?? 1;
+  let parsed: Record<string, unknown>;
+  let matchedIndex = 0;
+  if (expectedCount > 1 && allItems.length > 1) {
+    // Score each item: 2 points for quadrant match, 1 for category match
+    let bestScore = -1;
+    for (let i = 0; i < allItems.length; i++) {
+      let score = 0;
+      if (allItems[i]!.quadrant === fixture.expected.quadrant) score += 2;
+      if (allItems[i]!.category === fixture.expected.category) score += 1;
+      if (score > bestScore) { bestScore = score; matchedIndex = i; }
+    }
+    parsed = allItems[matchedIndex]!;
+  } else {
+    parsed = allItems[0]!;
+  }
   const actualQuadrant = parsed.quadrant as string;
   const actualCategory = parsed.category as string;
   const actualImportance = toBucket(parsed.importance as number);
@@ -230,7 +247,6 @@ ${fixture.input.bodyText}`;
   }
 
   // Check item count for compound fixtures
-  const expectedCount = fixture.expected.expectedCount ?? 1;
   if (expectedCount > 1 || allItems.length > 1) {
     checks.itemCount = {
       expected: expectedCount,
@@ -245,7 +261,7 @@ ${fixture.input.bodyText}`;
     fixtureId: fixture.id,
     pass,
     checks,
-    raw: parsed,
+    raw: { ...parsed, ...(matchedIndex > 0 ? { _matchedIndex: matchedIndex } : {}) },
     allItems: allItems.length > 1 ? allItems : undefined,
     costCents: computeCost(usage),
     latencyMs,
