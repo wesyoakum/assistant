@@ -1,7 +1,7 @@
 import type { Env } from "../index";
 import type { FeedbackRow, QueueMessage } from "@assistant/shared";
 import type { TriageResult } from "../prompts/triage.schema";
-import { classifyEmail, classifyFile, logUsage } from "./claude";
+import { classifyEmail, classifyFile } from "./claude";
 import { buildSystemPrompt, type ContextEntry } from "../prompts/triage-system";
 
 // ---------------------------------------------------------------------------

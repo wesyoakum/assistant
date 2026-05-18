@@ -407,7 +407,7 @@ For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timez
     content: { type: string; text?: string }[];
     usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
   };
-  await logUsage(c.env.DB, userId, "chat", data.usage);
+  await logUsage(c.env.DB, userId, "chat", MODEL, data.usage);
   const textBlock = data.content.find((b) => b.type === "text");
   let reply = textBlock?.text || "Sorry, I couldn't generate a response.";
 

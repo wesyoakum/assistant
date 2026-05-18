@@ -3,7 +3,10 @@ import { triageResultSchema, triageItemSchema, type TriageResult } from "../prom
 import type { EmailContent, FeedbackRow } from "@assistant/shared";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
-const MODEL = "claude-opus-4-7";
+
+// Model strings — wired per call-site, not as a module constant.
+export const CLASSIFIER_MODEL = "claude-sonnet-4-6";
+export const CHAT_MODEL = "claude-opus-4-7"; // kept on Opus for reasoning depth
 
 interface ClaudeResponse {
   content: { type: string; text?: string }[];
@@ -27,15 +30,15 @@ export async function logUsage(
   db: D1Database,
   userId: string,
   purpose: string,
+  model: string,
   usage: ClaudeResponse["usage"]
 ) {
   if (!usage) return;
-  const p = PRICING[MODEL] ?? PRICING["claude-opus-4-7"]!;
+  const p = PRICING[model] ?? PRICING["claude-sonnet-4-6"]!;
   const inputTokens = usage.input_tokens || 0;
   const outputTokens = usage.output_tokens || 0;
   const cacheRead = usage.cache_read_input_tokens || 0;
   const cacheWrite = usage.cache_creation_input_tokens || 0;
-  // Non-cached input = total input - cacheRead - cacheWrite
   const regularInput = Math.max(0, inputTokens - cacheRead - cacheWrite);
   const costCents = (regularInput * p.input + outputTokens * p.output + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite) / 1_000_000;
 
@@ -43,7 +46,7 @@ export async function logUsage(
     await db.prepare(
       `INSERT INTO api_usage (user_id, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(userId, MODEL, purpose, inputTokens, outputTokens, cacheRead, cacheWrite, costCents).run();
+    ).bind(userId, model, purpose, inputTokens, outputTokens, cacheRead, cacheWrite, costCents).run();
   } catch { /* don't let logging failures break functionality */ }
 }
 
@@ -69,8 +72,9 @@ Date: ${email.date}
 
 ${email.bodyText}`;
 
-  const result = await callClaude(systemPrompt, userMessage, anthropicApiKey);
-  if (db && userId) await logUsage(db, userId, "classify-email", result.usage);
+  const model = CLASSIFIER_MODEL;
+  const result = await callClaude(systemPrompt, userMessage, anthropicApiKey, model);
+  if (db && userId) await logUsage(db, userId, "classify-email", model, result.usage);
   const parsed = tryParse(result.text);
   if (parsed) return parsed;
 
@@ -82,8 +86,8 @@ ${getParseError(result.text)}
 
 Please return ONLY valid JSON matching the schema. Remember to wrap items in { "items": [...] }.`;
 
-  const retryResult = await callClaude(systemPrompt, retryMessage, anthropicApiKey);
-  if (db && userId) await logUsage(db, userId, "classify-email-retry", retryResult.usage);
+  const retryResult = await callClaude(systemPrompt, retryMessage, anthropicApiKey, model);
+  if (db && userId) await logUsage(db, userId, "classify-email-retry", model, retryResult.usage);
   const retryParsed = tryParse(retryResult.text);
   if (retryParsed) return retryParsed;
 
@@ -152,8 +156,9 @@ export async function classifyFile(
     ];
   }
 
-  const result = await callClaudeMultimodal(systemPrompt, userContent, anthropicApiKey);
-  if (db && userId) await logUsage(db, userId, `classify-${kind}`, result.usage);
+  const model = CLASSIFIER_MODEL;
+  const result = await callClaudeMultimodal(systemPrompt, userContent, anthropicApiKey, model);
+  if (db && userId) await logUsage(db, userId, `classify-${kind}`, model, result.usage);
   const parsed = tryParse(result.text);
   if (parsed) return parsed;
 
@@ -186,19 +191,22 @@ interface ClaudeCallResult {
 async function callClaude(
   system: string,
   userMessage: string,
-  apiKey: string
+  apiKey: string,
+  model: string = CLASSIFIER_MODEL
 ): Promise<ClaudeCallResult> {
   return callClaudeMultimodal(
     system,
     [{ type: "text", text: userMessage }],
-    apiKey
+    apiKey,
+    model
   );
 }
 
 async function callClaudeMultimodal(
   system: string,
   userContent: unknown[],
-  apiKey: string
+  apiKey: string,
+  model: string = CLASSIFIER_MODEL
 ): Promise<ClaudeCallResult> {
   const res = await fetch(CLAUDE_API, {
     method: "POST",
@@ -208,7 +216,7 @@ async function callClaudeMultimodal(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: 4096,
       system: [
         {
