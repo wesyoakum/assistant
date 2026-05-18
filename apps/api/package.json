@@ -6,7 +6,9 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "deploy:setup": "node scripts/deploy-setup.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "npx tsx evals/run.ts",
+    "eval:verbose": "npx tsx evals/run.ts --verbose"
   },
   "dependencies": {
     "hono": "^4.7.0",

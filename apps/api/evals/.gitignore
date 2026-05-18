@@ -1,0 +1,4 @@
+# Eval results contain raw classifier output — don't commit ad-hoc runs
+results/*.json
+# But keep baseline results for reference
+!results/baseline-*.json

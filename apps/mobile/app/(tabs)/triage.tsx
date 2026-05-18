@@ -19,6 +19,8 @@ interface TriageItem {
   source_type: string;
   priority: number;
   urgency: number;
+  quadrant: string | null;
+  next_check_at: string | null;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
@@ -71,7 +73,7 @@ interface ClassifyNextResponse {
 // --- Eisenhower matrix ---
 
 type Level = "high" | "medium" | "low";
-type Quadrant = "hot" | "action" | "plan" | "noop";
+type Quadrant = "hot" | "action" | "plan" | "monitor" | "noop";
 
 function toLevel(n: number): Level {
   if (n >= 4) return "high";
@@ -90,10 +92,11 @@ function getQuadrant(importance: Level, urgency: Level): Quadrant {
 }
 
 const QUADRANTS: { key: Quadrant; label: string; color: string }[] = [
-  { key: "hot",    label: "Hot",    color: "#e53e3e" },
-  { key: "action", label: "Action", color: "#ed8936" },
-  { key: "plan",   label: "Plan",   color: "#38a169" },
-  { key: "noop",   label: "Noop",   color: "#a0aec0" },
+  { key: "hot",     label: "Hot",     color: "#e53e3e" },
+  { key: "action",  label: "Action",  color: "#ed8936" },
+  { key: "plan",    label: "Plan",    color: "#38a169" },
+  { key: "monitor", label: "Monitor", color: "#4a90a4" },
+  { key: "noop",    label: "Noop",    color: "#a0aec0" },
 ];
 
 // --- Helpers ---
@@ -254,11 +257,11 @@ export default function TriageScreen() {
   const sections = useMemo(() => {
     const items = data?.items || [];
     const buckets: Record<Quadrant, TriageItem[]> = {
-      hot: [], action: [], plan: [], noop: [],
+      hot: [], action: [], plan: [], monitor: [], noop: [],
     };
 
     for (const item of items) {
-      const q = getQuadrant(toLevel(item.priority), toLevel(item.urgency));
+      const q: Quadrant = (item.quadrant as Quadrant) || getQuadrant(toLevel(item.priority), toLevel(item.urgency));
       buckets[q].push(item);
     }
 

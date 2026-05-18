@@ -1,0 +1,164 @@
+[
+  {
+    "id": "hot-chat-kid-injury-01",
+    "description": "Chat: kid medical situation in progress. Tests that the classifier recognizes a Hot case from chat without needing clarification — high importance + immediate action both clearly signaled.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Kid injured at school — heading to urgent care",
+      "date": "Mon, 18 May 2026 14:22:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"Just got a call from Jake's school — he fell on the playground and they think his arm might be broken. I'm leaving work now to pick him up and take him to the urgent care on Briarcrest. Texted Stacy already.\""
+    },
+    "expected": {
+      "quadrant": "hot",
+      "category": "health",
+      "importanceBucket": "high",
+      "urgencyBucket": "high",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "action-chat-plumber-reminder-01",
+    "description": "Chat: explicit reminder request for tomorrow morning. Tests the canonical 'remind me to X tomorrow' Action case.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Call plumber tomorrow morning",
+      "date": "Mon, 18 May 2026 19:45:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"Remind me to call the plumber tomorrow morning. The kitchen sink has been leaking for two days and I keep putting it off.\""
+    },
+    "expected": {
+      "quadrant": "action",
+      "category": "personal",
+      "importanceBucket": "medium",
+      "urgencyBucket": "high",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "action-chat-tax-deadline-01",
+    "description": "Chat: explicit commitment with a near-term financial deadline. Tests Action with high importance + high urgency from a chat-stated obligation.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "File Q1 estimated taxes by Wednesday",
+      "date": "Mon, 18 May 2026 21:10:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"I need to file my Q1 estimated taxes by Wednesday. I've been pushing it off for weeks and don't want to get hit with penalties.\""
+    },
+    "expected": {
+      "quadrant": "action",
+      "category": "billing",
+      "importanceBucket": "high",
+      "urgencyBucket": "high",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "action-chat-interview-calendar-01",
+    "description": "Chat: user mentions a specific upcoming meeting and asks for it on the calendar. Tests Action AND suggested_calendar_event emission from chat (the classifier should propose a calendar event with the stated time).",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Interview with TechCorp next Tuesday 2pm",
+      "date": "Mon, 18 May 2026 16:30:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"I have a final-round interview with TechCorp next Tuesday at 2pm. Their office downtown — 456 Innovation Dr. Need to add it to my calendar and start prepping.\""
+    },
+    "expected": {
+      "quadrant": "action",
+      "category": "work",
+      "importanceBucket": "high",
+      "urgencyBucket": "medium",
+      "createsCalendarEvent": true
+    }
+  },
+  {
+    "id": "plan-chat-parents-trip-01",
+    "description": "Chat: long-range goal stated, no specific date yet. Tests Plan for a multi-step intention that's months out and ambiguous on timing.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Plan trip to visit parents in July",
+      "date": "Mon, 18 May 2026 22:05:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"I want to plan a trip to visit my parents in Phoenix in July. Need to figure out flights, a long weekend that works for me and Stacy, and what we want to do with the kids while we're gone.\""
+    },
+    "expected": {
+      "quadrant": "plan",
+      "category": "travel",
+      "importanceBucket": "medium",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "plan-chat-physical-exam-01",
+    "description": "Chat: overdue health admin with no hard deadline. Tests Plan for a 'should-do, important, no urgency' case — the most-procrastinated kind of action item.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Book annual physical (overdue)",
+      "date": "Mon, 18 May 2026 21:30:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"I should book my annual physical. Last one was over a year ago and my doc's office sent a reminder last month that I never replied to.\""
+    },
+    "expected": {
+      "quadrant": "plan",
+      "category": "health",
+      "importanceBucket": "medium",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "monitor-chat-contract-pending-01",
+    "description": "Chat: user explicitly states they're waiting on someone else's action with a defined check-in trigger. Tests Monitor with an implicit next_check_at (~Thursday). If classifier picks Action, it's misreading 'I should follow up if I don't hear by Thursday' as immediate work.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Waiting on Jamie's signed contract — follow up Thursday",
+      "date": "Mon, 18 May 2026 11:15:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"Waiting on Jamie to send back the signed contract for the consulting gig. She said end of week, today is Monday. If I don't hear by Thursday I should follow up.\""
+    },
+    "expected": {
+      "quadrant": "monitor",
+      "category": "work",
+      "importanceBucket": "high",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "monitor-chat-package-tracking-01",
+    "description": "Chat: tracking a shipment with a specific expected arrival. Classic Monitor — vigilance, not execution. next_check_at should be ~Friday. The kid-NSC context adds mild importance.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Track laptop charger — needed before NSC",
+      "date": "Mon, 18 May 2026 18:00:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"Tracking package 1Z999AA10123456784 from Best Buy — said it should arrive Friday. It's the replacement laptop charger for Derek, he needs it before he leaves for NSC on the 27th.\""
+    },
+    "expected": {
+      "quadrant": "monitor",
+      "category": "shopping",
+      "importanceBucket": "medium",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "noop-chat-journaling-01",
+    "description": "Chat: positive journaling, no action implied. Tests that the classifier doesn't over-classify reflective statements as Action. The user is logging a feeling, not requesting work.",
+    "source": "chat",
+    "input": {
+      "from": "Chat",
+      "subject": "Good lunch with team — feeling energized",
+      "date": "Mon, 18 May 2026 13:45:00 -0500",
+      "bodyText": "Chat message from user (sent to the assistant):\n\n\"Just had a great lunch with the team. Felt energized. Want to track that I'm liking this stretch of work — easy to forget when things get hard later.\""
+    },
+    "expected": {
+      "quadrant": "noop",
+      "category": "personal",
+      "importanceBucket": "low",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  }
+]

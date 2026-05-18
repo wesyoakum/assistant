@@ -10,11 +10,10 @@ import { context } from "./routes/context";
 import { push } from "./routes/push";
 import { control } from "./routes/control";
 import { usage } from "./routes/usage";
-import { classifyFile } from "./services/claude";
 import { syncIcalFeed } from "./services/ical";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
-import { classifyAndStoreEmail } from "./services/classify";
+import { classifyAndStoreEmail, classifyAndStore } from "./services/classify";
 import { isControlled } from "./services/settings";
 import type { QueueMessage, FeedbackRow } from "@assistant/shared";
 
@@ -263,7 +262,7 @@ export default {
       `UPDATE triage_items SET status = 'dismissed', updated_at = datetime('now')
        WHERE status = 'open'
        AND source_type IN ('calendar', 'event')
-       AND priority <= 2 AND urgency <= 2
+       AND (quadrant = 'noop' OR (quadrant IS NULL AND priority <= 2 AND urgency <= 2))
        AND event_at IS NOT NULL AND datetime(event_at) < datetime('now')`
     ).run();
     if (dismissed.meta.changes) {
@@ -325,10 +324,11 @@ export default {
       console.log(`Cron: urgency-bumped ${bumped.meta.changes} overdue items`);
     }
 
-    // --- Auto-archive stale low-priority items (14+ days, P<=2, U<=2) ---
+    // --- Auto-archive stale Noop items (14+ days) — Plan and Monitor are long-lived by design ---
     const archived = await env.DB.prepare(
       `UPDATE triage_items SET status = 'dismissed', updated_at = datetime('now')
-       WHERE status = 'open' AND priority <= 2 AND urgency <= 2
+       WHERE status = 'open'
+       AND (quadrant = 'noop' OR (quadrant IS NULL AND priority <= 2 AND urgency <= 2))
        AND created_at < datetime('now', '-14 days')`
     ).run();
     if (archived.meta.changes) {
@@ -435,15 +435,15 @@ export default {
         // --- Morning briefing ---
         const counts = await env.DB.prepare(
           `SELECT
-             SUM(CASE WHEN priority >= 4 AND urgency >= 4 THEN 1 ELSE 0 END) as hot,
-             SUM(CASE WHEN priority >= 4 AND urgency < 4 THEN 1 ELSE 0 END) as important,
-             SUM(CASE WHEN priority < 4 AND urgency >= 4 THEN 1 ELSE 0 END) as urgent,
-             SUM(CASE WHEN priority < 4 AND urgency < 4 THEN 1 ELSE 0 END) as low,
+             SUM(CASE WHEN quadrant = 'hot' THEN 1 WHEN quadrant IS NULL AND priority >= 4 AND urgency >= 4 THEN 1 ELSE 0 END) as hot,
+             SUM(CASE WHEN quadrant = 'action' THEN 1 WHEN quadrant IS NULL AND priority < 4 AND urgency >= 4 THEN 1 ELSE 0 END) as action_count,
+             SUM(CASE WHEN quadrant = 'plan' THEN 1 WHEN quadrant IS NULL AND priority >= 4 AND urgency < 4 THEN 1 ELSE 0 END) as plan_count,
+             SUM(CASE WHEN quadrant = 'monitor' THEN 1 ELSE 0 END) as monitor_count,
              COUNT(*) as total
            FROM triage_items
            WHERE user_id = ? AND status = 'open'`
         ).bind(user.id).first<{
-          hot: number; important: number; urgent: number; low: number; total: number;
+          hot: number; action_count: number; plan_count: number; monitor_count: number; total: number;
         }>();
 
         const todayEvents = await env.DB.prepare(
@@ -454,17 +454,27 @@ export default {
            AND date(event_at) = date('now')`
         ).bind(user.id).first<{ cnt: number }>();
 
+        // Monitor items due for re-check
+        const { results: dueMonitors } = await env.DB.prepare(
+          `SELECT id, summary FROM triage_items
+           WHERE user_id = ? AND status = 'open' AND quadrant = 'monitor'
+           AND next_check_at IS NOT NULL AND datetime(next_check_at) <= datetime('now')
+           LIMIT 5`
+        ).bind(user.id).all<{ id: string; summary: string }>();
+
         const hot = counts?.hot ?? 0;
         const evtCount = todayEvents?.cnt ?? 0;
         const total = counts?.total ?? 0;
         const overdueCount = overdueItems.length;
 
         const parts: string[] = [];
-        if (hot > 0) parts.push(`${hot} Hot item${hot > 1 ? "s" : ""}`);
-        if ((counts?.important ?? 0) > 0) parts.push(`${counts!.important} important`);
-        if ((counts?.urgent ?? 0) > 0) parts.push(`${counts!.urgent} urgent`);
+        if (hot > 0) parts.push(`${hot} Hot`);
+        if ((counts?.action_count ?? 0) > 0) parts.push(`${counts!.action_count} Action`);
+        if ((counts?.plan_count ?? 0) > 0) parts.push(`${counts!.plan_count} Plan`);
+        if ((counts?.monitor_count ?? 0) > 0) parts.push(`${counts!.monitor_count} Monitor`);
         if (evtCount > 0) parts.push(`${evtCount} event${evtCount > 1 ? "s" : ""} today`);
         if (overdueCount > 0) parts.push(`${overdueCount} overdue`);
+        if (dueMonitors.length > 0) parts.push(`${dueMonitors.length} monitor check-in${dueMonitors.length > 1 ? "s" : ""} due`);
 
         const briefBody = parts.length > 0
           ? `Good morning! ${parts.join(", ")}. ${total} open total.`
@@ -601,7 +611,7 @@ async function handleTriageClassify(
   email: { messageId: string; threadId: string; subject: string; from: string; date: string; bodyText: string },
   env: Env
 ) {
-  await classifyAndStoreEmail(userId, email, env);
+  await classifyAndStoreEmail(userId, { kind: "email", ...email }, env);
 }
 
 async function handlePushSend(
@@ -734,58 +744,7 @@ async function handleFileClassify(
   ).bind(fileId).run();
 
   try {
-    // Fetch file from R2
-    const obj = await env.FILES.get(r2Key);
-    if (!obj) throw new Error(`File not found in R2: ${r2Key}`);
-
-    const fileBytes = await obj.arrayBuffer();
-    const contentType = obj.httpMetadata?.contentType || (
-      kind === "pdf" ? "application/pdf" :
-      kind === "audio" ? "audio/m4a" :
-      "image/jpeg"
-    );
-
-    // Get user feedback for few-shot
-    const { results: feedbackRows } = await env.DB.prepare(
-      `SELECT f.kind, f.corrected_priority, f.corrected_urgency, f.note,
-              t.summary, t.category, t.priority as original_priority, t.urgency as original_urgency
-       FROM feedback f
-       JOIN triage_items t ON t.id = f.triage_item_id
-       WHERE f.user_id = ?
-       ORDER BY f.created_at DESC
-       LIMIT 10`
-    ).bind(userId).all<FeedbackRow>();
-
-    const { results: ctxRows } = await env.DB.prepare(
-      "SELECT kind, label, detail FROM user_context WHERE user_id = ?"
-    ).bind(userId).all<{ kind: string; label: string; detail: string | null }>();
-
-    const result = await classifyFile(kind, fileBytes, contentType, feedbackRows, env.ANTHROPIC_API_KEY, ctxRows);
-
-    const sourceType = kind === "audio" ? "voice" : kind === "pdf" ? "document" : "image";
-    const itemId = crypto.randomUUID();
-
-    await env.DB.prepare(
-      `INSERT INTO triage_items (id, user_id, source_type, source_ref, priority, urgency, category, summary, suggested_action, classifier_json, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
-    ).bind(
-      itemId, userId, sourceType, fileId,
-      result.priority, result.urgency, result.category,
-      result.summary, result.suggested_action, JSON.stringify(result)
-    ).run();
-
-    // Update file status
-    await env.DB.prepare(
-      "UPDATE ingested_files SET status = 'done' WHERE id = ?"
-    ).bind(fileId).run();
-
-    // Push if high priority
-    if (result.priority >= 4 || result.urgency >= 4) {
-      const pushMsg: QueueMessage = { type: "push.send", userId, triageItemId: itemId, summary: result.summary };
-      await env.TASKS.send(pushMsg);
-    }
-
-    console.log(`Classified ${kind} file ${fileId} for user ${userId}: P${result.priority}/U${result.urgency}`);
+    await classifyAndStore(userId, { kind: "file", fileId, fileKind: kind, r2Key }, env);
   } catch (err) {
     console.error(`File classify failed for ${fileId}:`, err);
     await env.DB.prepare(

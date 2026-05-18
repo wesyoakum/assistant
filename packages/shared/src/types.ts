@@ -1,11 +1,16 @@
+// Quadrant — primary classifier output
+export type Quadrant = "hot" | "action" | "plan" | "monitor" | "noop";
+
 // Triage item from D1
 export interface TriageItem {
   id: string;
   user_id: string;
-  source_type: "email" | "document" | "image" | "voice";
+  source_type: "email" | "document" | "image" | "voice" | "chat" | "calendar" | "event";
   source_ref: string | null;
   priority: number;
   urgency: number;
+  quadrant: Quadrant | null;
+  next_check_at: string | null;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
@@ -46,6 +51,9 @@ export interface EmailContent {
 
 // Classifier output — 5-dimension scoring rubric
 export interface TriageResult {
+  // Primary classification
+  quadrant: Quadrant;
+  next_check_at?: string;
   // Scoring dimensions
   impact: number;
   meaning: number;

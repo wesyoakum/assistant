@@ -257,6 +257,7 @@ triage.post("/:id/reevaluate", async (c) => {
       await c.env.DB.prepare("DELETE FROM triage_items WHERE id = ?").bind(id).run();
 
       const { itemId, result } = await classifyAndStoreEmail(userId, {
+        kind: "email",
         messageId: email.messageId,
         threadId: email.threadId || "",
         subject: email.subject || "",

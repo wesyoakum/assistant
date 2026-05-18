@@ -1,0 +1,56 @@
+[
+  {
+    "id": "hot-email-thread-01",
+    "description": "Long email thread where action is buried — hot (deadline is 2 days away)",
+    "source": "email",
+    "input": {
+      "from": "contractor@buildco.com",
+      "subject": "Re: Re: Re: Kitchen renovation timeline",
+      "date": "Mon, 18 May 2026 08:30:00 -0500",
+      "bodyText": "Wes,\n\nThe countertop supplier confirmed they can deliver the quartz on June 2. I need you to sign the change order by this Wednesday (May 20) so I can lock in the install crew for June 3-4.\n\nPlease review the attached change order ($1,200 upgrade from granite to quartz) and reply with your approval or call me at 555-0198.\n\n— Dave\n\nOn May 16, 2026 at 3:15 PM, Wes Yoakum wrote:\n> Sounds good Dave. Let me think about the quartz vs granite option over the weekend.\n>\n> On May 15, 2026 at 10:00 AM, contractor@buildco.com wrote:\n>> Hi Wes,\n>> Quick update on the kitchen reno. The demo is done and plumbing rough-in passed inspection.\n>> We're on track for countertop install the week of June 2.\n>> One question — do you want to upgrade to quartz? It's about $1,200 more but much more durable.\n>> Let me know.\n>> Dave"
+    },
+    "expected": {
+      "quadrant": "hot",
+      "category": "personal",
+      "importanceBucket": "high",
+      "urgencyBucket": "high",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "noop-email-policy-01",
+    "description": "HR policy update — FYI, noop quadrant",
+    "source": "email",
+    "input": {
+      "from": "hr@company.com",
+      "subject": "Updated PTO Policy — Effective June 1",
+      "date": "Mon, 18 May 2026 09:00:00 -0500",
+      "bodyText": "Team,\n\nPlease review the updated PTO policy effective June 1, 2026. Key changes:\n\n- Carryover limit increased from 5 to 10 days\n- Minimum notice for PTO requests over 3 days: 2 weeks\n- New sick leave documentation requirement for absences > 3 consecutive days\n\nFull policy: https://hr.internal/pto-policy-2026\n\nQuestions? Reach out to your HR business partner.\n\nBest,\nHR Team"
+    },
+    "expected": {
+      "quadrant": "noop",
+      "category": "work",
+      "importanceBucket": "low",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  },
+  {
+    "id": "plan-email-okr-01",
+    "description": "Important task with far-future deadline — plan quadrant",
+    "source": "email",
+    "input": {
+      "from": "manager@company.com",
+      "subject": "Q3 OKR drafts due July 15",
+      "date": "Mon, 18 May 2026 10:30:00 -0500",
+      "bodyText": "Hi team,\n\nReminder that Q3 OKR drafts are due July 15. Please start thinking about your team's objectives for Q3.\n\nWe'll have a review session the week of July 21 to finalize.\n\nFormat and template: https://wiki.internal/okr-template\n\nThanks,\nJamie"
+    },
+    "expected": {
+      "quadrant": "plan",
+      "category": "work",
+      "importanceBucket": "medium",
+      "urgencyBucket": "low",
+      "createsCalendarEvent": false
+    }
+  }
+]

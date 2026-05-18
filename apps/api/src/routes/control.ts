@@ -5,11 +5,8 @@ import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
 import { getValidAccessToken, fetchNewMessages } from "../services/gmail";
 import { listUpcomingEvents } from "../services/google-calendar";
-import { classifyAndStoreEmail } from "../services/classify";
-import { classifyFile, classifyCalendarEvent, logUsage } from "../services/claude";
+import { classifyAndStoreEmail, classifyAndStore } from "../services/classify";
 import { getUserSettings, setUserSettings } from "../services/settings";
-import { buildSystemPrompt, type ContextEntry } from "../prompts/triage-system";
-import type { FeedbackRow } from "@assistant/shared";
 
 type ControlApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
@@ -251,6 +248,7 @@ control.post("/classify-next", async (c) => {
       const { itemId, result } = await classifyAndStoreEmail(
         userId,
         {
+          kind: "email",
           messageId: row.message_id,
           threadId: row.thread_id || "",
           subject: row.subject || "",
@@ -273,62 +271,31 @@ control.post("/classify-next", async (c) => {
         triage_item_id: itemId,
       });
     } else if (sourceType === "calendar") {
-      // Classify calendar event
-      const { results: feedbackRows } = await c.env.DB.prepare(
-        `SELECT f.kind, f.corrected_priority, f.corrected_urgency, f.note,
-                t.summary, t.category, t.priority as original_priority, t.urgency as original_urgency
-         FROM feedback f JOIN triage_items t ON t.id = f.triage_item_id
-         WHERE f.user_id = ? ORDER BY f.created_at DESC LIMIT 10`
-      ).bind(userId).all<FeedbackRow>();
+      try {
+        const { itemId, result } = await classifyAndStore(userId, {
+          kind: "calendar",
+          eventId: row.message_id,
+          calendarId: row.from_addr || "primary",
+          calendarName: row.from_addr || "primary",
+          summary: row.subject || "Calendar event",
+          start: row.email_date || "",
+          end: "",
+          description: row.body_text || undefined,
+        }, c.env);
 
-      const { results: contextRows } = await c.env.DB.prepare(
-        "SELECT kind, label, detail FROM user_context WHERE user_id = ?"
-      ).bind(userId).all<ContextEntry>();
-
-      const now = new Date();
-      const currentDateTime = now.toLocaleString("en-US", {
-        weekday: "long", year: "numeric", month: "long", day: "numeric",
-        hour: "numeric", minute: "2-digit", timeZoneName: "short",
-        timeZone: "America/Chicago",
-      });
-      const systemPrompt = buildSystemPrompt(feedbackRows, contextRows, currentDateTime);
-
-      const eventContent = `Calendar Event: "${row.subject}"\nCalendar: ${row.from_addr || "primary"}\nStart: ${row.email_date}\n\n${row.body_text || ""}`;
-
-      const CLAUDE_API = "https://api.anthropic.com/v1/messages";
-      const res = await fetch(CLAUDE_API, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": c.env.ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: "claude-opus-4-7",
-          max_tokens: 1024,
-          system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-          messages: [{ role: "user", content: eventContent }],
-        }),
-      });
-
-      let result = { importance: 3, urgency: 3, category: "scheduling", summary: row.subject || "Calendar event", suggested_action: "Review event" };
-      if (res.ok) {
-        const data = (await res.json()) as { content: { type: string; text?: string }[]; usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } };
-        await logUsage(c.env.DB, userId, "classify-calendar", data.usage);
-        const text = data.content.find((b) => b.type === "text")?.text || "";
-        try {
-          const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || text.match(/(\{[\s\S]*\})/);
-          const parsed = JSON.parse(jsonMatch ? jsonMatch[1]! : text);
-          result = { importance: parsed.importance || 3, urgency: parsed.urgency || 3, category: parsed.category || "scheduling", summary: parsed.summary || row.subject || "", suggested_action: parsed.suggested_action || "Review" };
-
-          const itemId = crypto.randomUUID();
-          await c.env.DB.prepare(
-            `INSERT INTO triage_items (id, user_id, source_type, source_ref, source_title, event_at, priority, urgency, category, summary, suggested_action, classifier_json, status)
-             VALUES (?, ?, 'event', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')`
-          ).bind(itemId, userId, row.message_id, row.from_addr, row.email_date, result.importance, result.urgency, result.category, result.summary, result.suggested_action, text).run();
-
-          classified.push({ subject: row.subject || "", from: row.from_addr || "", source_type: "calendar", importance: result.importance, urgency: result.urgency, category: result.category, summary: result.summary, suggested_action: result.suggested_action, triage_item_id: itemId });
-        } catch { /* fallback */ }
+        classified.push({
+          subject: row.subject || "",
+          from: row.from_addr || "",
+          source_type: "calendar",
+          importance: result.importance,
+          urgency: result.urgency,
+          category: result.category,
+          summary: result.summary,
+          suggested_action: result.suggested_action,
+          triage_item_id: itemId,
+        });
+      } catch (err) {
+        console.error(`Calendar classify failed for ${row.message_id}:`, err);
       }
     } else if (sourceType === "capture") {
       // Re-queue file classification via the queue

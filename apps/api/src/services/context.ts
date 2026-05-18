@@ -14,6 +14,7 @@ export interface TriageItemContext {
   thread_id: string | null;
   priority: number;
   urgency: number;
+  quadrant: string | null;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
@@ -96,7 +97,7 @@ export async function buildFullContext(userId: string, env: Env): Promise<FullCo
 
     // All open triage items
     env.DB.prepare(
-      `SELECT id, source_type, source_ref, thread_id, priority, urgency, category, summary,
+      `SELECT id, source_type, source_ref, thread_id, priority, urgency, quadrant, category, summary,
               suggested_action, classifier_json, source_title, source_url, event_at, due_at,
               event_created_at, event_updated_at, extracted_content, created_at
        FROM triage_items WHERE user_id = ? AND status = 'open'
@@ -105,7 +106,7 @@ export async function buildFullContext(userId: string, env: Env): Promise<FullCo
 
     // Recent dismissed/done items (last 30 days)
     env.DB.prepare(
-      `SELECT id, source_type, source_ref, thread_id, priority, urgency, category, summary,
+      `SELECT id, source_type, source_ref, thread_id, priority, urgency, quadrant, category, summary,
               suggested_action, classifier_json, source_title, source_url, event_at, due_at,
               event_created_at, event_updated_at, extracted_content, created_at
        FROM triage_items WHERE user_id = ? AND status IN ('dismissed', 'done')

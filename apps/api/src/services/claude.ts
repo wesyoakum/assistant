@@ -88,6 +88,7 @@ Please return ONLY valid JSON matching the schema.`;
   if (retryParsed) return retryParsed;
 
   return {
+    quadrant: "action" as const,
     impact: 3, meaning: 3, responsibility: 3, time_sensitivity: 3, immediacy: 3,
     importance: 3,
     urgency: 3,
@@ -157,6 +158,7 @@ export async function classifyFile(
   if (parsed) return parsed;
 
   return {
+    quadrant: "action" as const,
     impact: 3, meaning: 3, responsibility: 3, time_sensitivity: 3, immediacy: 3,
     importance: 3,
     urgency: 3,

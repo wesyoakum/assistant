@@ -23,6 +23,8 @@ interface TriageItem {
   source_url: string | null;
   priority: number;
   urgency: number;
+  quadrant: string | null;
+  next_check_at: string | null;
   category: string | null;
   summary: string | null;
   suggested_action: string | null;
@@ -37,7 +39,7 @@ interface TriageItem {
 }
 
 type Level = "high" | "medium" | "low";
-type Quadrant = "hot" | "action" | "plan" | "noop";
+type Quadrant = "hot" | "action" | "plan" | "monitor" | "noop";
 
 function toLevel(n: number): Level {
   if (n >= 4) return "high";
@@ -56,10 +58,11 @@ function getQuadrant(importance: Level, urgency: Level): Quadrant {
 }
 
 const QUADRANT_META: Record<Quadrant, { label: string; color: string }> = {
-  hot:    { label: "Hot",    color: "#e53e3e" },
-  action: { label: "Action", color: "#ed8936" },
-  plan:   { label: "Plan",   color: "#38a169" },
-  noop:   { label: "Noop",   color: "#a0aec0" },
+  hot:     { label: "Hot",     color: "#e53e3e" },
+  action:  { label: "Action",  color: "#ed8936" },
+  plan:    { label: "Plan",    color: "#38a169" },
+  monitor: { label: "Monitor", color: "#4a90a4" },
+  noop:    { label: "Noop",    color: "#a0aec0" },
 };
 
 const CATEGORIES = [
@@ -356,7 +359,8 @@ export default function TriageDetail() {
   const urgency = localUrgency ?? item.urgency;
   const imp = toLevel(priority);
   const urg = toLevel(urgency);
-  const quadrant = QUADRANT_META[getQuadrant(imp, urg)];
+  const quadrantKey: Quadrant = (item.quadrant as Quadrant) || getQuadrant(imp, urg);
+  const quadrant = QUADRANT_META[quadrantKey];
   const deadline = formatDeadline(item.due_at || item.event_at);
   // Origin: email sent date, calendar created/edited, or triage created
   const originDate = formatDate(
@@ -615,7 +619,7 @@ export default function TriageDetail() {
           </Pressable>
         )}
 
-        {item.source_json && (
+        {(item.source_json || item.source_ref) && (
           <Pressable
             style={styles.openBtn}
             onPress={async () => {

@@ -1,7 +1,14 @@
 import { z } from "zod/v4";
 
+export const QUADRANTS = ["hot", "action", "plan", "monitor", "noop"] as const;
+export type Quadrant = (typeof QUADRANTS)[number];
+
 export const triageResultSchema = z
   .object({
+    // Primary classification
+    quadrant: z.enum(QUADRANTS),
+    // Monitor re-check date (required when quadrant === 'monitor', optional otherwise)
+    next_check_at: z.string().optional(),
     // 5 scoring dimensions
     impact: z.number().int().min(1).max(5),
     meaning: z.number().int().min(1).max(5),

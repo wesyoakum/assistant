@@ -46,7 +46,7 @@ chat.post("/", async (c) => {
   let triageContext = "";
   if (body.triage_item_id) {
     const item = await c.env.DB.prepare(
-      "SELECT source_type, source_ref, summary, suggested_action, category, priority, urgency, classifier_json, source_title, source_url, created_at FROM triage_items WHERE id = ? AND user_id = ?"
+      "SELECT source_type, source_ref, summary, suggested_action, category, priority, urgency, quadrant, classifier_json, source_title, source_url, created_at FROM triage_items WHERE id = ? AND user_id = ?"
     )
       .bind(body.triage_item_id, userId)
       .first<{
@@ -57,6 +57,7 @@ chat.post("/", async (c) => {
         category: string | null;
         priority: number;
         urgency: number;
+        quadrant: string | null;
         classifier_json: string | null;
         source_title: string | null;
         source_url: string | null;
@@ -64,7 +65,7 @@ chat.post("/", async (c) => {
       }>();
 
     if (item) {
-      const q = getQuadrant(item.priority, item.urgency);
+      const q = item.quadrant ? item.quadrant.charAt(0).toUpperCase() + item.quadrant.slice(1) : getQuadrant(item.priority, item.urgency);
       triageContext = `\n\nThe user is asking about this triage item (USE THIS ID for any edit_triage actions):
 - ID: ${body.triage_item_id}
 - Source: ${item.source_type}
@@ -112,7 +113,7 @@ chat.post("/", async (c) => {
   if (fullCtx.openTriageItems.length > 0) {
     const nowMs = Date.now();
     const lines = fullCtx.openTriageItems.map((t) => {
-      const q = getQuadrant(t.priority, t.urgency);
+      const q = t.quadrant ? t.quadrant.charAt(0).toUpperCase() + t.quadrant.slice(1) : getQuadrant(t.priority, t.urgency);
       const parts = [`[id:${t.id}] [${q}] P${t.priority}U${t.urgency} ${t.source_type}`];
       parts.push(`summary: ${t.summary || "no summary"}`);
       if (t.category) parts.push(`category: ${t.category}`);
@@ -139,8 +140,11 @@ chat.post("/", async (c) => {
       parts.push(`triaged: ${t.created_at}`);
       return `- ${parts.join(" | ")}`;
     });
-    const counts = { Hot: 0, Action: 0, Plan: 0, Noop: 0 };
-    for (const t of fullCtx.openTriageItems) counts[getQuadrant(t.priority, t.urgency)]++;
+    const counts: Record<string, number> = { Hot: 0, Action: 0, Plan: 0, Monitor: 0, Noop: 0 };
+    for (const t of fullCtx.openTriageItems) {
+      const q = t.quadrant ? t.quadrant.charAt(0).toUpperCase() + t.quadrant.slice(1) : getQuadrant(t.priority, t.urgency);
+      counts[q] = (counts[q] || 0) + 1;
+    }
     const countStr = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(", ");
     triageInbox = `\n\nOpen triage items (${fullCtx.openTriageItems.length} total: ${countStr}):\n${lines.join("\n")}`;
   }
@@ -495,13 +499,24 @@ For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timez
       const item = JSON.parse(triageMatch[1].trim());
       if (item.summary) {
         const itemId = crypto.randomUUID();
+        // Derive quadrant from scores if not provided
+        const p = item.priority || 3;
+        const u = item.urgency || 3;
+        const quadrant = item.quadrant || (
+          p >= 4 && u >= 3 ? "hot" :
+          p >= 4 && u < 3 ? "plan" :
+          u >= 4 && p < 4 ? "action" :
+          p === 3 && u === 3 ? "plan" :
+          p < 3 && u >= 3 ? "action" :
+          "noop"
+        );
         await c.env.DB.prepare(
-          `INSERT INTO triage_items (id, user_id, source_type, priority, urgency, category, summary, suggested_action, status)
-           VALUES (?, ?, 'chat', ?, ?, ?, ?, ?, 'open')`
+          `INSERT INTO triage_items (id, user_id, source_type, priority, urgency, quadrant, category, summary, suggested_action, status)
+           VALUES (?, ?, 'chat', ?, ?, ?, ?, ?, ?, 'open')`
         )
           .bind(
             itemId, userId,
-            item.priority || 3, item.urgency || 3,
+            p, u, quadrant,
             item.category || "other",
             item.summary,
             item.suggested_action || null
