@@ -2,3 +2,4 @@
 results/*.json
 # But keep baseline results for reference
 !results/baseline-*.json
+!results/variance-*.json

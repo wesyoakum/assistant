@@ -1,0 +1,2508 @@
+{
+  "timestamp": "2026-05-18T21:46:13.004Z",
+  "model": "claude-sonnet-4-6",
+  "totalFixtures": 46,
+  "passed": 13,
+  "failed": 33,
+  "accuracy": 0.2826086956521739,
+  "quadrantAccuracy": 0.717391304347826,
+  "categoryAccuracy": 0.7391304347826086,
+  "importanceAccuracy": 0.782608695652174,
+  "urgencyAccuracy": 0.6304347826086957,
+  "calendarAccuracy": 0.7391304347826086,
+  "confusionMatrix": {
+    "hot": {
+      "hot": 4,
+      "action": 1,
+      "plan": 0,
+      "monitor": 0,
+      "noop": 0
+    },
+    "action": {
+      "hot": 2,
+      "action": 8,
+      "plan": 1,
+      "monitor": 0,
+      "noop": 1
+    },
+    "plan": {
+      "hot": 0,
+      "action": 3,
+      "plan": 4,
+      "monitor": 0,
+      "noop": 3
+    },
+    "monitor": {
+      "hot": 0,
+      "action": 0,
+      "plan": 0,
+      "monitor": 4,
+      "noop": 1
+    },
+    "noop": {
+      "hot": 0,
+      "action": 0,
+      "plan": 1,
+      "monitor": 0,
+      "noop": 13
+    }
+  },
+  "totalCostCents": 51.13649999999999,
+  "avgLatencyMs": 5865,
+  "results": [
+    {
+      "fixtureId": "noop-calendar-standup-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "notification",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 1,
+        "responsibility": 2,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "notification",
+        "summary": "No action needed — recurring Daily Standup is already on the calendar",
+        "suggested_action": "No action required; the event is already scheduled.",
+        "reasoning": "This is an automated calendar notification for a recurring daily standup already on the user's Work calendar. No response, preparation, or decision is required. It is a confirmation of an existing scheduled event.",
+        "skip": false
+      },
+      "costCents": 0.9429,
+      "latencyMs": 3882
+    },
+    {
+      "fixtureId": "action-calendar-grad-party-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "noop",
+          "pass": false
+        },
+        "category": {
+          "expected": "social",
+          "actual": "notification",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "low",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "low",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 1,
+        "time_sensitivity": 2,
+        "immediacy": 2,
+        "importance": 2,
+        "urgency": 2,
+        "confidence": 5,
+        "category": "notification",
+        "summary": "Dawson's grad party is on the calendar for tomorrow, May 19, 5–8 PM",
+        "suggested_action": "No action needed — event is already on your calendar.",
+        "reasoning": "This is a calendar confirmation for an event already scheduled. No response, RSVP, or preparation task is implied by the input. It's a FYI notification requiring no user action.",
+        "skip": false
+      },
+      "costCents": 0.9543,
+      "latencyMs": 4481
+    },
+    {
+      "fixtureId": "action-calendar-interview-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "plan",
+          "pass": false
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "plan",
+        "impact": 5,
+        "meaning": 5,
+        "responsibility": 5,
+        "time_sensitivity": 5,
+        "immediacy": 4,
+        "importance": 5,
+        "urgency": 4,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Prepare portfolio and references for final-round interview at TechCorp on Wednesday May 20 at 2:00 PM",
+        "suggested_action": "Assemble and review your portfolio, confirm your reference list (and give references a heads-up), plan travel to TechCorp HQ at 456 Innovation Dr, and note to ask for Sarah at reception",
+        "reasoning": "The interview itself is already on the calendar — no scheduling action needed. The real action is preparation: portfolio and references are explicitly required per the event description. The interview is in ~45 hours (Wednesday 2:00 PM), so prep must begin now or very soon. A final-round interview typically carries high career impact and personal meaning. The window to prepare is closing fast, pushing Immediacy to 4 even though execution isn't due until Wednesday.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Prep: Portfolio & References for TechCorp Interview",
+          "start_iso": "2026-05-18T17:00:00-05:00",
+          "end_iso": "2026-05-18T19:00:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.2393,
+      "latencyMs": 7733
+    },
+    {
+      "fixtureId": "noop-calendar-youth-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 2,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "personal",
+        "summary": "Youth event at Grace Bible Church on May 20, 6:30–9:15 PM",
+        "suggested_action": "No action needed — event is already on the calendar.",
+        "reasoning": "This is a calendar confirmation for an existing event. It requires no user response or preparation action at this time. It's already scheduled and logged.",
+        "skip": false
+      },
+      "costCents": 0.9387,
+      "latencyMs": 3943
+    },
+    {
+      "fixtureId": "plan-calendar-graduation-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "noop",
+          "pass": false
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "low",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "low",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 1,
+        "time_sensitivity": 2,
+        "immediacy": 2,
+        "importance": 2,
+        "urgency": 2,
+        "confidence": 4,
+        "category": "personal",
+        "summary": "Derek's Graduation is on the calendar — no action required",
+        "suggested_action": "No action needed; event is already scheduled for May 22, 4–6 PM.",
+        "reasoning": "This is a calendar confirmation for an event already added by Stacy Yoakum. It's 4 days away, but there's no indicated preparation task, RSVP needed, or decision to make. It's a FYI/confirmation — classify as Noop. If a gift or other prep is needed, that would be a separate capture.",
+        "skip": false
+      },
+      "costCents": 1.0077,
+      "latencyMs": 5210
+    },
+    {
+      "fixtureId": "noop-calendar-hilton-stay-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "travel",
+          "actual": "travel",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 2,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "travel",
+        "summary": "Hotel reservation confirmed — Home2 Suites Portland TX, May 29–31",
+        "suggested_action": "No action needed. Confirmation #97431926 is on file.",
+        "reasoning": "This is a calendar event for an already-confirmed hotel stay with a confirmation number. The user has accepted the event. No action is required — it is an informational record of an existing booking.",
+        "skip": false
+      },
+      "costCents": 0.9897,
+      "latencyMs": 4103
+    },
+    {
+      "fixtureId": "plan-calendar-nsc-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "noop",
+          "pass": false
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "low",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 1,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 3,
+        "category": "personal",
+        "summary": "Derek NSC event on May 27 — already on calendar, no action needed",
+        "suggested_action": "No action required — this is an existing calendar event created by Stacy Yoakum.",
+        "reasoning": "This is a calendar notification for an all-day event ('Derek NSC!') on May 27–28, created by Stacy Yoakum. It appears to be a reminder of an existing commitment, likely related to a National Scout Competition or similar event for Derek. No response or preparation action is indicated by this input alone — it's a calendar feed notification confirming something already scheduled. If preparation or travel were implied, that context would need to come from a separate input.",
+        "skip": false
+      },
+      "costCents": 1.0485,
+      "latencyMs": 5849
+    },
+    {
+      "fixtureId": "plan-calendar-tournament-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "noop",
+          "pass": false
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "notification",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "low",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 1,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 4,
+        "category": "notification",
+        "summary": "Gulf Coast State Tournament on May 30 at Portland Municipal Park",
+        "suggested_action": "No action needed — event is already on your calendar.",
+        "reasoning": "This is a calendar confirmation/FYI notification for an event already added to the Personal calendar by Stacy Yoakum. The tournament is 12 days away (May 30), but no user action is required at this time — it's already tracked. If preparation is needed (travel, logistics, gear), that would surface as a separate input. As a standalone calendar notification, this is Noop.",
+        "skip": false
+      },
+      "costCents": 1.0101,
+      "latencyMs": 4990
+    },
+    {
+      "fixtureId": "noop-calendar-pitching-lesson-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "scheduling",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 2,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "scheduling",
+        "summary": "Pitching lesson already on calendar for May 25 at 6:00 PM",
+        "suggested_action": "No action needed — event is already on the calendar.",
+        "reasoning": "This is a calendar confirmation for a pitching lesson created by Stacy Yoakum scheduled for May 25, 2026 at 6:00 PM. It is already on the Personal calendar and requires no user response or action at this time.",
+        "skip": false
+      },
+      "costCents": 0.9723,
+      "latencyMs": 5446
+    },
+    {
+      "fixtureId": "noop-calendar-small-group-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "social",
+          "actual": "social",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 2,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "social",
+        "summary": "No action needed — Small Group event on May 25 is already on the calendar",
+        "suggested_action": "No action required. Event is confirmed on the calendar.",
+        "reasoning": "This is a calendar confirmation for a recurring or scheduled small group meeting next Monday, May 25 from 6:30–8:30 PM. It was created by Stacy Yoakum and is already on the Personal calendar. No RSVP, preparation, or response is indicated. Pure informational/confirmation input.",
+        "skip": false
+      },
+      "costCents": 0.9915,
+      "latencyMs": 5569
+    },
+    {
+      "fixtureId": "action-calendar-invite-kickoff-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "scheduling",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 3,
+        "responsibility": 4,
+        "time_sensitivity": 4,
+        "immediacy": 3,
+        "importance": 3,
+        "urgency": 4,
+        "confidence": 4,
+        "category": "scheduling",
+        "summary": "Accept or decline the Q3 Planning Kickoff calendar invite and prepare your top 3 priorities for next quarter",
+        "suggested_action": "Respond to the calendar invite (accept/decline), then draft your top 3 Q3 priorities before the meeting on Thursday May 21 at 2:00 PM CDT",
+        "reasoning": "The meeting is in 3 days (Thursday, May 21), and the invite requires a response ('Needs Action'). The organizer also asked attendees to come prepared with top 3 priorities, which requires some advance thinking. The agenda is promised 24 hours before (by Wednesday May 20), but priority prep should begin now. Missing or attending unprepared reflects poorly on cross-team collaboration.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Prep: Q3 Planning Kickoff — draft top 3 priorities",
+          "start_iso": "2026-05-20T10:00:00-05:00",
+          "end_iso": "2026-05-20T10:30:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.2312,
+      "latencyMs": 6601
+    },
+    {
+      "fixtureId": "noop-calendar-invite-1on1-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "scheduling",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 2,
+        "responsibility": 2,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 2,
+        "confidence": 5,
+        "category": "scheduling",
+        "summary": "Recurring 1:1 with Sarah already accepted — no action needed",
+        "suggested_action": "No action required; event is confirmed on calendar.",
+        "reasoning": "The user has already accepted this calendar invite. It is a routine weekly recurring meeting with their manager. No response, preparation, or follow-up action is indicated by this input. Stored for completeness.",
+        "skip": false
+      },
+      "costCents": 0.9516,
+      "latencyMs": 4046
+    },
+    {
+      "fixtureId": "noop-calendar-invite-allhands-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "notification",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 1,
+        "responsibility": 1,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 1,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "notification",
+        "summary": "Optional Engineering All-Hands on May 22 — no response or action required",
+        "suggested_action": "No action needed. Attend if convenient; recording will be available afterward.",
+        "reasoning": "The event is explicitly marked optional, attendance is discretionary, and a recording will be posted for those who skip. There is no obligation to RSVP, prepare, or act on this invitation. It is a calendar FYI.",
+        "skip": false
+      },
+      "costCents": 0.9798,
+      "latencyMs": 4318
+    },
+    {
+      "fixtureId": "plan-calendar-invite-interview-loop-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "plan",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "plan",
+        "impact": 4,
+        "meaning": 3,
+        "responsibility": 4,
+        "time_sensitivity": 4,
+        "immediacy": 3,
+        "importance": 4,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Review Priya Ramaswamy's resume and prepare 2-3 system design questions for her staff engineer final-round interview on May 26",
+        "suggested_action": "Open the shared drive loop materials, review Priya's resume, and draft 2-3 system design questions tailored to staff engineer scope — complete before May 26 at 11:00 AM",
+        "reasoning": "The interview is confirmed for May 26 at 11:00 AM (8 days away), and the user is an active interviewer with explicit prep obligations — review resume and prepare questions. Hiring a staff engineer is a high-impact decision with meaningful downstream consequences for the team. Enough runway exists to prepare thoughtfully, but this shouldn't slip past mid-week or prep time compresses. No immediate action required today, but blocking time this week is advisable.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Prep: Priya Ramaswamy interview questions",
+          "start_iso": "2026-05-21T10:00:00-05:00",
+          "end_iso": "2026-05-21T11:00:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.2594,
+      "latencyMs": 7562
+    },
+    {
+      "fixtureId": "action-calendar-invite-urgent-escalation-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "hot",
+          "pass": false
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "hot",
+        "impact": 4,
+        "meaning": 3,
+        "responsibility": 4,
+        "time_sensitivity": 5,
+        "immediacy": 5,
+        "importance": 4,
+        "urgency": 5,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Respond to Acme escalation review invite and provide written input tonight if you can't join the 8am Zoom tomorrow",
+        "suggested_action": "Accept or decline the calendar invite now; if declining, draft and send your input on the Acme escalation messaging to rmendoza tonight before EOD",
+        "reasoning": "The customer call is at 10am tomorrow (May 19), and the pre-sync is at 8am — only ~15 hours away. The organizer explicitly requires either your presence or written input tonight, making this a hard same-evening deadline. Messaging alignment before a customer escalation call has real business relationship stakes. No action tonight means the team goes into the call without your perspective."
+      },
+      "costCents": 1.0668,
+      "latencyMs": 6358
+    },
+    {
+      "fixtureId": "plan-calendar-invite-bday-dinner-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "action",
+          "pass": false
+        },
+        "category": {
+          "expected": "social",
+          "actual": "social",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 2,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 5,
+        "category": "social",
+        "summary": "RSVP to Marco's 40th birthday dinner by end of May",
+        "suggested_action": "Reply to Marco confirming whether you and Stacy can attend the June 13th dinner at Veritas Italian Restaurant",
+        "reasoning": "Marco explicitly asked for a response by end of May to finalize the reservation count — that's about 13 days away. Missing the deadline leaves him short on headcount for a milestone birthday. Low immediacy now since there's still 2 weeks of runway, but the RSVP window closes May 31st.",
+        "suggested_calendar_event": {
+          "title": "RSVP deadline — Marco's 40th birthday dinner",
+          "start_iso": "2026-05-31T23:59:00-05:00",
+          "end_iso": "2026-05-31T23:59:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.1496,
+      "latencyMs": 6057
+    },
+    {
+      "fixtureId": "action-calendar-invite-dentist-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "health",
+          "actual": "health",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 2,
+        "meaning": 2,
+        "responsibility": 3,
+        "time_sensitivity": 4,
+        "immediacy": 4,
+        "importance": 3,
+        "urgency": 4,
+        "confidence": 4,
+        "category": "health",
+        "summary": "Confirm dental cleaning appointment with Dr. Patel by May 20 (48-hour advance notice required)",
+        "suggested_action": "Call Bryan Family Dentistry at 555-0123 or reply to confirm your May 22 9:00 AM appointment — must be done by Wednesday May 20 at 9:00 AM",
+        "reasoning": "The appointment is Friday May 22 at 9:00 AM. The 48-hour confirmation window closes Wednesday May 20 at 9:00 AM — less than 2 days away. The calendar invite is marked 'Needs Action,' indicating no response has been sent. Missing the confirmation window risks losing the slot.",
+        "skip": false
+      },
+      "costCents": 1.0734,
+      "latencyMs": 5363
+    },
+    {
+      "fixtureId": "edge-chat-pure-context-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 1,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 1,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "personal",
+        "summary": "No action needed — user shared their location (College Station, TX) for assistant context.",
+        "suggested_action": "No action required. Note filed for context.",
+        "reasoning": "This is a purely informational message with no task, obligation, or follow-up required. The user is providing a context note for future reference. Nothing to act on, monitor, or schedule.",
+        "skip": false
+      },
+      "costCents": 0.9321,
+      "latencyMs": 3839
+    },
+    {
+      "fixtureId": "edge-chat-ambiguous-dad-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "action",
+          "pass": false
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 3,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 3,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 1,
+        "category": "personal",
+        "summary": "Handle unspecified task for Dad",
+        "suggested_action": "Clarify what 'the thing for Dad' refers to before it slips through the cracks",
+        "reasoning": "The message is a self-reminder with no context about what the task is, its deadline, or its stakes. Cannot classify accurately without knowing what 'the thing' refers to — it could range from trivial to urgent.",
+        "skip": false,
+        "clarification_question": "What is 'the thing for Dad' — what does it involve and is there a deadline?"
+      },
+      "costCents": 0.987,
+      "latencyMs": 4636
+    },
+    {
+      "fixtureId": "hot-chat-kid-injury-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "hot",
+          "actual": "hot",
+          "pass": true
+        },
+        "category": {
+          "expected": "health",
+          "actual": "health",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "hot",
+        "impact": 5,
+        "meaning": 5,
+        "responsibility": 5,
+        "time_sensitivity": 5,
+        "immediacy": 5,
+        "importance": 5,
+        "urgency": 5,
+        "confidence": 4,
+        "category": "health",
+        "summary": "Get Jake to urgent care on Briarcrest for suspected broken arm",
+        "suggested_action": "Leave work immediately, pick up Jake from school, and proceed to urgent care on Briarcrest. Bring insurance card and any relevant medical info.",
+        "reasoning": "Jake has a suspected fracture — a time-sensitive medical situation requiring immediate parental response. User is already en route, which is correct. Stacy has been notified. No further coordination appears needed right now, but follow-up actions (X-ray results, orthopedic referral, school incident report) may surface after the visit.",
+        "skip": false
+      },
+      "costCents": 1.0191,
+      "latencyMs": 5076
+    },
+    {
+      "fixtureId": "plan-capture-syllabus-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "plan",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "shopping",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "medium",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        },
+        "itemCount": {
+          "expected": 1,
+          "actual": 3,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "plan",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 4,
+        "time_sensitivity": 2,
+        "immediacy": 2,
+        "importance": 3,
+        "urgency": 2,
+        "confidence": 4,
+        "category": "shopping",
+        "summary": "Purchase Basys 3 FPGA board and install Vivado WebPACK before first lab",
+        "suggested_action": "Order Basys 3 board from campus bookstore (~$165) and download/install Vivado WebPACK from AMD/Xilinx website on your laptop before the first lab session in Fall 2026.",
+        "reasoning": "Required materials for ECEN 248 labs starting Fall 2026. Labs begin in late August/early September — still ~3 months away, so no urgency now, but procuring a $165 board and a large software install is worth scheduling ahead of time to avoid last-minute friction.",
+        "skip": false
+      },
+      "allItems": [
+        {
+          "quadrant": "plan",
+          "impact": 3,
+          "meaning": 2,
+          "responsibility": 4,
+          "time_sensitivity": 2,
+          "immediacy": 2,
+          "importance": 3,
+          "urgency": 2,
+          "confidence": 4,
+          "category": "shopping",
+          "summary": "Purchase Basys 3 FPGA board and install Vivado WebPACK before first lab",
+          "suggested_action": "Order Basys 3 board from campus bookstore (~$165) and download/install Vivado WebPACK from AMD/Xilinx website on your laptop before the first lab session in Fall 2026.",
+          "reasoning": "Required materials for ECEN 248 labs starting Fall 2026. Labs begin in late August/early September — still ~3 months away, so no urgency now, but procuring a $165 board and a large software install is worth scheduling ahead of time to avoid last-minute friction.",
+          "skip": false
+        },
+        {
+          "quadrant": "plan",
+          "impact": 3,
+          "meaning": 2,
+          "responsibility": 4,
+          "time_sensitivity": 3,
+          "immediacy": 2,
+          "importance": 3,
+          "urgency": 2,
+          "confidence": 3,
+          "category": "health",
+          "summary": "Contact Disability Resources and submit DR letter to Dr. Kashinath within first two weeks of Fall 2026 semester if accommodations are needed",
+          "suggested_action": "If accommodations are needed, contact TAMU Disability Resources before or at the start of Fall 2026 semester and submit DR letter to kashinath@tamu.edu — accommodations cannot be applied retroactively.",
+          "reasoning": "Syllabus explicitly states the two-week window is hard; missing it forfeits accommodations for the entire semester. Only actionable if user requires accommodations — confidence is moderate due to that conditionality.",
+          "skip": false,
+          "clarification_question": "Do you require disability accommodations for this course? If not, this item can be dismissed."
+        },
+        {
+          "quadrant": "plan",
+          "impact": 4,
+          "meaning": 2,
+          "responsibility": 5,
+          "time_sensitivity": 2,
+          "immediacy": 1,
+          "importance": 4,
+          "urgency": 2,
+          "confidence": 4,
+          "category": "work",
+          "summary": "Complete all ECEN 248 Fall 2026 graded deliverables (6 HWs, 10 labs, midterm, project, final exam)",
+          "suggested_action": "Add all key dates to your calendar now: HW1 Sep 11, HW2 Sep 25, Midterm Oct 14, HW3 Oct 23, HW4 Nov 6, Project Proposal Nov 9, HW5 Nov 20, HW6 + Final Project Demo Dec 4, Final Exam Dec 15 3:30–5:30 PM in ZACH 350.",
+          "reasoning": "Semester doesn't start until Fall 2026 (~3+ months away), so no immediacy. However, the grading structure (homework late penalties, no-late-submission labs and project deliverables) makes calendar setup now a high-value planning action to avoid surprises. Bundled as one plan item since all deliverables belong to a single ongoing course obligation.",
+          "skip": false,
+          "suggested_calendar_event": {
+            "title": "ECEN 248 Final Exam",
+            "start_iso": "2026-12-15T15:30:00-06:00",
+            "end_iso": "2026-12-15T17:30:00-06:00",
+            "location": "ZACH 350, Texas A&M University"
+          }
+        }
+      ],
+      "costCents": 2.466,
+      "latencyMs": 17354
+    },
+    {
+      "fixtureId": "action-chat-plumber-reminder-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 4,
+        "time_sensitivity": 3,
+        "immediacy": 3,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "personal",
+        "summary": "Call the plumber about the leaking kitchen sink",
+        "suggested_action": "Call a plumber tomorrow morning to assess and repair the leaking kitchen sink before water damage worsens.",
+        "reasoning": "The sink has been leaking for two days and the user has been putting it off. A persistent leak risks water damage, mold, or worsening damage the longer it's delayed. The user explicitly requested a reminder for tomorrow morning, so urgency is near-term but not emergency-level today.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Call plumber about kitchen sink leak",
+          "start_iso": "2026-05-19T09:00:00-05:00",
+          "end_iso": "2026-05-19T09:15:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.1019,
+      "latencyMs": 4836
+    },
+    {
+      "fixtureId": "edge-chat-multi-action-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "billing",
+          "actual": "health",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "medium",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        },
+        "itemCount": {
+          "expected": 3,
+          "actual": 3,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 3,
+        "responsibility": 4,
+        "time_sensitivity": 3,
+        "immediacy": 3,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 3,
+        "category": "health",
+        "summary": "Call dentist about bothersome crown",
+        "suggested_action": "Call the dentist's office to describe crown pain and schedule an evaluation appointment",
+        "reasoning": "A crown that's been bothering the user is a health concern that warrants prompt attention — dental issues can worsen if ignored. No hard deadline, but ongoing discomfort suggests this shouldn't be indefinitely deferred. No existing calendar item cross-referenced."
+      },
+      "allItems": [
+        {
+          "quadrant": "action",
+          "impact": 3,
+          "meaning": 3,
+          "responsibility": 4,
+          "time_sensitivity": 3,
+          "immediacy": 3,
+          "importance": 3,
+          "urgency": 3,
+          "confidence": 3,
+          "category": "health",
+          "summary": "Call dentist about bothersome crown",
+          "suggested_action": "Call the dentist's office to describe crown pain and schedule an evaluation appointment",
+          "reasoning": "A crown that's been bothering the user is a health concern that warrants prompt attention — dental issues can worsen if ignored. No hard deadline, but ongoing discomfort suggests this shouldn't be indefinitely deferred. No existing calendar item cross-referenced."
+        },
+        {
+          "quadrant": "hot",
+          "impact": 4,
+          "meaning": 2,
+          "responsibility": 5,
+          "time_sensitivity": 5,
+          "immediacy": 5,
+          "importance": 4,
+          "urgency": 5,
+          "confidence": 4,
+          "category": "billing",
+          "summary": "File Q1 estimated taxes before this week's deadline",
+          "suggested_action": "Complete and submit Q1 estimated tax payment via IRS Direct Pay or mailing a check — deadline is this week (likely May 15 or similar; confirm exact date and act immediately)",
+          "reasoning": "The user explicitly states the deadline is this week. Today is Monday May 18, 2026. Standard Q1 estimated tax deadlines fall in April (April 15), though some jurisdictions or extension situations could shift this — regardless, the user says deadline is this week, making this time-critical with real financial/legal consequences for missing it. Act today or tomorrow at the latest.",
+          "suggested_calendar_event": {
+            "title": "File Q1 Estimated Taxes — DEADLINE",
+            "start_iso": "2026-05-18T17:00:00-05:00",
+            "end_iso": "2026-05-18T18:00:00-05:00",
+            "location": ""
+          }
+        },
+        {
+          "quadrant": "plan",
+          "impact": 2,
+          "meaning": 4,
+          "responsibility": 3,
+          "time_sensitivity": 2,
+          "immediacy": 2,
+          "importance": 3,
+          "urgency": 2,
+          "confidence": 3,
+          "category": "travel",
+          "summary": "Book flight to Phoenix for July trip to see parents",
+          "suggested_action": "Search and book round-trip flights to Phoenix (PHX) for July — check dates with parents first if not already confirmed, then book to lock in better fares",
+          "reasoning": "July is roughly 6–7 weeks away. Flights will get more expensive as the date approaches, so booking soon is wise, but there's no immediate crisis. The trip has meaningful personal/family significance (visiting parents). Booking now avoids urgency pressure closer to departure."
+        }
+      ],
+      "costCents": 1.7697,
+      "latencyMs": 13890
+    },
+    {
+      "fixtureId": "action-chat-tax-deadline-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "hot",
+          "pass": false
+        },
+        "category": {
+          "expected": "billing",
+          "actual": "billing",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "hot",
+        "impact": 4,
+        "meaning": 3,
+        "responsibility": 5,
+        "time_sensitivity": 5,
+        "immediacy": 5,
+        "importance": 4,
+        "urgency": 5,
+        "confidence": 4,
+        "category": "billing",
+        "summary": "File Q1 estimated taxes by Wednesday to avoid penalties",
+        "suggested_action": "Gather income/expense figures, calculate estimated tax owed, and submit payment via IRS Direct Pay or mail Form 1040-ES by end of day Wednesday, May 20.",
+        "reasoning": "Deadline is Wednesday, May 20 — just 2 days away. User has already been deferring this for weeks, meaning prep work may still be needed, compressing the available time further. Failure to file by the deadline triggers IRS underpayment penalties, making this a financially consequential obligation with hard legal timing. With only ~48 hours remaining and likely prep still required, this warrants immediate action.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "File Q1 Estimated Taxes — DEADLINE",
+          "start_iso": "2026-05-20T09:00:00-05:00",
+          "end_iso": "2026-05-20T11:00:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.1772,
+      "latencyMs": 6764
+    },
+    {
+      "fixtureId": "action-chat-interview-calendar-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": true,
+          "actual": true,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 5,
+        "meaning": 4,
+        "responsibility": 5,
+        "time_sensitivity": 4,
+        "immediacy": 3,
+        "importance": 5,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Add TechCorp final-round interview to calendar and begin interview prep",
+        "suggested_action": "Create a calendar event for Tuesday May 26 at 2pm at 456 Innovation Dr, then block time this week to research TechCorp, practice responses, and prepare questions.",
+        "reasoning": "A final-round interview is a high-stakes, high-importance event with direct career consequences. The interview is next Tuesday (May 26), giving roughly 8 days — enough time to prep well, but not so much that it can be deferred. Both the calendar entry and prep need to start soon to avoid cramming. Prep sessions should be scheduled across multiple days for best results.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Final-Round Interview — TechCorp",
+          "start_iso": "2026-05-26T14:00:00-05:00",
+          "end_iso": "2026-05-26T15:00:00-05:00",
+          "location": "456 Innovation Dr, downtown"
+        }
+      },
+      "costCents": 1.1841,
+      "latencyMs": 6267
+    },
+    {
+      "fixtureId": "plan-chat-parents-trip-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "plan",
+          "pass": true
+        },
+        "category": {
+          "expected": "travel",
+          "actual": "travel",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "plan",
+        "impact": 3,
+        "meaning": 4,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 2,
+        "importance": 4,
+        "urgency": 2,
+        "confidence": 3,
+        "category": "travel",
+        "summary": "Plan July trip to visit parents in Phoenix — coordinate dates with Stacy, book flights, and arrange childcare",
+        "suggested_action": "Pick 2–3 candidate long weekends in July that work for your schedule, confirm with Stacy, then search flights and figure out childcare coverage before booking.",
+        "reasoning": "July is about 6–7 weeks out, which means flights should be booked soon to avoid price increases and limited availability — but there's no hard deadline yet. Three interdependent sub-tasks (dates, flights, childcare) are tightly coupled enough to treat as one planning action. Meaning is elevated because this is a family visit with personal significance. Urgency is low-to-moderate now but will rise as July approaches and seat availability narrows.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Book Phoenix trip: confirm dates, flights & childcare",
+          "start_iso": "2026-05-25T10:00:00-05:00",
+          "end_iso": "2026-05-25T10:30:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.2072,
+      "latencyMs": 7518
+    },
+    {
+      "fixtureId": "plan-chat-physical-exam-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "action",
+          "pass": false
+        },
+        "category": {
+          "expected": "health",
+          "actual": "health",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 3,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 3,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "health",
+        "summary": "Book overdue annual physical with doctor's office",
+        "suggested_action": "Call or message the doctor's office to schedule the annual physical — the reminder from last month went unanswered, so follow up now before it slips further.",
+        "reasoning": "The user's last physical was over a year ago, making it overdue by definition for an annual checkup. The doctor's office already sent a reminder last month with no reply, adding a mild obligation to respond. There's no acute health crisis signaled, so this isn't Hot, but the combination of being overdue, an ignored reminder, and the general preventive health value warrants Action rather than Plan — it's easy to keep deferring and the window keeps slipping.",
+        "skip": false
+      },
+      "costCents": 1.0491,
+      "latencyMs": 5973
+    },
+    {
+      "fixtureId": "monitor-chat-contract-pending-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "monitor",
+          "actual": "monitor",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "monitor",
+        "next_check_at": "2026-05-21T09:00:00-05:00",
+        "impact": 4,
+        "meaning": 3,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 2,
+        "importance": 4,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Follow up with Jamie if signed contract not received by Thursday",
+        "suggested_action": "Check Thursday morning whether Jamie has returned the signed contract; if not, send a follow-up message or email.",
+        "reasoning": "Jamie committed to returning the signed consulting contract by end of week (Friday, May 22). The user has explicitly set Thursday (May 21) as the follow-up trigger if no response. No action is needed today — this is a watch-and-wait until Thursday. Re-surfacing Thursday morning aligns with the user's own stated threshold.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Follow up with Jamie re: signed contract",
+          "start_iso": "2026-05-21T09:00:00-05:00",
+          "end_iso": "2026-05-21T09:15:00-05:00"
+        }
+      },
+      "costCents": 1.1577,
+      "latencyMs": 5916
+    },
+    {
+      "fixtureId": "noop-chat-journaling-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "personal",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 3,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "personal",
+        "summary": "No action needed — user logged a positive moment for personal reflection",
+        "suggested_action": "No action required. This has been logged for future reference.",
+        "reasoning": "The user explicitly framed this as a capture for memory/reflection, not a task. There is no obligation, deadline, or follow-up required. The meaning is real — they want to remember this feeling when things get hard — but the act of sending the message IS the action. Nothing remains to be done.",
+        "skip": false
+      },
+      "costCents": 0.9702,
+      "latencyMs": 4732
+    },
+    {
+      "fixtureId": "monitor-chat-package-tracking-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "monitor",
+          "actual": "monitor",
+          "pass": true
+        },
+        "category": {
+          "expected": "shopping",
+          "actual": "shopping",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "monitor",
+        "next_check_at": "2026-05-22T09:00:00-05:00",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 3,
+        "time_sensitivity": 4,
+        "immediacy": 2,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "shopping",
+        "summary": "Track Best Buy package 1Z999AA10123456784 — Derek's replacement laptop charger needed before NSC on May 27",
+        "suggested_action": "Check UPS tracking for 1Z999AA10123456784 on Friday May 22 to confirm delivery; if delayed, order expedited alternative immediately.",
+        "reasoning": "Package is expected Friday May 22, which leaves a 5-day buffer before Derek's NSC departure on May 27. No user action is needed now — this is a watch-and-react situation. The hard deadline is May 26 (day before departure). If Friday's delivery slips, there's still a narrow window to source a replacement locally or via expedited shipping, but that window would close fast. Re-surface Friday morning to confirm arrival."
+      },
+      "costCents": 1.1121,
+      "latencyMs": 6209
+    },
+    {
+      "fixtureId": "action-email-dentist-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "health",
+          "actual": "health",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": true,
+          "actual": true,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 2,
+        "meaning": 2,
+        "responsibility": 3,
+        "time_sensitivity": 4,
+        "immediacy": 4,
+        "importance": 3,
+        "urgency": 4,
+        "confidence": 5,
+        "category": "health",
+        "summary": "Confirm (or reschedule) dental cleaning appointment for May 22 at 2:00 PM with Dr. Martinez",
+        "suggested_action": "Reply to office@smiledental.com to confirm, or call 555-0142 to reschedule — must respond by Wednesday, May 20",
+        "reasoning": "Smile Dental requires confirmation by Wednesday, May 20 or the slot will be released. That's a 2-day window from now, making this time-sensitive. The appointment itself is Thursday, May 22. Low stakes but clear external deadline with a real consequence (losing the slot).",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Dental Cleaning — Dr. Martinez @ Smile Dental",
+          "start_iso": "2026-05-22T14:00:00-05:00",
+          "end_iso": "2026-05-22T15:00:00-05:00",
+          "location": "Smile Dental"
+        }
+      },
+      "costCents": 1.1808,
+      "latencyMs": 6948
+    },
+    {
+      "fixtureId": "plan-email-dinner-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "social",
+          "actual": "social",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": true,
+          "actual": false,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 2,
+        "meaning": 3,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 3,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 4,
+        "category": "social",
+        "summary": "Reply to Mike about dinner Saturday at 7pm at the new Thai place on Main Street",
+        "suggested_action": "Reply to mike.johnson@gmail.com confirming Saturday dinner or proposing an alternative time/place",
+        "reasoning": "Mike is waiting on a response to coordinate plans for this Saturday (May 23). Replying promptly lets him finalize the plan or find an alternative if you can't make it. The longer you wait, the less time he has to adjust. No calendar conflict is visible, but Saturday is 5 days out so a timely reply is courteous and practical."
+      },
+      "costCents": 1.005,
+      "latencyMs": 5400
+    },
+    {
+      "fixtureId": "hot-email-outage-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "hot",
+          "actual": "hot",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "hot",
+        "impact": 5,
+        "meaning": 3,
+        "responsibility": 4,
+        "time_sensitivity": 5,
+        "immediacy": 5,
+        "importance": 5,
+        "urgency": 5,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Acknowledge and investigate production API gateway outage — 94% error rate, all customers impacted",
+        "suggested_action": "Immediately acknowledge the alert, check in with on-call engineer Wes Yoakum, and follow the runbook at https://wiki.internal/runbooks/api-gateway",
+        "reasoning": "The API gateway has been returning 503s for ~3+ hours as of now (started 11:25 AM CDT, current time 4:44 PM CDT), affecting 94% of all customer API requests. This is a severe, ongoing production outage with major customer impact. Confidence is 4 rather than 5 because it's unclear whether the user is the on-call engineer or a stakeholder — Wes Yoakum is listed as on-call, so the user's specific role warrants a clarification question.",
+        "skip": false,
+        "clarification_question": "Are you the incident commander/stakeholder here, or is this alert meant for you directly — Wes Yoakum is listed as on-call?"
+      },
+      "costCents": 1.1892,
+      "latencyMs": 6479
+    },
+    {
+      "fixtureId": "hot-email-billing-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "hot",
+          "actual": "action",
+          "pass": false
+        },
+        "category": {
+          "expected": "billing",
+          "actual": "billing",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "medium",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 4,
+        "time_sensitivity": 5,
+        "immediacy": 4,
+        "importance": 3,
+        "urgency": 4,
+        "confidence": 5,
+        "category": "billing",
+        "summary": "Pay Chase Sapphire Preferred statement balance of $2,847.32 by May 21",
+        "suggested_action": "Log in to chase.com/pay and submit payment before May 21 to avoid late fees and interest",
+        "reasoning": "Due date is May 21 — 3 days from now. Missing it triggers late fees and interest on a nearly $2,900 balance. High time-sensitivity given the narrow window; urgency is real but not same-day critical."
+      },
+      "costCents": 0.9873,
+      "latencyMs": 3998
+    },
+    {
+      "fixtureId": "action-email-meeting-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "action",
+          "actual": "action",
+          "pass": true
+        },
+        "category": {
+          "expected": "scheduling",
+          "actual": "scheduling",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": true,
+          "actual": true,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "action",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 3,
+        "time_sensitivity": 4,
+        "immediacy": 4,
+        "importance": 3,
+        "urgency": 4,
+        "confidence": 5,
+        "category": "scheduling",
+        "summary": "Reply to Sarah confirming or rescheduling the Wednesday May 20 10am 1:1 sync",
+        "suggested_action": "Reply to sarah.chen@company.com accepting the May 20 10am slot or propose an alternative time before Wednesday.",
+        "reasoning": "The meeting is in roughly 41 hours (Wednesday 10am CDT). Sarah needs a confirmation before then to plan her week. The sync is preparatory to a full team meeting next week, so a missed or delayed reply could hold up broader planning.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "1:1 Sync with Sarah Chen — Q3 Project Kickoff Planning",
+          "start_iso": "2026-05-20T10:00:00-05:00",
+          "end_iso": "2026-05-20T10:30:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.1433,
+      "latencyMs": 5324
+    },
+    {
+      "fixtureId": "hot-email-security-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "hot",
+          "actual": "hot",
+          "pass": true
+        },
+        "category": {
+          "expected": "security",
+          "actual": "security",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "hot",
+        "impact": 5,
+        "meaning": 4,
+        "responsibility": 5,
+        "time_sensitivity": 5,
+        "immediacy": 5,
+        "importance": 5,
+        "urgency": 5,
+        "confidence": 4,
+        "category": "security",
+        "summary": "Change Google account password and review security activity after blocked sign-in from Moscow",
+        "suggested_action": "Go to myaccount.google.com/security now — change your password, enable 2FA if not already on, review recent account activity, and check for any connected apps or forwarding rules you don't recognize.",
+        "reasoning": "A blocked sign-in attempt from Moscow, Russia indicates someone has your Google password. Even though Google blocked this attempt, the attacker has valid credentials and may try again or access other services where you reuse the same password. Gmail access would expose contacts, financial info, account recovery for other services, and potentially years of private correspondence. This requires immediate action — every hour of delay is a window for escalation. Google sent this alert today at 2:00 PM CDT, less than 3 hours ago.",
+        "skip": false
+      },
+      "costCents": 1.0968,
+      "latencyMs": 6631
+    },
+    {
+      "fixtureId": "hot-email-thread-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "hot",
+          "actual": "hot",
+          "pass": true
+        },
+        "category": {
+          "expected": "personal",
+          "actual": "other",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "high",
+          "actual": "high",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "hot",
+        "impact": 4,
+        "meaning": 3,
+        "responsibility": 5,
+        "time_sensitivity": 5,
+        "immediacy": 5,
+        "importance": 4,
+        "urgency": 5,
+        "confidence": 5,
+        "category": "other",
+        "summary": "Sign (or reject) the $1,200 quartz countertop change order by Wednesday May 20",
+        "suggested_action": "Review the attached change order, decide on quartz vs. granite, then reply to Dave at contractor@buildco.com or call 555-0198 with approval or rejection before EOD Wednesday May 20.",
+        "reasoning": "Dave needs a signed change order by Wednesday May 20 (2 days away) to lock in the install crew for June 3-4 and secure the June 2 quartz delivery. Missing this deadline likely pushes the entire countertop install — and potentially the broader kitchen renovation — to a later date. Wes had indicated he'd think it over the weekend, so the decision window has already elapsed. $1,200 financial commitment and schedule coordination make this consequential. Immediacy and time-sensitivity are both at maximum given the 2-day hard deadline.",
+        "suggested_calendar_event": {
+          "title": "Deadline: Sign kitchen countertop change order (Dave / BuildCo)",
+          "start_iso": "2026-05-20T17:00:00-05:00",
+          "end_iso": "2026-05-20T17:30:00-05:00",
+          "location": ""
+        }
+      },
+      "costCents": 1.3161,
+      "latencyMs": 7764
+    },
+    {
+      "fixtureId": "noop-email-policy-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "plan",
+          "pass": false
+        },
+        "category": {
+          "expected": "work",
+          "actual": "personal",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "plan",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 3,
+        "time_sensitivity": 3,
+        "immediacy": 2,
+        "importance": 3,
+        "urgency": 2,
+        "confidence": 4,
+        "category": "personal",
+        "summary": "Review updated PTO policy before it takes effect June 1",
+        "suggested_action": "Read the full policy at https://hr.internal/pto-policy-2026 and note changes to carryover limits, PTO notice requirements, and sick leave documentation rules",
+        "reasoning": "Policy takes effect June 1 — 14 days away. No immediate action required today, but changes to carryover limits and notice requirements could affect upcoming PTO plans. Worth reviewing before the effective date to avoid being caught off-guard by the new notice or documentation rules.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Review updated PTO policy (effective today)",
+          "start_iso": "2026-06-01T09:00:00-05:00",
+          "end_iso": "2026-06-01T09:30:00-05:00"
+        }
+      },
+      "costCents": 1.1388,
+      "latencyMs": 5636
+    },
+    {
+      "fixtureId": "plan-email-okr-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "plan",
+          "actual": "plan",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "high",
+          "pass": false
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": true,
+          "pass": false
+        }
+      },
+      "raw": {
+        "quadrant": "plan",
+        "impact": 4,
+        "meaning": 3,
+        "responsibility": 4,
+        "time_sensitivity": 3,
+        "immediacy": 2,
+        "importance": 4,
+        "urgency": 2,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Draft Q3 OKRs for your team by July 15",
+        "suggested_action": "Review the OKR template at https://wiki.internal/okr-template and block time before July 15 to draft your team's Q3 objectives",
+        "reasoning": "Deadline is July 15 — 58 days from now — giving ample preparation time. However, this is a team-level deliverable with a formal review session the week of July 21, so it carries real organizational accountability. Low immediacy now, but worth scheduling dedicated prep time within the next few weeks to avoid a crunch.",
+        "skip": false,
+        "suggested_calendar_event": {
+          "title": "Draft Q3 OKRs (due July 15)",
+          "start_iso": "2026-07-08T09:00:00-05:00",
+          "end_iso": "2026-07-08T11:00:00-05:00"
+        }
+      },
+      "costCents": 1.155,
+      "latencyMs": 5967
+    },
+    {
+      "fixtureId": "monitor-email-awaiting-reply-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "monitor",
+          "actual": "monitor",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "monitor",
+        "next_check_at": "2026-05-26T09:00:00-05:00",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 2,
+        "time_sensitivity": 2,
+        "immediacy": 1,
+        "importance": 3,
+        "urgency": 2,
+        "confidence": 4,
+        "category": "work",
+        "summary": "Await SupplierCo pricing team's response on bulk order inquiry",
+        "suggested_action": "If no response received by May 26, follow up with Lisa Chen at vendor@supplierco.com",
+        "reasoning": "Lisa has acknowledged the inquiry and passed it to the pricing team with a 3-5 business day turnaround (expected by ~May 22-23). No action needed from Wes until the response arrives or the window lapses. Re-surface in 6 business days (May 26) to prompt a follow-up if still no reply.",
+        "skip": false
+      },
+      "costCents": 1.0563,
+      "latencyMs": 5321
+    },
+    {
+      "fixtureId": "monitor-email-shipment-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "monitor",
+          "actual": "noop",
+          "pass": false
+        },
+        "category": {
+          "expected": "shopping",
+          "actual": "shopping",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 2,
+        "meaning": 2,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 2,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "shopping",
+        "summary": "27\" 4K monitor shipped via UPS, estimated delivery May 22–23",
+        "suggested_action": "No action needed — monitor the tracking link if curious about delivery status.",
+        "reasoning": "This is an automated shipping confirmation. The order is already placed and in transit; no user action is required. If the package fails to arrive by May 23, a follow-up action (contacting the store) may be warranted at that point.",
+        "skip": false
+      },
+      "costCents": 0.9753,
+      "latencyMs": 4378
+    },
+    {
+      "fixtureId": "noop-email-promo-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "shopping",
+          "actual": "newsletter",
+          "pass": false
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 1,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 1,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "newsletter",
+        "summary": "Promotional Memorial Day sale email from retailstore.com",
+        "suggested_action": "No action required — delete or archive.",
+        "reasoning": "This is a standard promotional/marketing email. No user obligation, decision, or response is required. The artificial urgency ('sale ends Monday') is a marketing tactic, not a genuine user obligation. Classified as Noop.",
+        "skip": false
+      },
+      "costCents": 0.9471,
+      "latencyMs": 3751
+    },
+    {
+      "fixtureId": "monitor-email-cc-thread-01",
+      "pass": false,
+      "checks": {
+        "quadrant": {
+          "expected": "monitor",
+          "actual": "monitor",
+          "pass": true
+        },
+        "category": {
+          "expected": "work",
+          "actual": "work",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "medium",
+          "actual": "medium",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "medium",
+          "pass": false
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "monitor",
+        "next_check_at": "2026-05-22T17:00:00-05:00",
+        "impact": 3,
+        "meaning": 2,
+        "responsibility": 2,
+        "time_sensitivity": 3,
+        "immediacy": 2,
+        "importance": 3,
+        "urgency": 3,
+        "confidence": 3,
+        "category": "work",
+        "summary": "Monitor Q3 infrastructure budget review — Finance team needs to confirm allocation by end of week",
+        "suggested_action": "Check Friday EOD whether Finance confirmed the Q3 budget allocation; follow up with Alex or finance@company.com if no response received.",
+        "reasoning": "The user (wes.yoakum@company.com) is CC'd on this thread, not the primary actor. The action belongs to the Finance team, who must review and confirm by end of week (Friday, May 22). The user may have an interest in the outcome — ops involvement suggests they could be affected by the budget decision — but no action is explicitly required of them now. Re-surface Friday EOD to check if confirmation came through or if follow-up is needed.",
+        "skip": false
+      },
+      "costCents": 1.1283,
+      "latencyMs": 6033
+    },
+    {
+      "fixtureId": "noop-email-newsletter-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "newsletter",
+          "actual": "newsletter",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 1,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 1,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "newsletter",
+        "summary": "No action required — AI news digest for the week of May 18, 2026",
+        "suggested_action": "No action needed. Read at leisure if interested.",
+        "reasoning": "This is a standard weekly newsletter digest with no call to action, no deadline, no obligation, and no response required. Pure informational content.",
+        "skip": false
+      },
+      "costCents": 0.9324,
+      "latencyMs": 3699
+    },
+    {
+      "fixtureId": "noop-email-receipt-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "shopping",
+          "actual": "shopping",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 1,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 1,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "shopping",
+        "summary": "Amazon order confirmation for USB-C Cable 6ft (2-pack) — no action needed",
+        "suggested_action": "No action required. Package expected May 20–22.",
+        "reasoning": "This is a standard order confirmation receipt. No user response or decision is required. If the package doesn't arrive by May 22, a follow-up may be warranted, but that condition has not been met.",
+        "skip": false
+      },
+      "costCents": 0.9618,
+      "latencyMs": 3549
+    },
+    {
+      "fixtureId": "noop-email-notification-01",
+      "pass": true,
+      "checks": {
+        "quadrant": {
+          "expected": "noop",
+          "actual": "noop",
+          "pass": true
+        },
+        "category": {
+          "expected": "notification",
+          "actual": "notification",
+          "pass": true
+        },
+        "importanceBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "urgencyBucket": {
+          "expected": "low",
+          "actual": "low",
+          "pass": true
+        },
+        "calendarEvent": {
+          "expected": false,
+          "actual": false,
+          "pass": true
+        }
+      },
+      "raw": {
+        "quadrant": "noop",
+        "impact": 1,
+        "meaning": 1,
+        "responsibility": 1,
+        "time_sensitivity": 1,
+        "immediacy": 1,
+        "importance": 1,
+        "urgency": 1,
+        "confidence": 5,
+        "category": "notification",
+        "summary": "CI passed for dependabot PR #482 — no action required",
+        "suggested_action": "No action needed. Review and merge the PR if desired, but this is not an obligation triggered by this notification.",
+        "reasoning": "This is an automated CI status notification from GitHub. Dependabot opened the PR and CI passed — no user action is explicitly requested. If the user has a policy to review and merge dependency PRs, that would be a pre-existing workflow, not an obligation created by this specific notification.",
+        "skip": false
+      },
+      "costCents": 0.9828,
+      "latencyMs": 4396
+    }
+  ]
+}
