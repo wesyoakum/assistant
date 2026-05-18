@@ -82,6 +82,12 @@ export default function EmailScreen() {
     },
   });
 
+  const { data: control } = useQuery({
+    queryKey: ["control-status"],
+    queryFn: () => apiFetch<{ mode: string }>("/control/status"),
+  });
+  const controlled = control?.mode === "controlled";
+
   const syncMutation = useMutation({
     mutationFn: () => apiFetch("/gmail/sync", { method: "POST" }),
     onSuccess: () => {
@@ -92,10 +98,11 @@ export default function EmailScreen() {
     },
   });
 
-  // Auto-sync on mount
+  // Auto-sync on mount — skip in controlled mode
   useEffect(() => {
+    if (controlled) return;
     syncMutation.mutate();
-  }, []);
+  }, [controlled]);
 
   const handleRefresh = useCallback(() => {
     syncMutation.mutate();
@@ -125,16 +132,20 @@ export default function EmailScreen() {
       contentContainerStyle={items.length === 0 ? styles.center : styles.list}
       ListEmptyComponent={
         <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>No emails to review</Text>
-          <Pressable
-            style={styles.syncBtn}
-            onPress={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            <Text style={styles.syncBtnText}>
-              {syncMutation.isPending ? "Syncing..." : "Sync Gmail"}
-            </Text>
-          </Pressable>
+          <Text style={styles.emptyText}>
+            {controlled ? "Controlled mode — collect from Triage tab" : "No emails to review"}
+          </Text>
+          {!controlled && (
+            <Pressable
+              style={styles.syncBtn}
+              onPress={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+            >
+              <Text style={styles.syncBtnText}>
+                {syncMutation.isPending ? "Syncing..." : "Sync Gmail"}
+              </Text>
+            </Pressable>
+          )}
         </View>
       }
       renderItem={({ item }) => (

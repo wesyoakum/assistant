@@ -44,14 +44,25 @@ export interface EmailContent {
   bodyText: string;
 }
 
-// Classifier output
+// Classifier output — 5-dimension scoring rubric
 export interface TriageResult {
-  priority: number;
+  // Scoring dimensions
+  impact: number;
+  meaning: number;
+  responsibility: number;
+  time_sensitivity: number;
+  immediacy: number;
+  // Synthesized scores (importance → maps to DB priority, urgency → DB urgency)
+  importance: number;
   urgency: number;
+  // Classification
   confidence: number;
   category: string;
   summary: string;
   suggested_action: string;
+  reasoning?: string;
+  skip?: boolean;
+  updates_existing?: string;
   clarification_question?: string;
   suggested_calendar_event?: {
     title: string;

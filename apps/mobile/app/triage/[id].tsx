@@ -27,6 +27,7 @@ interface TriageItem {
   summary: string | null;
   suggested_action: string | null;
   classifier_json: string | null;
+  source_json: string | null;
   event_at: string | null;
   due_at: string | null;
   event_created_at: string | null;
@@ -143,6 +144,81 @@ function ScorePicker({
   );
 }
 
+// --- Detail row component ---
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={{ flexDirection: "row", marginBottom: 4 }}>
+      <Text style={{ fontSize: 13, color: "#888", width: 80 }}>{label}</Text>
+      <Text style={{ fontSize: 13, color: "#333", flex: 1 }}>{value}</Text>
+    </View>
+  );
+}
+
+// --- Email content component ---
+
+function EmailContent({ sourceJson }: { sourceJson: string }) {
+  try {
+    const parsed = JSON.parse(sourceJson);
+    const emails: { subject?: string; from?: string; date?: string; bodyText?: string }[] = Array.isArray(parsed) ? parsed : [parsed];
+    return (
+      <View style={{ marginBottom: 20 }}>
+        <Text style={{ fontSize: 13, fontWeight: "700", color: "#888", textTransform: "uppercase", marginBottom: 6 }}>
+          {emails.length > 1 ? `Sources (${emails.length} emails)` : "Email"}
+        </Text>
+        {emails.map((email, i) => (
+          <View key={i} style={{ backgroundColor: "#f8f8f8", borderRadius: 10, padding: 14, marginBottom: i < emails.length - 1 ? 8 : 0 }}>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#222", marginBottom: 4 }}>{email.subject || "(no subject)"}</Text>
+            <Text style={{ fontSize: 13, color: "#666", marginBottom: 2 }}>From: {email.from || "unknown"}</Text>
+            <Text style={{ fontSize: 12, color: "#999", marginBottom: 10 }}>{email.date ? new Date(email.date).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</Text>
+            <View style={{ height: 1, backgroundColor: "#e0e0e0", marginBottom: 10 }} />
+            <Text style={{ fontSize: 14, color: "#333", lineHeight: 20 }} numberOfLines={50}>{email.bodyText || "(no body)"}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  } catch {
+    return null;
+  }
+}
+
+// --- Calendar content component ---
+
+function CalendarContent({ item }: { item: TriageItem }) {
+  let evtData: Record<string, string | null> = {};
+  if (item.source_json) {
+    try { evtData = JSON.parse(item.source_json); } catch { /* ignore */ }
+  }
+  const title = (evtData.summary as string) || item.summary || "(untitled event)";
+  const start = (evtData.start as string) || item.event_at;
+  const end = (evtData.end as string) || null;
+  const location = (evtData.location as string) || null;
+  const description = (evtData.description as string) || null;
+  const organizer = (evtData.organizer as string) || null;
+  const calendar = (evtData.calendarName as string) || item.source_title || null;
+  const fmtD = (d: string | null) => d ? new Date(d).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+
+  return (
+    <View style={{ marginBottom: 20 }}>
+      <Text style={{ fontSize: 13, fontWeight: "700", color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Calendar Event</Text>
+      <View style={{ backgroundColor: "#f8f8f8", borderRadius: 10, padding: 14 }}>
+        <Text style={{ fontSize: 16, fontWeight: "600", color: "#222", marginBottom: 8 }}>{title}</Text>
+        {start && <DetailRow label="Start" value={fmtD(start)!} />}
+        {end && <DetailRow label="End" value={fmtD(end)!} />}
+        {calendar && <DetailRow label="Calendar" value={calendar} />}
+        {location && <DetailRow label="Location" value={location} />}
+        {organizer && <DetailRow label="Organizer" value={organizer} />}
+        {description && (
+          <>
+            <View style={{ height: 1, backgroundColor: "#e0e0e0", marginVertical: 8 }} />
+            <Text style={{ fontSize: 14, color: "#333", lineHeight: 20 }}>{description}</Text>
+          </>
+        )}
+      </View>
+    </View>
+  );
+}
+
 // --- File preview component ---
 
 function FilePreview({ sourceType, sourceRef }: { sourceType: string; sourceRef: string | null }) {
@@ -235,9 +311,14 @@ export default function TriageDetail() {
   const [localUrgency, setLocalUrgency] = useState<number | null>(null);
   const [localCategory, setLocalCategory] = useState<string | null>(null);
   const [scoresExpanded, setScoresExpanded] = useState(false);
+  const [localImpact, setLocalImpact] = useState<number | null>(null);
+  const [localMeaning, setLocalMeaning] = useState<number | null>(null);
+  const [localResponsibility, setLocalResponsibility] = useState<number | null>(null);
+  const [localTimeSensitivity, setLocalTimeSensitivity] = useState<number | null>(null);
+  const [localImmediacy, setLocalImmediacy] = useState<number | null>(null);
 
   const editMutation = useMutation({
-    mutationFn: (body: { priority?: number; urgency?: number; category?: string }) =>
+    mutationFn: (body: Record<string, number | string>) =>
       apiFetch(`/triage/${id}`, {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -291,14 +372,34 @@ export default function TriageDetail() {
     (localCategory !== null && localCategory !== (item.category ?? "other"));
 
   let details: string | null = null;
+  let reasoning: string | null = null;
+  let fiveFactors: { impact: number; meaning: number; responsibility: number; time_sensitivity: number; immediacy: number } | null = null;
   if (item.classifier_json) {
     try {
       const parsed = JSON.parse(item.classifier_json);
       details = parsed.details || parsed.extended_summary || null;
+      reasoning = parsed.reasoning || null;
+      if (parsed.impact !== undefined) {
+        fiveFactors = {
+          impact: parsed.impact,
+          meaning: parsed.meaning,
+          responsibility: parsed.responsibility,
+          time_sensitivity: parsed.time_sensitivity,
+          immediacy: parsed.immediacy,
+        };
+      }
     } catch {
       // ignore
     }
   }
+
+  const hasDimensionChanges = fiveFactors && (
+    (localImpact !== null && localImpact !== fiveFactors.impact) ||
+    (localMeaning !== null && localMeaning !== fiveFactors.meaning) ||
+    (localResponsibility !== null && localResponsibility !== fiveFactors.responsibility) ||
+    (localTimeSensitivity !== null && localTimeSensitivity !== fiveFactors.time_sensitivity) ||
+    (localImmediacy !== null && localImmediacy !== fiveFactors.immediacy)
+  );
 
   // Build source detail lines
   const sourceDetails: { label: string; value: string }[] = [];
@@ -316,10 +417,17 @@ export default function TriageDetail() {
   sourceDetails.push({ label: "Fetched", value: formatDate(item.created_at) });
 
   const handleSave = () => {
-    const updates: { priority?: number; urgency?: number; category?: string } = {};
+    const updates: Record<string, number | string> = {};
     if (localPriority !== null && localPriority !== item.priority) updates.priority = localPriority;
     if (localUrgency !== null && localUrgency !== item.urgency) updates.urgency = localUrgency;
     if (localCategory !== null && localCategory !== (item.category ?? "other")) updates.category = localCategory;
+    if (fiveFactors) {
+      if (localImpact !== null && localImpact !== fiveFactors.impact) updates.impact = localImpact;
+      if (localMeaning !== null && localMeaning !== fiveFactors.meaning) updates.meaning = localMeaning;
+      if (localResponsibility !== null && localResponsibility !== fiveFactors.responsibility) updates.responsibility = localResponsibility;
+      if (localTimeSensitivity !== null && localTimeSensitivity !== fiveFactors.time_sensitivity) updates.time_sensitivity = localTimeSensitivity;
+      if (localImmediacy !== null && localImmediacy !== fiveFactors.immediacy) updates.immediacy = localImmediacy;
+    }
     if (Object.keys(updates).length > 0) {
       editMutation.mutate(updates);
     }
@@ -381,6 +489,18 @@ export default function TriageDetail() {
       {/* Score pickers + category — expanded */}
       {scoresExpanded && (
         <View style={styles.scoresSection}>
+          {fiveFactors && (
+            <>
+              <Text style={[styles.pickerLabel, { marginBottom: 8, fontSize: 12, color: "#888" }]}>SCORING DIMENSIONS</Text>
+              <ScorePicker label="Impact" value={localImpact ?? fiveFactors.impact} onChange={setLocalImpact} />
+              <ScorePicker label="Meaning" value={localMeaning ?? fiveFactors.meaning} onChange={setLocalMeaning} />
+              <ScorePicker label="Responsibility" value={localResponsibility ?? fiveFactors.responsibility} onChange={setLocalResponsibility} />
+              <ScorePicker label="Time Sens." value={localTimeSensitivity ?? fiveFactors.time_sensitivity} onChange={setLocalTimeSensitivity} />
+              <ScorePicker label="Immediacy" value={localImmediacy ?? fiveFactors.immediacy} onChange={setLocalImmediacy} />
+              <View style={{ height: 1, backgroundColor: "#ddd", marginVertical: 10 }} />
+              <Text style={[styles.pickerLabel, { marginBottom: 8, fontSize: 12, color: "#888" }]}>SYNTHESIZED</Text>
+            </>
+          )}
           <ScorePicker
             label="Importance"
             value={priority}
@@ -391,6 +511,9 @@ export default function TriageDetail() {
             value={urgency}
             onChange={setLocalUrgency}
           />
+          {reasoning && (
+            <Text style={{ fontSize: 13, color: "#666", marginBottom: 10, lineHeight: 18 }}>{reasoning}</Text>
+          )}
           <View style={styles.categoryPicker}>
             <Text style={styles.pickerLabel}>Category</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
@@ -407,7 +530,7 @@ export default function TriageDetail() {
               ))}
             </ScrollView>
           </View>
-          {hasChanged && (
+          {(hasChanged || hasDimensionChanges) && (
             <Pressable
               style={styles.saveScoresBtn}
               onPress={handleSave}
@@ -465,6 +588,16 @@ export default function TriageDetail() {
         </View>
       )}
 
+      {/* Email content */}
+      {item.source_type === "email" && item.source_json && (
+        <EmailContent sourceJson={item.source_json} />
+      )}
+
+      {/* Calendar event details */}
+      {(item.source_type === "event" || item.source_type === "calendar") && (
+        <CalendarContent item={item} />
+      )}
+
       {/* File preview for captured items */}
       {(item.source_type === "image" || item.source_type === "document" || item.source_type === "voice") && (
         <FilePreview sourceType={item.source_type} sourceRef={item.source_ref} />
@@ -479,6 +612,27 @@ export default function TriageDetail() {
         {(item.source_url || item.source_ref) && (
           <Pressable style={styles.openBtn} onPress={handleOpenOriginal}>
             <Text style={styles.openBtnText}>Open Original</Text>
+          </Pressable>
+        )}
+
+        {item.source_json && (
+          <Pressable
+            style={styles.openBtn}
+            onPress={async () => {
+              try {
+                const res = await apiFetch<{ ok: boolean; newItemId?: string; summary?: string }>(`/triage/${item.id}/reevaluate`, { method: "POST" });
+                queryClient.invalidateQueries({ queryKey: ["triage"] });
+                if (res.newItemId && res.newItemId !== item.id) {
+                  router.replace(`/triage/${res.newItemId}`);
+                } else {
+                  queryClient.invalidateQueries({ queryKey: ["triage", id] });
+                }
+              } catch (err: unknown) {
+                Alert.alert("Error", err instanceof Error ? err.message : "Re-evaluate failed");
+              }
+            }}
+          >
+            <Text style={[styles.openBtnText, { color: "#4285F4" }]}>Re-evaluate</Text>
           </Pressable>
         )}
 

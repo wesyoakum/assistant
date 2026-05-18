@@ -9,6 +9,7 @@ import { files } from "./routes/files";
 import { context } from "./routes/context";
 import { push } from "./routes/push";
 import { control } from "./routes/control";
+import { usage } from "./routes/usage";
 import { classifyFile } from "./services/claude";
 import { syncIcalFeed } from "./services/ical";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
@@ -46,6 +47,157 @@ app.route("/files", files);
 app.route("/context", context);
 app.route("/push", push);
 app.route("/control", control);
+app.route("/usage", usage);
+
+// Fresh start: clear triage + chat + summaries, re-evaluate from source data.
+// Keeps user_context, feedback, auth, push tokens.
+app.post("/triage/fresh-start", authMiddleware, async (c) => {
+  const userId = c.get("userId");
+
+  // Collect source data from ALL triage items that have source_json
+  const { results: emailItems } = await c.env.DB.prepare(
+    `SELECT source_ref, source_json FROM triage_items
+     WHERE user_id = ? AND source_type = 'email' AND source_json IS NOT NULL`
+  ).bind(userId).all<{ source_ref: string; source_json: string }>();
+
+  const { results: fileItems } = await c.env.DB.prepare(
+    `SELECT DISTINCT source_ref FROM triage_items
+     WHERE user_id = ? AND source_type IN ('image', 'document', 'voice') AND source_ref IS NOT NULL`
+  ).bind(userId).all<{ source_ref: string }>();
+
+  // Clear tables that reference triage_items first (FK constraints)
+  await c.env.DB.prepare("DELETE FROM feedback WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM notification_log WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM calendar_suggestions WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM pending_emails WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM calendar_sync_state WHERE user_id = ?").bind(userId).run();
+
+  // Delete all triage items
+  const deleted = await c.env.DB.prepare(
+    "DELETE FROM triage_items WHERE user_id = ?"
+  ).bind(userId).run();
+
+  // Clear chat messages and summaries
+  await c.env.DB.prepare("DELETE FROM chat_messages WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM chat_summaries WHERE user_id = ?").bind(userId).run();
+
+  // Clear reminders
+  await c.env.DB.prepare("DELETE FROM reminders WHERE user_id = ?").bind(userId).run();
+
+  // Reset gmail sync state
+  await c.env.DB.prepare(
+    "UPDATE gmail_sync_state SET history_id = NULL, last_synced_at = NULL WHERE user_id = ?"
+  ).bind(userId).run();
+
+  // Check if user is in controlled mode — if so, don't auto re-queue
+  const controlled = await isControlled(userId, c.env);
+
+  let emailsQueued = 0;
+  let filesQueued = 0;
+
+  if (!controlled) {
+    // Re-queue unique emails
+    const seenRefs = new Set<string>();
+    for (const item of emailItems) {
+      if (seenRefs.has(item.source_ref)) continue;
+      seenRefs.add(item.source_ref);
+      try {
+        const email = JSON.parse(item.source_json);
+        if (email.messageId) {
+          await c.env.TASKS.send({
+            type: "triage.classify", userId,
+            email: { messageId: email.messageId, threadId: email.threadId || "", subject: email.subject || "", from: email.from || "", date: email.date || "", bodyText: email.bodyText || "" },
+          } as QueueMessage);
+          emailsQueued++;
+        }
+      } catch { /* skip */ }
+    }
+
+    // Re-queue files
+    for (const item of fileItems) {
+      const file = await c.env.DB.prepare(
+        "SELECT id, kind, r2_key FROM ingested_files WHERE id = ?"
+      ).bind(item.source_ref).first<{ id: string; kind: string; r2_key: string }>();
+      if (file) {
+        await c.env.TASKS.send({
+          type: "triage.classify.file", userId,
+          fileId: file.id, kind: file.kind as "image" | "pdf" | "audio", r2Key: file.r2_key,
+        } as QueueMessage);
+        filesQueued++;
+      }
+    }
+  }
+
+  return c.json({
+    deleted: deleted.meta.changes, emailsQueued, filesQueued,
+    controlled,
+    note: controlled
+      ? "Everything cleared. You're in controlled mode — use Collect and Classify to rebuild your triage."
+      : "Triage, chat, summaries, reminders, and suggestions cleared. User context and preferences preserved. Re-evaluating emails and files.",
+  });
+});
+
+// Re-classify: dismiss all open items and re-queue through new classifier
+app.post("/triage/reclassify-all", authMiddleware, async (c) => {
+  const userId = c.get("userId");
+  const controlled = await isControlled(userId, c.env);
+
+  if (controlled) {
+    // In controlled mode, just dismiss — user will manually collect/classify
+    const dismissed = await c.env.DB.prepare(
+      `UPDATE triage_items SET status = 'dismissed', updated_at = datetime('now') WHERE user_id = ? AND status = 'open'`
+    ).bind(userId).run();
+    return c.json({
+      dismissed: dismissed.meta.changes, emailsQueued: 0, filesQueued: 0, calendarSkipped: 0,
+      note: "Items dismissed. You're in controlled mode — use Collect and Classify to re-evaluate.",
+    });
+  }
+
+  const { results: openItems } = await c.env.DB.prepare(
+    `SELECT id, source_type, source_ref, source_json FROM triage_items WHERE user_id = ? AND status = 'open'`
+  ).bind(userId).all<{ id: string; source_type: string; source_ref: string | null; source_json: string | null }>();
+
+  const dismissed = await c.env.DB.prepare(
+    `UPDATE triage_items SET status = 'dismissed', updated_at = datetime('now') WHERE user_id = ? AND status = 'open'`
+  ).bind(userId).run();
+
+  let emailsQueued = 0;
+  let filesQueued = 0;
+  let calendarSkipped = 0;
+
+  for (const item of openItems) {
+    if (item.source_type === "email" && item.source_json) {
+      try {
+        const email = JSON.parse(item.source_json);
+        if (email.messageId) {
+          await c.env.TASKS.send({
+            type: "triage.classify", userId,
+            email: { messageId: email.messageId, threadId: email.threadId || "", subject: email.subject || "", from: email.from || "", date: email.date || "", bodyText: email.bodyText || "" },
+          } as QueueMessage);
+          emailsQueued++;
+        }
+      } catch { /* skip */ }
+    } else if ((item.source_type === "image" || item.source_type === "document" || item.source_type === "voice") && item.source_ref) {
+      const file = await c.env.DB.prepare(
+        "SELECT id, kind, r2_key FROM ingested_files WHERE id = ?"
+      ).bind(item.source_ref).first<{ id: string; kind: string; r2_key: string }>();
+      if (file) {
+        await c.env.TASKS.send({
+          type: "triage.classify.file", userId,
+          fileId: file.id, kind: file.kind as "image" | "pdf" | "audio", r2Key: file.r2_key,
+        } as QueueMessage);
+        filesQueued++;
+      }
+    } else if (item.source_type === "calendar" || item.source_type === "event") {
+      calendarSkipped++;
+    }
+  }
+
+  return c.json({
+    dismissed: dismissed.meta.changes, emailsQueued, filesQueued, calendarSkipped,
+    note: "Calendar/event items will be re-created by the next cron cycle. Chat-created items were dismissed but not re-queued.",
+  });
+});
 
 app.get("/me", authMiddleware, async (c) => {
   const userId = c.get("userId");

@@ -124,11 +124,16 @@ triage.post("/:id/feedback", async (c) => {
   return c.json({ ok: true });
 });
 
-// Direct edit (priority, urgency, category)
+// Direct edit (priority, urgency, category, 5-factor dimensions)
 const editSchema = z.object({
   priority: z.number().int().min(1).max(5).optional(),
   urgency: z.number().int().min(1).max(5).optional(),
   category: z.string().max(50).optional(),
+  impact: z.number().int().min(1).max(5).optional(),
+  meaning: z.number().int().min(1).max(5).optional(),
+  responsibility: z.number().int().min(1).max(5).optional(),
+  time_sensitivity: z.number().int().min(1).max(5).optional(),
+  immediacy: z.number().int().min(1).max(5).optional(),
 });
 
 triage.patch("/:id", async (c) => {
@@ -156,6 +161,30 @@ triage.patch("/:id", async (c) => {
   if (updates.category !== undefined) {
     setClauses.push("category = ?");
     params.push(updates.category);
+  }
+
+  // Update dimension scores in classifier_json
+  const dimensionFields = ["impact", "meaning", "responsibility", "time_sensitivity", "immediacy"] as const;
+  const hasDimensions = dimensionFields.some((f) => updates[f] !== undefined);
+  if (hasDimensions) {
+    // Read existing classifier_json and merge
+    const existing = await c.env.DB.prepare(
+      "SELECT classifier_json FROM triage_items WHERE id = ? AND user_id = ?"
+    ).bind(id, userId).first<{ classifier_json: string | null }>();
+
+    let classifierData: Record<string, unknown> = {};
+    if (existing?.classifier_json) {
+      try { classifierData = JSON.parse(existing.classifier_json); } catch { /* ignore */ }
+    }
+
+    for (const f of dimensionFields) {
+      if (updates[f] !== undefined) classifierData[f] = updates[f];
+    }
+    if (updates.priority !== undefined) classifierData.importance = updates.priority;
+    if (updates.urgency !== undefined) classifierData.urgency = updates.urgency;
+
+    setClauses.push("classifier_json = ?");
+    params.push(JSON.stringify(classifierData));
   }
 
   if (setClauses.length === 0) {
@@ -200,7 +229,80 @@ triage.post("/:id/status", async (c) => {
   return c.json({ ok: true });
 });
 
-// Helper to bind an array of params to a D1 prepared statement
+// Re-evaluate a single triage item from its source data
+triage.post("/:id/reevaluate", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  const item = await c.env.DB.prepare(
+    "SELECT source_type, source_ref, source_json FROM triage_items WHERE id = ? AND user_id = ?"
+  ).bind(id, userId).first<{ source_type: string; source_ref: string | null; source_json: string | null }>();
+
+  if (!item) return c.json({ error: "Not found" }, 404);
+
+  if (item.source_type === "email" && item.source_json) {
+    try {
+      const parsed = JSON.parse(item.source_json);
+      // Handle merged sources (array) — use the latest email
+      const email = Array.isArray(parsed) ? parsed[parsed.length - 1] : parsed;
+      if (!email.messageId) return c.json({ error: "No email data" }, 400);
+
+      const { classifyAndStoreEmail } = await import("../services/classify");
+
+      // Delete the existing item first (classify will create a new one)
+      // Clear FK references
+      await c.env.DB.prepare("DELETE FROM feedback WHERE triage_item_id = ?").bind(id).run();
+      await c.env.DB.prepare("DELETE FROM notification_log WHERE triage_item_id = ?").bind(id).run();
+      await c.env.DB.prepare("DELETE FROM calendar_suggestions WHERE triage_item_id = ?").bind(id).run();
+      await c.env.DB.prepare("DELETE FROM triage_items WHERE id = ?").bind(id).run();
+
+      const { itemId, result } = await classifyAndStoreEmail(userId, {
+        messageId: email.messageId,
+        threadId: email.threadId || "",
+        subject: email.subject || "",
+        from: email.from || "",
+        date: email.date || "",
+        bodyText: email.bodyText || "",
+      }, c.env);
+
+      // If source was merged (array), restore the full source_json
+      if (Array.isArray(parsed)) {
+        await c.env.DB.prepare(
+          "UPDATE triage_items SET source_json = ? WHERE id = ?"
+        ).bind(JSON.stringify(parsed), itemId).run();
+      }
+
+      return c.json({ ok: true, newItemId: itemId, importance: result.importance, urgency: result.urgency, summary: result.summary });
+    } catch (err) {
+      return c.json({ error: "Re-evaluate failed", detail: String(err) }, 500);
+    }
+  }
+
+  if ((item.source_type === "image" || item.source_type === "document" || item.source_type === "voice") && item.source_ref) {
+    // Queue file re-classification
+    const file = await c.env.DB.prepare(
+      "SELECT id, kind, r2_key FROM ingested_files WHERE id = ?"
+    ).bind(item.source_ref).first<{ id: string; kind: string; r2_key: string }>();
+
+    if (file) {
+      await c.env.DB.prepare("DELETE FROM feedback WHERE triage_item_id = ?").bind(id).run();
+      await c.env.DB.prepare("DELETE FROM notification_log WHERE triage_item_id = ?").bind(id).run();
+      await c.env.DB.prepare("DELETE FROM triage_items WHERE id = ?").bind(id).run();
+
+      await c.env.TASKS.send({
+        type: "triage.classify.file" as const,
+        userId,
+        fileId: file.id,
+        kind: file.kind as "image" | "pdf" | "audio",
+        r2Key: file.r2_key,
+      });
+      return c.json({ ok: true, queued: true });
+    }
+  }
+
+  return c.json({ error: "Cannot re-evaluate this item type" }, 400);
+});
+
 function env_bind(stmt: D1PreparedStatement, params: unknown[]) {
   return stmt.bind(...params);
 }

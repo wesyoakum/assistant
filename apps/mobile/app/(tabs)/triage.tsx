@@ -1,4 +1,4 @@
-import { useRef, useMemo, useEffect } from "react";
+import { useRef, useMemo, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -47,6 +47,9 @@ interface ControlStatus {
 
 interface CollectResponse {
   collected: number;
+  emails?: number;
+  calendar?: number;
+  captures?: number;
   total: number;
   items: ControlStatus["items"];
 }
@@ -168,8 +171,9 @@ export default function TriageScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const didSync = useRef(false);
+  const [recentIds, setRecentIds] = useState<Set<string>>(new Set());
 
-  const { data, isLoading, refetch, isRefetching } = useQuery({
+  const { data, isLoading, refetch, isRefetching, error: triageError } = useQuery({
     queryKey: ["triage"],
     queryFn: () => apiFetch<TriageResponse>("/triage?status=open"),
   });
@@ -189,8 +193,12 @@ export default function TriageScreen() {
       Alert.alert(
         "Context collected",
         res.collected > 0
-          ? `Pulled ${res.collected} new email${res.collected > 1 ? "s" : ""}. ${res.total} awaiting classification.`
-          : `No new emails. ${res.total} awaiting classification.`
+          ? `Pulled ${[
+              res.emails ? `${res.emails} email${res.emails > 1 ? "s" : ""}` : "",
+              res.calendar ? `${res.calendar} calendar event${res.calendar > 1 ? "s" : ""}` : "",
+              res.captures ? `${res.captures} capture${res.captures > 1 ? "s" : ""}` : "",
+            ].filter(Boolean).join(", ")}. ${res.total} awaiting classification.`
+          : `Nothing new. ${res.total} awaiting classification.`
       );
     },
     onError: (err: Error) => Alert.alert("Collect failed", err.message),
@@ -207,8 +215,10 @@ export default function TriageScreen() {
         Alert.alert("Nothing to classify", "Collect new context first.");
         return;
       }
+      // Track recently classified items for visual highlighting
+      setRecentIds(new Set(res.classified.map((c) => c.triage_item_id).filter(Boolean)));
       const lines = res.classified
-        .map((c) => `• P${c.priority}U${c.urgency} — ${c.summary}`)
+        .map((c) => `• I${c.importance || c.priority}U${c.urgency} — ${c.summary}`)
         .join("\n");
       Alert.alert(
         `Classified ${res.classified.length}`,
@@ -288,7 +298,7 @@ export default function TriageScreen() {
               <Text style={styles.controlBadge}>spend control</Text>
             </View>
             <Text style={styles.controlStat}>
-              {control!.collected} collected · awaiting classification
+              {control!.collected} collected · awaiting classification · {data?.items?.length ?? 0} triaged{triageError ? ` · ERR: ${triageError.message}` : ""}
             </Text>
             {control!.items.length > 0 && (
               <View style={styles.collectedList}>
@@ -374,7 +384,7 @@ export default function TriageScreen() {
             }}
           >
             <Pressable
-              style={styles.row}
+              style={[styles.row, recentIds.has(item.id) && styles.recentRow]}
               onPress={() => router.push(`/triage/${item.id}`)}
             >
               <View
@@ -444,6 +454,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
+  },
+  recentRow: {
+    backgroundColor: "#f0f7ff",
+    borderLeftWidth: 3,
+    borderLeftColor: "#4285F4",
   },
   priorityBar: {
     width: 4,

@@ -2,12 +2,23 @@ import { z } from "zod/v4";
 
 export const triageResultSchema = z
   .object({
-    priority: z.number().int().min(1).max(5),
+    // 5 scoring dimensions
+    impact: z.number().int().min(1).max(5),
+    meaning: z.number().int().min(1).max(5),
+    responsibility: z.number().int().min(1).max(5),
+    time_sensitivity: z.number().int().min(1).max(5),
+    immediacy: z.number().int().min(1).max(5),
+    // Synthesized scores
+    importance: z.number().int().min(1).max(5),
     urgency: z.number().int().min(1).max(5),
+    // Classification
     confidence: z.number().int().min(1).max(5),
     category: z.string(),
-    summary: z.string().max(300),
+    summary: z.string().max(500),
     suggested_action: z.string().max(500),
+    reasoning: z.string().max(1000).optional(),
+    skip: z.boolean().optional(),
+    updates_existing: z.string().optional(),
     clarification_question: z.string().max(140).optional(),
     suggested_calendar_event: z
       .object({

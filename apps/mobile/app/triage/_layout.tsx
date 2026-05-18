@@ -10,7 +10,7 @@ export default function TriageLayout() {
     >
       <Stack.Screen
         name="[id]"
-        options={{ title: "Triage Detail" }}
+        options={{ title: "Triage Detail v7" }}
       />
     </Stack>
   );

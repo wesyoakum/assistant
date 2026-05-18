@@ -7,15 +7,61 @@ const MODEL = "claude-opus-4-7";
 
 interface ClaudeResponse {
   content: { type: string; text?: string }[];
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+}
+
+// Pricing per million tokens (cents)
+const PRICING: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
+  "claude-opus-4-7": { input: 1500, output: 7500, cacheRead: 150, cacheWrite: 1875 },
+  "claude-sonnet-4-6": { input: 300, output: 1500, cacheRead: 30, cacheWrite: 375 },
+  "claude-haiku-4-5-20251001": { input: 80, output: 400, cacheRead: 8, cacheWrite: 100 },
+};
+
+/** Log API usage to D1. Call after each Claude API response. */
+export async function logUsage(
+  db: D1Database,
+  userId: string,
+  purpose: string,
+  usage: ClaudeResponse["usage"]
+) {
+  if (!usage) return;
+  const p = PRICING[MODEL] || PRICING["claude-opus-4-7"];
+  const inputTokens = usage.input_tokens || 0;
+  const outputTokens = usage.output_tokens || 0;
+  const cacheRead = usage.cache_read_input_tokens || 0;
+  const cacheWrite = usage.cache_creation_input_tokens || 0;
+  // Non-cached input = total input - cacheRead - cacheWrite
+  const regularInput = Math.max(0, inputTokens - cacheRead - cacheWrite);
+  const costCents = (regularInput * p.input + outputTokens * p.output + cacheRead * p.cacheRead + cacheWrite * p.cacheWrite) / 1_000_000;
+
+  try {
+    await db.prepare(
+      `INSERT INTO api_usage (user_id, model, purpose, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(userId, MODEL, purpose, inputTokens, outputTokens, cacheRead, cacheWrite, costCents).run();
+  } catch { /* don't let logging failures break functionality */ }
 }
 
 export async function classifyEmail(
   email: EmailContent,
   feedbackHistory: FeedbackRow[],
   anthropicApiKey: string,
-  contextEntries: { kind: string; label: string; detail: string | null }[] = []
+  contextEntries: { kind: string; label: string; detail: string | null }[] = [],
+  db?: D1Database,
+  userId?: string
 ): Promise<TriageResult> {
-  const systemPrompt = buildSystemPrompt(feedbackHistory, contextEntries);
+  const now = new Date();
+  const currentDateTime = now.toLocaleString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    hour: "numeric", minute: "2-digit", timeZoneName: "short",
+    timeZone: "America/Chicago",
+  });
+  const systemPrompt = buildSystemPrompt(feedbackHistory, contextEntries, currentDateTime);
 
   const userMessage = `From: ${email.from}
 Subject: ${email.subject}
@@ -24,27 +70,26 @@ Date: ${email.date}
 ${email.bodyText}`;
 
   const result = await callClaude(systemPrompt, userMessage, anthropicApiKey);
-
-  // Try to parse
-  const parsed = tryParse(result);
+  if (db && userId) await logUsage(db, userId, "classify-email", result.usage);
+  const parsed = tryParse(result.text);
   if (parsed) return parsed;
 
   // Retry once with error feedback
   const retryMessage = `${userMessage}
 
 Your previous response was not valid JSON. The parsing error was:
-${getParseError(result)}
+${getParseError(result.text)}
 
 Please return ONLY valid JSON matching the schema.`;
 
   const retryResult = await callClaude(systemPrompt, retryMessage, anthropicApiKey);
-  const retryParsed = tryParse(retryResult);
+  if (db && userId) await logUsage(db, userId, "classify-email-retry", retryResult.usage);
+  const retryParsed = tryParse(retryResult.text);
   if (retryParsed) return retryParsed;
 
-  // Fall back to a safe default — classifier failed, so confidence is minimal
-  // and we ask the user to triage manually.
   return {
-    priority: 3,
+    impact: 3, meaning: 3, responsibility: 3, time_sensitivity: 3, immediacy: 3,
+    importance: 3,
     urgency: 3,
     confidence: 1,
     category: "other",
@@ -63,9 +108,17 @@ export async function classifyFile(
   contentType: string,
   feedbackHistory: FeedbackRow[],
   anthropicApiKey: string,
-  contextEntries: { kind: string; label: string; detail: string | null }[] = []
+  contextEntries: { kind: string; label: string; detail: string | null }[] = [],
+  db?: D1Database,
+  userId?: string
 ): Promise<TriageResult> {
-  const systemPrompt = buildSystemPrompt(feedbackHistory, contextEntries);
+  const now = new Date();
+  const currentDateTime = now.toLocaleString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    hour: "numeric", minute: "2-digit", timeZoneName: "short",
+    timeZone: "America/Chicago",
+  });
+  const systemPrompt = buildSystemPrompt(feedbackHistory, contextEntries, currentDateTime);
   const base64 = arrayBufferToBase64(fileBytes);
 
   let userContent: unknown[];
@@ -86,13 +139,11 @@ export async function classifyFile(
       { type: "text", text: "Analyze this PDF document and classify it for triage. Extract key information, dates, action items, and deadlines. Return JSON matching the triage schema." },
     ];
   } else {
-    // audio
     userContent = [
       {
         type: "text",
         text: "The user recorded a voice memo. The audio has been attached. Transcribe and classify it for triage. Extract any action items, dates, or important information. Return JSON matching the triage schema.",
       },
-      // Audio is sent as base64 in a document block
       {
         type: "document",
         source: { type: "base64", media_type: contentType, data: base64 },
@@ -101,11 +152,13 @@ export async function classifyFile(
   }
 
   const result = await callClaudeMultimodal(systemPrompt, userContent, anthropicApiKey);
-  const parsed = tryParse(result);
+  if (db && userId) await logUsage(db, userId, `classify-${kind}`, result.usage);
+  const parsed = tryParse(result.text);
   if (parsed) return parsed;
 
   return {
-    priority: 3,
+    impact: 3, meaning: 3, responsibility: 3, time_sensitivity: 3, immediacy: 3,
+    importance: 3,
     urgency: 3,
     confidence: 1,
     category: "capture",
@@ -123,11 +176,16 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
+interface ClaudeCallResult {
+  text: string;
+  usage: ClaudeResponse["usage"];
+}
+
 async function callClaude(
   system: string,
   userMessage: string,
   apiKey: string
-): Promise<string> {
+): Promise<ClaudeCallResult> {
   return callClaudeMultimodal(
     system,
     [{ type: "text", text: userMessage }],
@@ -139,7 +197,7 @@ async function callClaudeMultimodal(
   system: string,
   userContent: unknown[],
   apiKey: string
-): Promise<string> {
+): Promise<ClaudeCallResult> {
   const res = await fetch(CLAUDE_API, {
     method: "POST",
     headers: {
@@ -168,12 +226,11 @@ async function callClaudeMultimodal(
 
   const data = (await res.json()) as ClaudeResponse;
   const textBlock = data.content.find((b) => b.type === "text");
-  return textBlock?.text || "";
+  return { text: textBlock?.text || "", usage: data.usage };
 }
 
 function tryParse(text: string): TriageResult | null {
   try {
-    // Extract JSON from potential markdown code blocks
     const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
                       text.match(/(\{[\s\S]*\})/);
     const jsonStr = jsonMatch ? jsonMatch[1]! : text;

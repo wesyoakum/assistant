@@ -135,9 +135,10 @@ export async function fetchNewMessages(
 
     const profile = await getGmailProfile(accessToken);
     const messageIds = listData.messages?.map((m) => m.id) || [];
-    const messages = await Promise.all(
+    const results = await Promise.all(
       messageIds.slice(0, 20).map((id) => getMessageDetail(accessToken, id))
     );
+    const messages = results.filter((m): m is GmailMessage => m !== null);
 
     return { messages, newHistoryId: profile.historyId };
   }
@@ -166,9 +167,10 @@ export async function fetchNewMessages(
     }
   }
 
-  const messages = await Promise.all(
+  const results = await Promise.all(
     [...messageIds].slice(0, 20).map((id) => getMessageDetail(accessToken, id))
   );
+  const messages = results.filter((m): m is GmailMessage => m !== null);
 
   return { messages, newHistoryId: histData.historyId };
 }
@@ -179,10 +181,11 @@ export async function fetchNewMessages(
 export async function getMessageDetail(
   accessToken: string,
   messageId: string
-): Promise<GmailMessage> {
+): Promise<GmailMessage | null> {
   const res = await fetch(`${GMAIL_API}/messages/${messageId}?format=full`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+  if (res.status === 404) return null; // Message deleted or no longer accessible
   if (!res.ok) throw new Error(`Gmail message ${messageId} failed: ${res.status}`);
 
   const data = (await res.json()) as {

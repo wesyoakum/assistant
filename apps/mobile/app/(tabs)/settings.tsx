@@ -9,11 +9,58 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Linking,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/state/auth";
 import { apiFetch } from "../../src/api/client";
+
+interface UsageSummaryData {
+  today: { calls: number; costCents: number };
+  week: { calls: number; costCents: number };
+  month: { calls: number; costCents: number };
+  allTime: { calls: number; costCents: number };
+}
+
+function UsageSummary() {
+  const { token } = useAuth();
+  const { data, isLoading } = useQuery({
+    queryKey: ["usage-summary"],
+    queryFn: () => apiFetch<UsageSummaryData>("/usage/summary"),
+    staleTime: 30_000,
+  });
+
+  const fmt = (cents: number) => "$" + (cents / 100).toFixed(2);
+
+  if (isLoading) return <ActivityIndicator style={{ padding: 16 }} />;
+  if (!data) return null;
+
+  return (
+    <View style={{ backgroundColor: "#fff", borderRadius: 12, overflow: "hidden" }}>
+      <View style={{ flexDirection: "row", paddingVertical: 12 }}>
+        {[
+          { label: "Today", v: data.today },
+          { label: "7d", v: data.week },
+          { label: "30d", v: data.month },
+          { label: "All", v: data.allTime },
+        ].map((col) => (
+          <View key={col.label} style={{ flex: 1, alignItems: "center" }}>
+            <Text style={{ fontSize: 11, color: "#888", fontWeight: "600", textTransform: "uppercase" }}>{col.label}</Text>
+            <Text style={{ fontSize: 20, fontWeight: "700", marginTop: 2 }}>{fmt(col.v.costCents)}</Text>
+            <Text style={{ fontSize: 11, color: "#aaa" }}>{col.v.calls} calls</Text>
+          </View>
+        ))}
+      </View>
+      <Pressable
+        style={{ paddingVertical: 12, alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#eee" }}
+        onPress={() => Linking.openURL("https://whyapp.us/usage#token=" + (token || ""))}
+      >
+        <Text style={{ fontSize: 14, fontWeight: "600", color: "#4285F4" }}>View Full Dashboard</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 interface CalendarSummary {
   id: string;
@@ -383,6 +430,9 @@ export default function SettingsScreen() {
               </View>
             )}
           </View>
+
+          <Text style={styles.sectionTitle}>API Usage</Text>
+          <UsageSummary />
         </>
       )}
 
@@ -627,6 +677,74 @@ export default function SettingsScreen() {
         <Pressable
           style={styles.clearChatBtn}
           onPress={() => {
+            Alert.alert(
+              "Fresh Start",
+              "This will clear all triage items, chat history, reminders, and summaries — then re-evaluate all emails and files from scratch. Your preferences, context, and feedback are kept.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Fresh Start",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      const result = await apiFetch<{
+                        deleted: number;
+                        emailsQueued: number;
+                        filesQueued: number;
+                      }>("/triage/fresh-start", { method: "POST" });
+                      queryClient.invalidateQueries();
+                      Alert.alert(
+                        "Fresh Start Complete",
+                        `Cleared ${result.deleted} items. Re-queuing ${result.emailsQueued} emails and ${result.filesQueued} files. Calendar events will repopulate automatically.`
+                      );
+                    } catch (err: unknown) {
+                      Alert.alert("Error", err instanceof Error ? err.message : "Failed");
+                    }
+                  },
+                },
+              ]
+            );
+          }}
+        >
+          <Text style={[styles.clearChatText, { color: "#e53e3e" }]}>Fresh Start</Text>
+        </Pressable>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => {
+            Alert.alert(
+              "Re-evaluate Triage",
+              "This will dismiss all open triage items and re-classify them with the latest rules and preferences. Items will reappear as they're processed.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Re-evaluate",
+                  onPress: async () => {
+                    try {
+                      const result = await apiFetch<{
+                        dismissed: number;
+                        emailsQueued: number;
+                        filesQueued: number;
+                        calendarSkipped: number;
+                      }>("/triage/reclassify-all", { method: "POST" });
+                      queryClient.invalidateQueries({ queryKey: ["triage"] });
+                      Alert.alert(
+                        "Re-evaluation Started",
+                        `Dismissed ${result.dismissed} items. Re-queued ${result.emailsQueued} emails and ${result.filesQueued} files. Calendar items will repopulate automatically.`
+                      );
+                    } catch (err: unknown) {
+                      Alert.alert("Error", err instanceof Error ? err.message : "Failed to re-evaluate");
+                    }
+                  },
+                },
+              ]
+            );
+          }}
+        >
+          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>Re-evaluate All Triage Items</Text>
+        </Pressable>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => {
             Alert.alert("Clear Chat", "This will delete your entire chat history.", [
               { text: "Cancel", style: "cancel" },
               {
@@ -643,6 +761,22 @@ export default function SettingsScreen() {
           }}
         >
           <Text style={styles.clearChatText}>Clear Chat History</Text>
+        </Pressable>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => {
+            const t = useAuth.getState().token;
+            if (t) {
+              import("expo-clipboard").then((Clipboard) => {
+                Clipboard.setStringAsync(t);
+                Alert.alert("Copied", "Session token copied to clipboard");
+              });
+            } else {
+              Alert.alert("No token", "You're not signed in");
+            }
+          }}
+        >
+          <Text style={[styles.clearChatText, { color: "#888" }]}>Copy Session Token</Text>
         </Pressable>
         <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>

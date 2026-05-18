@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
-import { listUpcomingEvents, createEvent, updateEvent, deleteEvent } from "../services/google-calendar";
+import { createEvent, updateEvent, deleteEvent } from "../services/google-calendar";
+import { buildFullContext } from "../services/context";
+import { logUsage } from "../services/claude";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-opus-4-7";
@@ -63,10 +65,11 @@ chat.post("/", async (c) => {
 
     if (item) {
       const q = getQuadrant(item.priority, item.urgency);
-      triageContext = `\n\nThe user is asking about this triage item:
+      triageContext = `\n\nThe user is asking about this triage item (USE THIS ID for any edit_triage actions):
+- ID: ${body.triage_item_id}
 - Source: ${item.source_type}
 - Category: ${item.category || "uncategorized"}
-- Quadrant: ${q} (Priority: ${item.priority}/5, Urgency: ${item.urgency}/5)
+- Quadrant: ${q} (Importance: ${item.priority}/5, Urgency: ${item.urgency}/5)
 - Summary: ${item.summary || "none"}
 - Suggested action: ${item.suggested_action || "none"}
 - Created: ${item.created_at}`;
@@ -74,10 +77,17 @@ chat.post("/", async (c) => {
       if (item.source_title) triageContext += `\n- Source title: ${item.source_title}`;
       if (item.source_url) triageContext += `\n- Source URL: ${item.source_url}`;
 
-      // Include full classifier output for detailed context
+      // Include full classifier output including 5-dimension scores
       if (item.classifier_json) {
         try {
           const parsed = JSON.parse(item.classifier_json);
+          // 5-dimension scores
+          if (parsed.impact !== undefined) {
+            triageContext += `\n- Scoring breakdown: Impact=${parsed.impact}/5, Meaning=${parsed.meaning}/5, Responsibility=${parsed.responsibility}/5, Time-Sensitivity=${parsed.time_sensitivity}/5, Immediacy=${parsed.immediacy}/5`;
+          }
+          if (parsed.reasoning) {
+            triageContext += `\n- Scoring reasoning: ${parsed.reasoning}`;
+          }
           if (parsed.details || parsed.extended_summary) {
             triageContext += `\n- Details: ${parsed.details || parsed.extended_summary}`;
           }
@@ -87,46 +97,21 @@ chat.post("/", async (c) => {
         } catch { /* ignore */ }
       }
 
-      // For emails, try to load the original message content from Gmail sync
       if (item.source_type === "email" && item.source_ref) {
         triageContext += `\n- Gmail message ID: ${item.source_ref}`;
       }
     }
   }
 
-  // Get recent feedback
-  const { results: feedbackRows } = await c.env.DB.prepare(
-    `SELECT f.kind, f.note, t.summary, t.category
-     FROM feedback f
-     JOIN triage_items t ON t.id = f.triage_item_id
-     WHERE f.user_id = ?
-     ORDER BY f.created_at DESC
-     LIMIT 5`
-  )
-    .bind(userId)
-    .all<{ kind: string; note: string | null; summary: string | null; category: string | null }>();
+  // --- Load unified context (same data the classifier sees) ---
+  const fullCtx = await buildFullContext(userId, c.env);
+  const currentDateTime = fullCtx.currentDateTime;
 
-  let feedbackContext = "";
-  if (feedbackRows.length > 0) {
-    const lines = feedbackRows.map(
-      (r) => `- ${r.kind} on "${r.summary || "item"}"${r.note ? `: ${r.note}` : ""}`
-    );
-    feedbackContext = `\n\nRecent user feedback on triage items:\n${lines.join("\n")}`;
-  }
-
-  // Load open triage items with full details
-  const { results: triageItems } = await c.env.DB.prepare(
-    `SELECT id, source_type, source_ref, priority, urgency, category, summary, suggested_action, classifier_json, source_title, source_url, event_at, due_at, event_created_at, event_updated_at, created_at
-     FROM triage_items WHERE user_id = ? AND status = 'open'
-     ORDER BY priority DESC, urgency DESC LIMIT 15`
-  )
-    .bind(userId)
-    .all<{ id: string; source_type: string; source_ref: string | null; priority: number; urgency: number; category: string | null; summary: string | null; suggested_action: string | null; classifier_json: string | null; source_title: string | null; source_url: string | null; event_at: string | null; due_at: string | null; event_created_at: string | null; event_updated_at: string | null; created_at: string }>();
-
+  // Format triage inbox from unified context
   let triageInbox = "";
-  if (triageItems.length > 0) {
+  if (fullCtx.openTriageItems.length > 0) {
     const nowMs = Date.now();
-    const lines = triageItems.map((t) => {
+    const lines = fullCtx.openTriageItems.map((t) => {
       const q = getQuadrant(t.priority, t.urgency);
       const parts = [`[id:${t.id}] [${q}] P${t.priority}U${t.urgency} ${t.source_type}`];
       parts.push(`summary: ${t.summary || "no summary"}`);
@@ -144,32 +129,114 @@ chat.post("/", async (c) => {
       }
       if (t.event_created_at) parts.push(`created: ${t.event_created_at}`);
       if (t.suggested_action) parts.push(`action: ${t.suggested_action}`);
-      // Include classifier details if available
       if (t.classifier_json) {
         try {
-          const c = JSON.parse(t.classifier_json);
-          if (c.details) parts.push(`details: ${c.details}`);
-          if (c.clarification_question) parts.push(`question: ${c.clarification_question}`);
+          const cj = JSON.parse(t.classifier_json);
+          if (cj.details || cj.reasoning) parts.push(`details: ${cj.details || cj.reasoning}`);
+          if (cj.clarification_question) parts.push(`question: ${cj.clarification_question}`);
         } catch { /* ignore */ }
       }
       parts.push(`triaged: ${t.created_at}`);
       return `- ${parts.join(" | ")}`;
     });
     const counts = { Hot: 0, Action: 0, Plan: 0, Noop: 0 };
-    for (const t of triageItems) counts[getQuadrant(t.priority, t.urgency)]++;
+    for (const t of fullCtx.openTriageItems) counts[getQuadrant(t.priority, t.urgency)]++;
     const countStr = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}`).join(", ");
-    triageInbox = `\n\nOpen triage items (${triageItems.length} total: ${countStr}):\n${lines.join("\n")}`;
+    triageInbox = `\n\nOpen triage items (${fullCtx.openTriageItems.length} total: ${countStr}):\n${lines.join("\n")}`;
   }
 
-  // Load pending calendar suggestions
+  // Format calendar — 30 days for chat (classifier gets 365)
+  let calendarContext = "";
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+  const chatCalendarEvents = fullCtx.calendarEvents.filter(
+    (e) => new Date(e.start).getTime() <= Date.now() + thirtyDaysMs
+  );
+  if (chatCalendarEvents.length > 0) {
+    const lines = chatCalendarEvents.map((e) => {
+      const start = new Date(e.start).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: tz });
+      let line = `- [cal:${e.calendarId}|evt:${e.id}] "${e.summary}" — ${start}`;
+      if (e.location) line += ` @ ${e.location}`;
+      if (e.calendarName) line += ` (${e.calendarName})`;
+      return line;
+    });
+    calendarContext = `\n\nUpcoming calendar events (next 30 days, format [cal:calendarId|evt:eventId]):\n${lines.join("\n")}`;
+  }
+
+  // Format dismissed items — cap at 20 most recent
+  let dismissedContext = "";
+  const recentDismissed = fullCtx.recentDismissedItems.slice(0, 20);
+  if (recentDismissed.length > 0) {
+    const lines = recentDismissed.map(
+      (t) => `- ${t.source_type}: ${t.summary || "no summary"}${t.source_title ? ` from: ${t.source_title}` : ""}${t.category ? ` (${t.category})` : ""}`
+    );
+    dismissedContext = `\n\nRecently handled items:\n${lines.join("\n")}`;
+  }
+
+  // Format user context
+  let userContext = "";
+  if (fullCtx.userContext.length > 0) {
+    const lines = fullCtx.userContext.map(
+      (r) => `- ${r.kind}: ${r.label}${r.detail ? ` — ${r.detail}` : ""}`
+    );
+    userContext = `\n\nWhat I know about the user:\n${lines.join("\n")}`;
+  }
+  if (fullCtx.preferences.length > 0) {
+    const lines = fullCtx.preferences.map(
+      (r) => `- ${r.label}: ${r.detail || ""}`
+    );
+    userContext += `\n\nUser's behavior preferences (follow these):\n${lines.join("\n")}`;
+  }
+  if (fullCtx.features.length > 0) {
+    const lines = fullCtx.features.map(
+      (r) => `- ${r.label}: ${r.detail || ""}`
+    );
+    userContext += `\n\nFeature requests (acknowledged, in backlog):\n${lines.join("\n")}`;
+  }
+
+  // Format reminders
+  let remindersContext = "";
+  if (fullCtx.activeReminders.length > 0) {
+    const lines = fullCtx.activeReminders.map(
+      (r) => `- [reminder:${r.id}] "${r.message}" at ${r.fire_at}`
+    );
+    remindersContext = `\n\nActive reminders:\n${lines.join("\n")}`;
+  }
+
+  // Format feedback — cap at 15 most recent
+  let feedbackContext = "";
+  const recentFeedback = fullCtx.feedbackHistory.slice(0, 15);
+  if (recentFeedback.length > 0) {
+    const lines = recentFeedback.map(
+      (r) => `- ${r.kind} on "${r.summary || "item"}"${r.note ? `: ${r.note}` : ""}`
+    );
+    feedbackContext = `\n\nUser feedback on triage items:\n${lines.join("\n")}`;
+  }
+
+  // Format documents
+  let documentsContext = "";
+  if (fullCtx.documents.length > 0) {
+    const lines = fullCtx.documents.map(
+      (d) => `- ${d.source_type}: ${d.summary || "untitled"} (${d.extracted_content.length} chars of content available)`
+    );
+    documentsContext = `\n\nUploaded documents with extracted content:\n${lines.join("\n")}`;
+  }
+
+  // Format chat summaries
+  let summaryContext = "";
+  if (fullCtx.chatMegaSummary) {
+    summaryContext += `\n\nCONVERSATION HISTORY SUMMARY:\n${fullCtx.chatMegaSummary}`;
+  }
+  if (fullCtx.chatChunkSummaries.length > 0) {
+    summaryContext += `\n\nRECENT CONVERSATION SUMMARIES:\n${fullCtx.chatChunkSummaries.join("\n\n")}`;
+  }
+
+  // Calendar suggestions
   const { results: calSuggestions } = await c.env.DB.prepare(
     `SELECT title, start_iso, end_iso, location
      FROM calendar_suggestions
      WHERE user_id = ? AND status = 'pending'
-     ORDER BY start_iso LIMIT 10`
-  )
-    .bind(userId)
-    .all<{ title: string; start_iso: string; end_iso: string; location: string | null }>();
+     ORDER BY start_iso LIMIT 20`
+  ).bind(userId).all<{ title: string; start_iso: string; end_iso: string; location: string | null }>();
 
   let suggestionsContext = "";
   if (calSuggestions.length > 0) {
@@ -179,97 +246,32 @@ chat.post("/", async (c) => {
     suggestionsContext = `\n\nPending calendar suggestions:\n${lines.join("\n")}`;
   }
 
-  // Load upcoming calendar events
-  let calendarContext = "";
-  try {
-    const events = await listUpcomingEvents(userId, c.env, 30, 75);
-    if (events.length > 0) {
-      const lines = events.map((e) => {
-        const start = new Date(e.start).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: tz });
-        let line = `- [cal:${e.calendarId}|evt:${e.id}] "${e.summary}" — ${start}`;
-        if (e.location) line += ` @ ${e.location}`;
-        if (e.calendarName) line += ` (${e.calendarName})`;
-        return line;
-      });
-      calendarContext = `\n\nUpcoming calendar events (next 30 days, format [cal:calendarId|evt:eventId]):\n${lines.join("\n")}`;
-    }
-  } catch {
-    // Calendar fetch may fail if token expired
-  }
-
-  // Load user context
-  const { results: contextRows } = await c.env.DB.prepare(
-    "SELECT kind, label, detail FROM user_context WHERE user_id = ?"
-  )
-    .bind(userId)
-    .all<{ kind: string; label: string; detail: string | null }>();
-
-  // Build known context map
-  const knownKinds = new Set(contextRows.map((r) => r.kind + ":" + r.label.toLowerCase()));
-  const knownLabels = contextRows.map((r) => r.label.toLowerCase());
-
-  const regularContext = contextRows.filter((r) => r.kind !== "feature" && r.kind !== "preference");
-  const preferences = contextRows.filter((r) => r.kind === "preference");
-  const features = contextRows.filter((r) => r.kind === "feature");
-
-  let userContext = "";
-  if (regularContext.length > 0) {
-    const lines = regularContext.map(
-      (r) => `- ${r.kind}: ${r.label}${r.detail ? ` — ${r.detail}` : ""}`
-    );
-    userContext = `\n\nWhat I know about the user:\n${lines.join("\n")}`;
-  }
-  if (preferences.length > 0) {
-    const lines = preferences.map(
-      (r) => `- ${r.label}: ${r.detail || ""}`
-    );
-    userContext += `\n\nUser's behavior preferences (follow these):\n${lines.join("\n")}`;
-  }
-  if (features.length > 0) {
-    const lines = features.map(
-      (r) => `- ${r.label}: ${r.detail || ""}`
-    );
-    userContext += `\n\nFeature requests (acknowledged, in backlog):\n${lines.join("\n")}`;
-  }
-
-  // Determine what context is missing
+  // Getting-to-know-you hint
+  const allContextEntries = [...fullCtx.userContext, ...fullCtx.preferences, ...fullCtx.features];
   const desiredContext = [
     { kind: "profile", key: "name", question: "what should I call you", label: "user's name" },
     { kind: "profile", key: "birthday", question: "when's your birthday", label: "birthday" },
     { kind: "profile", key: "location", question: "where are you based", label: "location or timezone" },
-    { kind: "family", key: "relationship_status", question: "are you married or have a partner", label: "relationship status" },
     { kind: "family", key: "spouse", question: "what's your spouse/partner's name", label: "spouse/partner" },
-    { kind: "family", key: "children", question: "do you have any kids", label: "children" },
     { kind: "work", key: "occupation", question: "what do you do for work", label: "occupation" },
-    { kind: "dates", key: "anniversary", question: "any important dates like an anniversary I should know about", label: "important dates" },
-    { kind: "activities", key: "activities", question: "any regular activities, sports teams, or classes I should know about", label: "activities or commitments" },
-    { kind: "preferences", key: "schedule", question: "are you more of a morning person or night owl", label: "schedule preference" },
   ];
 
   const missing = desiredContext.filter((d) => {
-    // Check if any context entry matches this desired item
-    return !contextRows.some((r) =>
+    return !allContextEntries.some((r) =>
       r.kind === d.kind && r.label.toLowerCase().includes(d.key)
       || r.detail?.toLowerCase().includes(d.key)
       || r.label.toLowerCase().includes(d.label.split(" ")[0])
     );
   });
 
-  // Pick at most one missing item to ask about
   let contextPromptHint = "";
   if (missing.length > 0) {
     const ask = missing[0];
-    contextPromptHint = `\n\nGETTING TO KNOW THE USER: I'm still missing some context. If there's a natural moment in this conversation, casually ask: "${ask.question}?" — but ONLY if it fits the flow. Do NOT lead with it if the user is asking about something specific. Never ask more than one getting-to-know-you question per message. If the conversation is task-focused, skip it entirely.`;
+    contextPromptHint = `\n\nGETTING TO KNOW THE USER: If there's a natural moment, casually ask: "${ask.question}?" — but ONLY if it fits the flow. Skip if task-focused.`;
   }
 
-  const now = new Date();
-  const currentDateTime = now.toLocaleString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
-    hour: "numeric", minute: "2-digit", timeZoneName: "short",
-    timeZone: tz,
-  });
-
-  const systemPrompt = `You are a helpful personal assistant for managing email, calendar, and tasks. The current date and time is: ${currentDateTime}. You help the user triage, prioritize, and take action on their items. Be concise and actionable in your responses. When discussing triage items, reference the Eisenhower matrix: Hot (high importance + high urgency), Action (low importance + high urgency), Plan (high importance + low urgency), Noop (low importance + low urgency).
+  // Static instructions — rarely change, always cached
+  const staticPrompt = `You are a helpful personal assistant for managing email, calendar, and tasks. You help the user triage, prioritize, and take action on their items. Be concise and actionable in your responses. When discussing triage items, reference the Eisenhower matrix: Hot (high importance + high urgency), Action (low importance + high urgency), Plan (high importance + low urgency), Noop (low importance + low urgency).
 
 PAST EVENTS: If any open triage items have a PAST date, proactively ask: did this happen, or reschedule? If it happened, dismiss it immediately. Each triage item is one instance; future occurrences create new items automatically. Only ask about 1-2 past items per message.
 
@@ -346,11 +348,14 @@ The fire_at must be EITHER:
 
 IMPORTANT: For relative times like "in 5 minutes", "in an hour", ALWAYS use the relative "+" format (e.g. "+5m", "+1h"). Do NOT try to calculate the absolute time yourself — the server will compute it precisely at the moment the reminder is created. This avoids clock drift.
 
-For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timezone offset. The current date/time for reference: ${currentDateTime}. Always confirm the reminder time with the user.${userContext}${triageInbox}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
+For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timezone offset. Always confirm the reminder time with the user.`;
+
+  // Dynamic context — changes between messages, cached separately
+  const dynamicContext = `Current date/time: ${currentDateTime}${summaryContext}${userContext}${remindersContext}${triageInbox}${dismissedContext}${documentsContext}${suggestionsContext}${calendarContext}${contextPromptHint}${triageContext}${feedbackContext}`;
 
   // Build messages array from persisted history
   const { results: historyRows } = await c.env.DB.prepare(
-    "SELECT role, content FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT 20"
+    "SELECT role, content FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC LIMIT 10"
   )
     .bind(userId)
     .all<{ role: "user" | "assistant"; content: string }>();
@@ -375,7 +380,12 @@ For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timez
       system: [
         {
           type: "text",
-          text: systemPrompt,
+          text: staticPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+        {
+          type: "text",
+          text: dynamicContext,
           cache_control: { type: "ephemeral" },
         },
       ],
@@ -391,7 +401,9 @@ For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timez
 
   const data = (await res.json()) as {
     content: { type: string; text?: string }[];
+    usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
   };
+  await logUsage(c.env.DB, userId, "chat", data.usage);
   const textBlock = data.content.find((b) => b.type === "text");
   let reply = textBlock?.text || "Sorry, I couldn't generate a response.";
 
@@ -433,7 +445,10 @@ For absolute times like "at 3 PM" or "tomorrow at 9 AM", use ISO 8601 with timez
           body: JSON.stringify({
             model: MODEL,
             max_tokens: 1024,
-            system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+            system: [
+              { type: "text", text: staticPrompt, cache_control: { type: "ephemeral" } },
+              { type: "text", text: dynamicContext, cache_control: { type: "ephemeral" } },
+            ],
             messages,
           }),
         });

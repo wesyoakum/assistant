@@ -1,3 +1,4 @@
+import { Text } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -9,12 +10,17 @@ function tabIcon(name: IconName) {
   );
 }
 
+const APP_VERSION = "v11";
+
 export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: "#4285F4",
         headerShown: true,
+        headerRight: () => (
+          <Text style={{ fontSize: 10, color: "#ccc", marginRight: 12 }}>{APP_VERSION}</Text>
+        ),
       }}
     >
       <Tabs.Screen
