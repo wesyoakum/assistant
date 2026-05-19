@@ -504,32 +504,9 @@ export default {
     env: Env,
     _ctx: ExecutionContext
   ) {
+    // All queue processing paused — drain messages silently
     for (const msg of batch.messages) {
-      try {
-        const body = msg.body as QueueMessage;
-
-        switch (body.type) {
-          case "gmail.poll":
-            await handleGmailPoll(body.userId, env);
-            break;
-          case "triage.classify":
-            await handleTriageClassify(body.userId, body.email, env);
-            break;
-          case "triage.classify.file":
-            await handleFileClassify(body.userId, body.fileId, body.kind, body.r2Key, env);
-            break;
-          case "push.send":
-            await handlePushSend(body.userId, body.triageItemId, body.summary, env);
-            break;
-          default:
-            console.error("Unknown queue message type:", body);
-        }
-
-        msg.ack();
-      } catch (err) {
-        console.error("Queue message failed:", err);
-        msg.retry();
-      }
+      msg.ack();
     }
   },
 };

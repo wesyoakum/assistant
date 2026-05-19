@@ -90,18 +90,9 @@ calendar.post("/calendars/:id/alias", async (c) => {
 });
 
 // List pending calendar suggestions
+// Suggestions disabled — classification pipeline paused
 calendar.get("/suggestions", async (c) => {
-  const userId = c.get("userId");
-  const { results } = await c.env.DB.prepare(
-    `SELECT cs.*, ti.summary as triage_summary
-     FROM calendar_suggestions cs
-     LEFT JOIN triage_items ti ON ti.id = cs.triage_item_id
-     WHERE cs.user_id = ? AND cs.status = 'pending'
-     ORDER BY cs.created_at DESC`
-  )
-    .bind(userId)
-    .all();
-  return c.json({ suggestions: results });
+  return c.json({ suggestions: [] });
 });
 
 // Accept a suggestion — creates a Google Calendar event

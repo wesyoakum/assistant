@@ -2,9 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
-import { getValidAccessToken, fetchNewMessages, getGmailProfile } from "../services/gmail";
-import { isControlled } from "../services/settings";
-import type { QueueMessage } from "@assistant/shared";
+import { getValidAccessToken, fetchNewMessages } from "../services/gmail";
 
 type GmailApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
@@ -12,19 +10,11 @@ const gmail: GmailApp = new Hono();
 
 gmail.use("*", authMiddleware);
 
-// Manual sync trigger
+// Sync Gmail — stores raw emails in pending_emails (no classification)
 gmail.post("/sync", async (c) => {
   const userId = c.get("userId");
-
-  // In controlled mode, syncing is manual via /control/collect — never
-  // auto-fan-out classification here.
-  if (await isControlled(userId, c.env)) {
-    return c.json({ synced: 0, enqueued: 0, controlled: true });
-  }
-
   const accessToken = await getValidAccessToken(userId, c.env);
 
-  // Get current sync state
   const syncState = await c.env.DB.prepare(
     "SELECT history_id FROM gmail_sync_state WHERE user_id = ?"
   )
@@ -36,33 +26,25 @@ gmail.post("/sync", async (c) => {
     syncState?.history_id
   );
 
-  // Enqueue classification for each new message
-  let enqueued = 0;
+  let stored = 0;
   for (const msg of messages) {
-    // Skip if we already have this message
+    // Skip if already stored
     const existing = await c.env.DB.prepare(
-      "SELECT id FROM triage_items WHERE user_id = ? AND source_ref = ?"
+      "SELECT id FROM pending_emails WHERE user_id = ? AND message_id = ?"
     )
       .bind(userId, msg.messageId)
       .first();
-
     if (existing) continue;
 
-    const queueMsg: QueueMessage = {
-      type: "triage.classify",
-      userId,
-      email: {
-        messageId: msg.messageId,
-        threadId: msg.threadId,
-        subject: msg.subject,
-        from: msg.from,
-        date: msg.date,
-        bodyText: msg.bodyText,
-      },
-    };
-
-    await c.env.TASKS.send(queueMsg);
-    enqueued++;
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO pending_emails
+         (id, user_id, message_id, thread_id, subject, from_addr, email_date, snippet, body_text, source_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'email')`
+    ).bind(
+      crypto.randomUUID(), userId,
+      msg.messageId, msg.threadId, msg.subject, msg.from, msg.date, msg.snippet, msg.bodyText
+    ).run();
+    stored++;
   }
 
   // Update sync state
@@ -80,7 +62,26 @@ gmail.post("/sync", async (c) => {
       .run();
   }
 
-  return c.json({ synced: messages.length, enqueued });
+  return c.json({ synced: messages.length, stored });
+});
+
+// List raw emails
+gmail.get("/emails", async (c) => {
+  const userId = c.get("userId");
+  const limit = Math.min(parseInt(c.req.query("limit") || "50"), 200);
+  const offset = parseInt(c.req.query("offset") || "0");
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, message_id, subject, from_addr, email_date, snippet, body_text, collected_at
+     FROM pending_emails
+     WHERE user_id = ? AND source_type = 'email'
+     ORDER BY email_date DESC
+     LIMIT ? OFFSET ?`
+  )
+    .bind(userId, limit, offset)
+    .all();
+
+  return c.json({ emails: results });
 });
 
 export { gmail };

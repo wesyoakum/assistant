@@ -64,16 +64,6 @@ files.post("/upload", async (c) => {
     .bind(fileId, userId, kind, r2Key)
     .run();
 
-  // Enqueue for processing
-  const msg: QueueMessage = {
-    type: "triage.classify.file" as any,
-    userId,
-    fileId,
-    kind,
-    r2Key,
-  };
-  await c.env.TASKS.send(msg);
-
   return c.json({ id: fileId, kind, status: "pending" });
 });
 
