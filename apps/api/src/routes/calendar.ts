@@ -5,7 +5,6 @@ import { authMiddleware } from "../middleware/auth";
 import {
   listCalendars,
   listUpcomingEvents,
-  setCalendarEnabled,
   subscribeCalendar,
   createEvent,
 } from "../services/google-calendar";
@@ -17,7 +16,7 @@ const calendar: CalendarApp = new Hono();
 
 calendar.use("*", authMiddleware);
 
-// List upcoming events from enabled calendars (Google + iCal merged)
+// List upcoming events from Google + iCal feeds, merged.
 calendar.get("/events", async (c) => {
   const userId = c.get("userId");
 
@@ -38,23 +37,14 @@ calendar.get("/events", async (c) => {
   return c.json({ events });
 });
 
-// List all calendars with enabled/disabled state
+// List all Google calendars.
 calendar.get("/calendars", async (c) => {
   const userId = c.get("userId");
   const calendars = await listCalendars(userId, c.env);
   return c.json({ calendars });
 });
 
-// Toggle a calendar's enabled state
-calendar.post("/calendars/:id/toggle", async (c) => {
-  const userId = c.get("userId");
-  const calendarId = c.req.param("id");
-  const body = (await c.req.json()) as { enabled: boolean };
-  await setCalendarEnabled(userId, calendarId, body.enabled, c.env);
-  return c.json({ ok: true });
-});
-
-// Subscribe to a calendar by ID or ICS URL
+// Subscribe to a calendar by ID or ICS URL.
 calendar.post("/calendars/subscribe", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json()) as { url: string };
@@ -70,91 +60,7 @@ calendar.post("/calendars/subscribe", async (c) => {
   }
 });
 
-// Set a calendar alias/nickname
-calendar.post("/calendars/:id/alias", async (c) => {
-  const userId = c.get("userId");
-  const calendarId = c.req.param("id");
-  const body = (await c.req.json()) as { alias: string | null };
-  const alias = body.alias?.trim() || null;
-
-  await c.env.DB.prepare(
-    `INSERT INTO user_calendar_prefs (user_id, calendar_id, enabled, alias, updated_at)
-     VALUES (?, ?, 1, ?, datetime('now'))
-     ON CONFLICT (user_id, calendar_id)
-     DO UPDATE SET alias = excluded.alias, updated_at = datetime('now')`
-  )
-    .bind(userId, calendarId, alias)
-    .run();
-
-  return c.json({ ok: true });
-});
-
-// List pending calendar suggestions
-calendar.get("/suggestions", async (c) => {
-  const userId = c.get("userId");
-  const { results } = await c.env.DB.prepare(
-    `SELECT cs.*, ti.summary as triage_summary
-     FROM calendar_suggestions cs
-     LEFT JOIN triage_items ti ON ti.id = cs.triage_item_id
-     WHERE cs.user_id = ? AND cs.status = 'pending'
-     ORDER BY cs.created_at DESC`
-  )
-    .bind(userId)
-    .all();
-  return c.json({ suggestions: results });
-});
-
-// Accept a suggestion — creates a Google Calendar event
-calendar.post("/suggestions/:id/accept", async (c) => {
-  const userId = c.get("userId");
-  const id = c.req.param("id");
-
-  const suggestion = await c.env.DB.prepare(
-    "SELECT * FROM calendar_suggestions WHERE id = ? AND user_id = ? AND status = 'pending'"
-  )
-    .bind(id, userId)
-    .first<{
-      id: string;
-      title: string;
-      start_iso: string;
-      end_iso: string;
-      location: string | null;
-    }>();
-
-  if (!suggestion) return c.json({ error: "Not found" }, 404);
-
-  const event = await createEvent(userId, {
-    title: suggestion.title,
-    startIso: suggestion.start_iso,
-    endIso: suggestion.end_iso,
-    location: suggestion.location || undefined,
-  }, c.env);
-
-  await c.env.DB.prepare(
-    "UPDATE calendar_suggestions SET status = 'accepted', google_event_id = ? WHERE id = ?"
-  )
-    .bind(event.id, id)
-    .run();
-
-  return c.json({ ok: true, googleEventId: event.id, htmlLink: event.htmlLink });
-});
-
-// Reject a suggestion
-calendar.post("/suggestions/:id/reject", async (c) => {
-  const userId = c.get("userId");
-  const id = c.req.param("id");
-
-  const result = await c.env.DB.prepare(
-    "UPDATE calendar_suggestions SET status = 'rejected' WHERE id = ? AND user_id = ? AND status = 'pending'"
-  )
-    .bind(id, userId)
-    .run();
-
-  if (!result.meta.changes) return c.json({ error: "Not found" }, 404);
-  return c.json({ ok: true });
-});
-
-// Create an event directly
+// Create an event directly.
 calendar.post("/events", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json()) as {
@@ -175,14 +81,12 @@ calendar.post("/events", async (c) => {
 
 // --- iCal feed management ---
 
-// Add a new ICS feed
 calendar.post("/feeds", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json()) as { url: string; name?: string };
   const url = body.url?.trim();
   if (!url) return c.json({ error: "url is required" }, 400);
 
-  // Normalize webcal:// to https://
   const normalizedUrl = url.startsWith("webcal://")
     ? url.replace("webcal://", "https://")
     : url;
@@ -196,11 +100,9 @@ calendar.post("/feeds", async (c) => {
     .bind(id, userId, normalizedUrl, name)
     .run();
 
-  // Immediately sync
   try {
     await syncIcalFeed(id, c.env);
   } catch (err) {
-    // Feed is created but sync failed — that's okay, error_message is stored on the row
     console.error(`Initial iCal sync failed for feed ${id}:`, err);
   }
 
@@ -213,7 +115,6 @@ calendar.post("/feeds", async (c) => {
   return c.json({ ok: true, feed });
 });
 
-// List user's ICS feeds
 calendar.get("/feeds", async (c) => {
   const userId = c.get("userId");
   const { results } = await c.env.DB.prepare(
@@ -226,7 +127,6 @@ calendar.get("/feeds", async (c) => {
   return c.json({ feeds: results });
 });
 
-// Remove an ICS feed (cascade deletes events via D1 FK)
 calendar.delete("/feeds/:id", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
@@ -241,12 +141,10 @@ calendar.delete("/feeds/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-// Manual sync trigger for a specific feed
 calendar.post("/feeds/:id/sync", async (c) => {
   const userId = c.get("userId");
   const id = c.req.param("id");
 
-  // Verify ownership
   const feed = await c.env.DB.prepare(
     "SELECT id FROM ical_feeds WHERE id = ? AND user_id = ?"
   )

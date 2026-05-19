@@ -5,7 +5,6 @@ import { Stack, Redirect, useSegments } from "expo-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Updates from "expo-updates";
 import { useAuth } from "../src/state/auth";
-import { useNotifications } from "../src/hooks/useNotifications";
 
 const queryClient = new QueryClient();
 
@@ -36,8 +35,6 @@ function AuthGate() {
     loadToken();
   }, []);
 
-  useNotifications();
-
   if (isLoading) {
     return (
       <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
@@ -59,14 +56,6 @@ function AuthGate() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen
-        name="triage"
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="notifications"
-        options={{ headerShown: true, title: "Notification History" }}
-      />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="index" />
     </Stack>

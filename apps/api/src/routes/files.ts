@@ -3,7 +3,6 @@ import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
 import { verifyJwt } from "../services/jwt";
-import type { QueueMessage } from "@assistant/shared";
 
 type FilesApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
@@ -57,24 +56,14 @@ files.post("/upload", async (c) => {
     httpMetadata: { contentType },
   });
 
-  // Record in DB
+  // Record in DB — stored raw, no processing.
   await c.env.DB.prepare(
-    "INSERT INTO ingested_files (id, user_id, kind, r2_key, status) VALUES (?, ?, ?, ?, 'pending')"
+    "INSERT INTO ingested_files (id, user_id, kind, r2_key, status) VALUES (?, ?, ?, ?, 'stored')"
   )
     .bind(fileId, userId, kind, r2Key)
     .run();
 
-  // Enqueue for processing
-  const msg: QueueMessage = {
-    type: "triage.classify.file" as any,
-    userId,
-    fileId,
-    kind,
-    r2Key,
-  };
-  await c.env.TASKS.send(msg);
-
-  return c.json({ id: fileId, kind, status: "pending" });
+  return c.json({ id: fileId, kind, status: "stored" });
 });
 
 // List user's uploaded files

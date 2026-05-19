@@ -22,20 +22,9 @@ migrations_dir = "migrations"
 binding = "FILES"
 bucket_name = "whyapp-files"
 
-# Queue producer
-[[queues.producers]]
-binding = "TASKS"
-queue = "whyapp-tasks"
-
-# Queue consumer
-[[queues.consumers]]
-queue = "whyapp-tasks"
-max_batch_size = 10
-max_batch_timeout = 30
-
-# Cron: poll Gmail every 10 minutes
+# Cron: pull raw Gmail + refresh iCal feeds every 10 minutes
 [triggers]
-crons = ["* * * * *"]
+crons = ["*/10 * * * *"]
 
 # Secrets (set via `wrangler secret put <NAME>`):
 # - GOOGLE_CLIENT_SECRET

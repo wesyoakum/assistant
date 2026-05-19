@@ -31,13 +31,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="triage"
-        options={{
-          title: "Triage",
-          tabBarIcon: tabIcon("flash-outline"),
-        }}
-      />
-      <Tabs.Screen
         name="email"
         options={{
           title: "Email",

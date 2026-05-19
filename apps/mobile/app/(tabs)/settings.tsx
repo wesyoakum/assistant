@@ -3,73 +3,23 @@ import {
   View,
   Text,
   TextInput,
-  Switch,
   Pressable,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
   Alert,
-  Linking,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/state/auth";
 import { apiFetch } from "../../src/api/client";
 
-interface UsageSummaryData {
-  today: { calls: number; costCents: number };
-  week: { calls: number; costCents: number };
-  month: { calls: number; costCents: number };
-  allTime: { calls: number; costCents: number };
-}
-
-function UsageSummary() {
-  const { token } = useAuth();
-  const { data, isLoading } = useQuery({
-    queryKey: ["usage-summary"],
-    queryFn: () => apiFetch<UsageSummaryData>("/usage/summary"),
-    staleTime: 30_000,
-  });
-
-  const fmt = (cents: number) => "$" + (cents / 100).toFixed(2);
-
-  if (isLoading) return <ActivityIndicator style={{ padding: 16 }} />;
-  if (!data) return null;
-
-  return (
-    <View style={{ backgroundColor: "#fff", borderRadius: 12, overflow: "hidden" }}>
-      <View style={{ flexDirection: "row", paddingVertical: 12 }}>
-        {[
-          { label: "Today", v: data.today },
-          { label: "7d", v: data.week },
-          { label: "30d", v: data.month },
-          { label: "All", v: data.allTime },
-        ].map((col) => (
-          <View key={col.label} style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ fontSize: 11, color: "#888", fontWeight: "600", textTransform: "uppercase" }}>{col.label}</Text>
-            <Text style={{ fontSize: 20, fontWeight: "700", marginTop: 2 }}>{fmt(col.v.costCents)}</Text>
-            <Text style={{ fontSize: 11, color: "#aaa" }}>{col.v.calls} calls</Text>
-          </View>
-        ))}
-      </View>
-      <Pressable
-        style={{ paddingVertical: 12, alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#eee" }}
-        onPress={() => Linking.openURL("https://whyapp.us/usage#token=" + (token || ""))}
-      >
-        <Text style={{ fontSize: 14, fontWeight: "600", color: "#4285F4" }}>View Full Dashboard</Text>
-      </Pressable>
-    </View>
-  );
-}
-
 interface CalendarSummary {
   id: string;
   summary: string;
-  alias: string | null;
   displayName: string;
   primary: boolean;
   backgroundColor: string;
-  enabled: boolean;
 }
 
 interface CalendarsResponse {
@@ -81,7 +31,6 @@ interface IcalFeed {
   url: string;
   name: string | null;
   color: string;
-  enabled: number;
   last_synced_at: string | null;
   error_message: string | null;
 }
@@ -90,158 +39,16 @@ interface IcalFeedsResponse {
   feeds: IcalFeed[];
 }
 
-interface ContextEntry {
-  id: string;
-  kind: string;
-  label: string;
-  detail: string | null;
-}
-
-interface ContextResponse {
-  entries: ContextEntry[];
-}
-
-interface ControlStatus {
-  mode: "normal" | "controlled";
-  batchSize: number;
-  collected: number;
-  pending: number;
-}
-
-type SettingsTab = "general" | "calendars" | "context";
-
-const TABS: { key: SettingsTab; label: string }[] = [
-  { key: "general", label: "General" },
-  { key: "calendars", label: "Calendars" },
-  { key: "context", label: "Context" },
-];
-
 export default function SettingsScreen() {
   const { clearToken } = useAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [tab, setTab] = useState<SettingsTab>("general");
-
-  // --- Spend control (controlled mode) ---
-  const { data: control } = useQuery({
-    queryKey: ["control-status"],
-    queryFn: () => apiFetch<ControlStatus>("/control/status"),
-  });
-
-  const modeMutation = useMutation({
-    mutationFn: (patch: { mode?: "normal" | "controlled"; batch_size?: number }) =>
-      apiFetch<{ mode: string; batchSize: number }>("/control/mode", {
-        method: "POST",
-        body: JSON.stringify(patch),
-      }),
-    onMutate: async (patch) => {
-      await queryClient.cancelQueries({ queryKey: ["control-status"] });
-      const prev = queryClient.getQueryData<ControlStatus>(["control-status"]);
-      queryClient.setQueryData<ControlStatus>(["control-status"], (old) =>
-        old
-          ? {
-              ...old,
-              mode: patch.mode ?? old.mode,
-              batchSize: patch.batch_size ?? old.batchSize,
-            }
-          : old
-      );
-      return { prev };
-    },
-    onError: (_e, _v, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(["control-status"], ctx.prev);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["control-status"] });
-      queryClient.invalidateQueries({ queryKey: ["triage"] });
-    },
-  });
-
-  const controlled = control?.mode === "controlled";
-  const batchSize = control?.batchSize ?? 1;
+  const [calUrl, setCalUrl] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["calendars"],
     queryFn: () => apiFetch<CalendarsResponse>("/calendar/calendars"),
   });
-
-  const toggleMutation = useMutation({
-    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
-      apiFetch(`/calendar/calendars/${encodeURIComponent(id)}/toggle`, {
-        method: "POST",
-        body: JSON.stringify({ enabled }),
-      }),
-    onMutate: async ({ id, enabled }) => {
-      await queryClient.cancelQueries({ queryKey: ["calendars"] });
-      const prev = queryClient.getQueryData<CalendarsResponse>(["calendars"]);
-      queryClient.setQueryData<CalendarsResponse>(["calendars"], (old) => {
-        if (!old) return old;
-        return {
-          calendars: old.calendars.map((c) =>
-            c.id === id ? { ...c, enabled } : c
-          ),
-        };
-      });
-      return { prev };
-    },
-    onError: (_err, _vars, context) => {
-      if (context?.prev) {
-        queryClient.setQueryData(["calendars"], context.prev);
-      }
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["calendars"] });
-      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-    },
-  });
-
-  const { data: ctxData, isLoading: ctxLoading } = useQuery({
-    queryKey: ["user-context"],
-    queryFn: () => apiFetch<ContextResponse>("/context"),
-  });
-
-  const deleteContextMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/context/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user-context"] });
-    },
-  });
-
-  const allEntries = ctxData?.entries || [];
-  const contextEntries = allEntries.filter((e) => e.kind !== "feature" && e.kind !== "preference");
-  const preferences = allEntries.filter((e) => e.kind === "preference");
-  const featureRequests = allEntries.filter((e) => e.kind === "feature");
-
-  const aliasMutation = useMutation({
-    mutationFn: ({ id, alias }: { id: string; alias: string | null }) =>
-      apiFetch(`/calendar/calendars/${encodeURIComponent(id)}/alias`, {
-        method: "POST",
-        body: JSON.stringify({ alias }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["calendars"] });
-      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-    },
-  });
-
-  const handleRename = (cal: CalendarSummary) => {
-    Alert.prompt(
-      "Rename Calendar",
-      `Enter a nickname for "${cal.summary}"`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Clear", style: "destructive", onPress: () => aliasMutation.mutate({ id: cal.id, alias: null }) },
-        { text: "Save", onPress: (value) => {
-          if (value?.trim()) aliasMutation.mutate({ id: cal.id, alias: value.trim() });
-        }},
-      ],
-      "plain-text",
-      cal.alias || ""
-    );
-  };
-
-  const [calUrl, setCalUrl] = useState("");
 
   const subscribeMutation = useMutation({
     mutationFn: (url: string) =>
@@ -259,7 +66,6 @@ export default function SettingsScreen() {
     },
   });
 
-  // --- iCal Feeds ---
   const { data: feedsData, isLoading: feedsLoading } = useQuery({
     queryKey: ["ical-feeds"],
     queryFn: () => apiFetch<IcalFeedsResponse>("/calendar/feeds"),
@@ -297,7 +103,7 @@ export default function SettingsScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Add",
-          onPress: (value) => {
+          onPress: (value?: string) => {
             const trimmed = value?.trim();
             if (trimmed) addFeedMutation.mutate(trimmed);
           },
@@ -309,21 +115,15 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteFeed = (feed: IcalFeed) => {
-    Alert.alert(
-      "Remove Feed",
-      `Remove "${feed.name || feed.url}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => deleteFeedMutation.mutate(feed.id),
-        },
-      ]
-    );
+    Alert.alert("Remove Feed", `Remove "${feed.name || feed.url}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: () => deleteFeedMutation.mutate(feed.id),
+      },
+    ]);
   };
-
-  const icalFeeds = feedsData?.feeds || [];
 
   const handleSubscribe = () => {
     const trimmed = calUrl.trim();
@@ -335,110 +135,16 @@ export default function SettingsScreen() {
     try {
       await apiFetch("/auth/logout", { method: "POST" });
     } catch {
-      // Ignore — we clear local state regardless
+      // Ignore — clear local state regardless
     }
     await clearToken();
   };
 
   const calendars = data?.calendars || [];
+  const icalFeeds = feedsData?.feeds || [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Tab bar */}
-      <View style={styles.tabBar}>
-        {TABS.map((t) => (
-          <Pressable
-            key={t.key}
-            style={[styles.tabItem, tab === t.key && styles.tabItemActive]}
-            onPress={() => setTab(t.key)}
-          >
-            <Text
-              style={[styles.tabText, tab === t.key && styles.tabTextActive]}
-            >
-              {t.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-
-      {/* Spend Control section (General) */}
-      {tab === "general" && (
-        <>
-          <Text style={styles.sectionTitle}>Spend Control</Text>
-          <View style={styles.card}>
-            <View style={styles.calRow}>
-              <View style={styles.calInfo}>
-                <Text style={styles.calName}>Controlled mode</Text>
-                <Text style={styles.calPrimary}>
-                  Pause automatic polling & classification. Collect and classify
-                  one batch at a time. Disables high-priority push.
-                </Text>
-              </View>
-              <Switch
-                value={controlled}
-                onValueChange={(v) =>
-                  modeMutation.mutate({ mode: v ? "controlled" : "normal" })
-                }
-                trackColor={{ false: "#ddd", true: "#7c3aed" }}
-              />
-            </View>
-            {controlled && (
-              <View style={styles.calRow}>
-                <View style={styles.calInfo}>
-                  <Text style={styles.calName}>Classify batch size</Text>
-                  <Text style={styles.calPrimary}>
-                    Items classified per "Classify next" press
-                  </Text>
-                </View>
-                <View style={styles.stepper}>
-                  <Pressable
-                    style={styles.stepperBtn}
-                    onPress={() =>
-                      modeMutation.mutate({
-                        batch_size: Math.max(1, batchSize - 1),
-                      })
-                    }
-                    disabled={batchSize <= 1}
-                  >
-                    <Text style={styles.stepperBtnText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.stepperValue}>{batchSize}</Text>
-                  <Pressable
-                    style={styles.stepperBtn}
-                    onPress={() =>
-                      modeMutation.mutate({
-                        batch_size: Math.min(20, batchSize + 1),
-                      })
-                    }
-                    disabled={batchSize >= 20}
-                  >
-                    <Text style={styles.stepperBtnText}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
-            )}
-            {controlled && (
-              <View style={styles.calRow}>
-                <View style={styles.calInfo}>
-                  <Text style={styles.calName}>
-                    {control?.collected ?? 0} collected · awaiting classification
-                  </Text>
-                  <Text style={styles.calPrimary}>
-                    Collect & classify from the Triage tab
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.sectionTitle}>API Usage</Text>
-          <UsageSummary />
-        </>
-      )}
-
-      {/* Calendars section */}
-      {tab === "calendars" && (
-      <>
       <Text style={styles.sectionTitle}>Calendars</Text>
       <View style={styles.card}>
         {isLoading ? (
@@ -451,28 +157,15 @@ export default function SettingsScreen() {
               <View
                 style={[styles.calDot, { backgroundColor: cal.backgroundColor }]}
               />
-              <Pressable style={styles.calInfo} onPress={() => handleRename(cal)}>
+              <View style={styles.calInfo}>
                 <Text style={styles.calName} numberOfLines={1}>
                   {cal.displayName}
                 </Text>
-                {cal.alias && (
-                  <Text style={styles.calOriginal} numberOfLines={1}>{cal.summary}</Text>
-                )}
-                {cal.primary && !cal.alias && (
-                  <Text style={styles.calPrimary}>Primary</Text>
-                )}
-              </Pressable>
-              <Switch
-                value={cal.enabled}
-                onValueChange={(enabled) =>
-                  toggleMutation.mutate({ id: cal.id, enabled })
-                }
-                trackColor={{ false: "#ddd", true: "#4285F4" }}
-              />
+                {cal.primary && <Text style={styles.calPrimary}>Primary</Text>}
+              </View>
             </View>
           ))
         )}
-        {/* Add calendar input */}
         <View style={styles.addRow}>
           <TextInput
             style={styles.addInput}
@@ -499,100 +192,7 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
       </View>
-      </>
-      )}
 
-      {/* My Context section */}
-      {tab === "context" && (
-      <>
-      <Text style={styles.sectionTitle}>My Context</Text>
-      <View style={styles.card}>
-        {ctxLoading ? (
-          <ActivityIndicator style={styles.loader} />
-        ) : contextEntries.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Tell the assistant about people, teams, or activities in Chat and they'll appear here.
-          </Text>
-        ) : (
-          contextEntries.map((entry) => (
-            <View key={entry.id} style={styles.ctxRow}>
-              <View style={styles.ctxContent}>
-                <Text style={styles.ctxKind}>{entry.kind}</Text>
-                <Text style={styles.ctxLabel}>{entry.label}</Text>
-                {entry.detail && (
-                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={() => deleteContextMutation.mutate(entry.id)}
-                style={styles.ctxDelete}
-              >
-                <Text style={styles.ctxDeleteText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Preferences section */}
-      <Text style={styles.sectionTitle}>Assistant Preferences</Text>
-      <View style={styles.card}>
-        {preferences.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Tell the assistant how you'd like it to behave in Chat.
-          </Text>
-        ) : (
-          preferences.map((entry) => (
-            <View key={entry.id} style={styles.ctxRow}>
-              <View style={styles.ctxContent}>
-                <Text style={styles.ctxLabel}>{entry.label}</Text>
-                {entry.detail && (
-                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={() => deleteContextMutation.mutate(entry.id)}
-                style={styles.ctxDelete}
-              >
-                <Text style={styles.ctxDeleteText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Feature Requests section */}
-      <Text style={styles.sectionTitle}>Feature Requests</Text>
-      <View style={styles.card}>
-        {featureRequests.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Tell the assistant about features you'd like added.
-          </Text>
-        ) : (
-          featureRequests.map((entry) => (
-            <View key={entry.id} style={styles.ctxRow}>
-              <View style={styles.ctxContent}>
-                <Text style={styles.ctxLabel}>{entry.label}</Text>
-                {entry.detail && (
-                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={() => deleteContextMutation.mutate(entry.id)}
-                style={styles.ctxDelete}
-              >
-                <Text style={styles.ctxDeleteText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))
-        )}
-      </View>
-      </>
-      )}
-
-      {/* iCal Feeds section */}
-      {tab === "calendars" && (
-      <>
       <Text style={styles.sectionTitle}>iCal Feeds</Text>
       <View style={styles.card}>
         {feedsLoading ? (
@@ -602,16 +202,20 @@ export default function SettingsScreen() {
         ) : (
           icalFeeds.map((feed) => (
             <View key={feed.id} style={styles.calRow}>
-              <View style={[styles.calDot, { backgroundColor: feed.color || "#8B5CF6" }]} />
+              <View
+                style={[
+                  styles.calDot,
+                  { backgroundColor: feed.color || "#8B5CF6" },
+                ]}
+              />
               <View style={styles.calInfo}>
                 <Text style={styles.calName} numberOfLines={1}>
                   {feed.name || feed.url}
                 </Text>
-                {feed.name && (
-                  <Text style={styles.calOriginal} numberOfLines={1}>{feed.url}</Text>
-                )}
                 {feed.error_message && (
-                  <Text style={styles.feedError} numberOfLines={1}>{feed.error_message}</Text>
+                  <Text style={styles.feedError} numberOfLines={1}>
+                    {feed.error_message}
+                  </Text>
                 )}
                 {feed.last_synced_at && !feed.error_message && (
                   <Text style={styles.calPrimary}>
@@ -640,110 +244,11 @@ export default function SettingsScreen() {
           )}
         </Pressable>
       </View>
-      </>
-      )}
 
-      {/* Notifications section */}
-      {tab === "general" && (
-      <>
-      <Text style={styles.sectionTitle}>Notifications</Text>
-      <View style={styles.card}>
-        <View style={styles.calRow}>
-          <View style={styles.calInfo}>
-            <Text style={styles.calName}>High priority alerts</Text>
-            <Text style={styles.calPrimary}>
-              {controlled
-                ? "Disabled while in controlled mode"
-                : "Push when importance or urgency is 4+"}
-            </Text>
-          </View>
-          <Switch
-            value={!controlled}
-            disabled
-            trackColor={{ false: "#ddd", true: "#4285F4" }}
-          />
-        </View>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => router.push("/notifications")}
-        >
-          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>View Notification History</Text>
-        </Pressable>
-      </View>
-
-      {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.card}>
         <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert(
-              "Fresh Start",
-              "This will clear all triage items, chat history, reminders, and summaries — then re-evaluate all emails and files from scratch. Your preferences, context, and feedback are kept.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Fresh Start",
-                  style: "destructive",
-                  onPress: async () => {
-                    try {
-                      const result = await apiFetch<{
-                        deleted: number;
-                        emailsQueued: number;
-                        filesQueued: number;
-                      }>("/triage/fresh-start", { method: "POST" });
-                      queryClient.invalidateQueries();
-                      Alert.alert(
-                        "Fresh Start Complete",
-                        `Cleared ${result.deleted} items. Re-queuing ${result.emailsQueued} emails and ${result.filesQueued} files. Calendar events will repopulate automatically.`
-                      );
-                    } catch (err: unknown) {
-                      Alert.alert("Error", err instanceof Error ? err.message : "Failed");
-                    }
-                  },
-                },
-              ]
-            );
-          }}
-        >
-          <Text style={[styles.clearChatText, { color: "#e53e3e" }]}>Fresh Start</Text>
-        </Pressable>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert(
-              "Re-evaluate Triage",
-              "This will dismiss all open triage items and re-classify them with the latest rules and preferences. Items will reappear as they're processed.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Re-evaluate",
-                  onPress: async () => {
-                    try {
-                      const result = await apiFetch<{
-                        dismissed: number;
-                        emailsQueued: number;
-                        filesQueued: number;
-                        calendarSkipped: number;
-                      }>("/triage/reclassify-all", { method: "POST" });
-                      queryClient.invalidateQueries({ queryKey: ["triage"] });
-                      Alert.alert(
-                        "Re-evaluation Started",
-                        `Dismissed ${result.dismissed} items. Re-queued ${result.emailsQueued} emails and ${result.filesQueued} files. Calendar items will repopulate automatically.`
-                      );
-                    } catch (err: unknown) {
-                      Alert.alert("Error", err instanceof Error ? err.message : "Failed to re-evaluate");
-                    }
-                  },
-                },
-              ]
-            );
-          }}
-        >
-          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>Re-evaluate All Triage Items</Text>
-        </Pressable>
-        <Pressable
-          style={styles.clearChatBtn}
+          style={styles.actionBtn}
           onPress={() => {
             Alert.alert("Clear Chat", "This will delete your entire chat history.", [
               { text: "Cancel", style: "cancel" },
@@ -752,7 +257,7 @@ export default function SettingsScreen() {
                 style: "destructive",
                 onPress: async () => {
                   await apiFetch("/chat/history", { method: "DELETE" });
-                  Alert.alert("Done", "Chat history cleared. Opening a fresh chat.", [
+                  Alert.alert("Done", "Chat history cleared.", [
                     { text: "OK", onPress: () => router.replace("/(tabs)/chat") },
                   ]);
                 },
@@ -760,10 +265,10 @@ export default function SettingsScreen() {
             ]);
           }}
         >
-          <Text style={styles.clearChatText}>Clear Chat History</Text>
+          <Text style={styles.actionText}>Clear Chat History</Text>
         </Pressable>
         <Pressable
-          style={styles.clearChatBtn}
+          style={styles.actionBtn}
           onPress={() => {
             const t = useAuth.getState().token;
             if (t) {
@@ -776,14 +281,14 @@ export default function SettingsScreen() {
             }
           }}
         >
-          <Text style={[styles.clearChatText, { color: "#888" }]}>Copy Session Token</Text>
+          <Text style={[styles.actionText, { color: "#888" }]}>
+            Copy Session Token
+          </Text>
         </Pressable>
         <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
         </Pressable>
       </View>
-      </>
-      )}
     </ScrollView>
   );
 }
@@ -791,44 +296,6 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f2f2f7" },
   content: { padding: 16, paddingBottom: 40 },
-  tabBar: {
-    flexDirection: "row",
-    backgroundColor: "#e5e5ea",
-    borderRadius: 9,
-    padding: 3,
-    marginBottom: 8,
-  },
-  tabItem: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 7,
-    alignItems: "center",
-  },
-  tabItemActive: {
-    backgroundColor: "#fff",
-  },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
-  tabTextActive: { color: "#111" },
-  stepper: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  stepperBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#f0f0f3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperBtnText: { fontSize: 20, fontWeight: "600", color: "#4285F4" },
-  stepperValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#222",
-    minWidth: 36,
-    textAlign: "center",
-  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "600",
@@ -861,7 +328,6 @@ const styles = StyleSheet.create({
   },
   calInfo: { flex: 1, marginRight: 12 },
   calName: { fontSize: 15, color: "#222" },
-  calOriginal: { fontSize: 11, color: "#aaa", marginTop: 1 },
   calPrimary: { fontSize: 12, color: "#999", marginTop: 1 },
   addRow: {
     flexDirection: "row",
@@ -891,32 +357,8 @@ const styles = StyleSheet.create({
   },
   addBtnDisabled: { opacity: 0.4 },
   addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  ctxRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  ctxContent: { flex: 1, marginRight: 10 },
-  ctxKind: { fontSize: 11, fontWeight: "600", color: "#4285F4", textTransform: "uppercase" },
-  ctxLabel: { fontSize: 15, color: "#222" },
-  ctxDetail: { fontSize: 13, color: "#888", marginTop: 1 },
   ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
   ctxDeleteText: { fontSize: 13, color: "#e53e3e" },
-  clearChatBtn: {
-    paddingVertical: 14,
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  clearChatText: { fontSize: 16, fontWeight: "600", color: "#ed8936" },
-  signOutBtn: {
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  signOutText: { fontSize: 16, fontWeight: "600", color: "#e53e3e" },
   feedError: { fontSize: 11, color: "#e53e3e", marginTop: 1 },
   addFeedBtn: {
     paddingVertical: 12,
@@ -925,4 +367,16 @@ const styles = StyleSheet.create({
     borderTopColor: "#eee",
   },
   addFeedBtnText: { fontSize: 15, fontWeight: "600", color: "#4285F4" },
+  actionBtn: {
+    paddingVertical: 14,
+    alignItems: "center",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#eee",
+  },
+  actionText: { fontSize: 16, fontWeight: "600", color: "#4285F4" },
+  signOutBtn: {
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  signOutText: { fontSize: 16, fontWeight: "600", color: "#e53e3e" },
 });

@@ -71,43 +71,15 @@ export async function listCalendars(
   const data = (await res.json()) as { items?: GCalListEntry[] };
   const calendars = data.items || [];
 
-  // Load preferences
-  const { results: prefs } = await env.DB.prepare(
-    "SELECT calendar_id, enabled, alias FROM user_calendar_prefs WHERE user_id = ?"
-  )
-    .bind(userId)
-    .all<{ calendar_id: string; enabled: number; alias: string | null }>();
-
-  const prefMap = new Map(prefs.map((p) => [p.calendar_id, { enabled: p.enabled === 1, alias: p.alias }]));
-
-  return calendars.map((cal) => {
-    const pref = prefMap.get(cal.id);
-    return {
-      id: cal.id,
-      summary: cal.summary,
-      alias: pref?.alias || null,
-      displayName: pref?.alias || cal.summary,
-      primary: !!cal.primary,
-      backgroundColor: cal.backgroundColor || "#4285F4",
-      enabled: pref ? pref.enabled : true,
-    };
-  });
-}
-
-export async function setCalendarEnabled(
-  userId: string,
-  calendarId: string,
-  enabled: boolean,
-  env: Env
-): Promise<void> {
-  await env.DB.prepare(
-    `INSERT INTO user_calendar_prefs (user_id, calendar_id, enabled, updated_at)
-     VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT (user_id, calendar_id)
-     DO UPDATE SET enabled = excluded.enabled, updated_at = datetime('now')`
-  )
-    .bind(userId, calendarId, enabled ? 1 : 0)
-    .run();
+  return calendars.map((cal) => ({
+    id: cal.id,
+    summary: cal.summary,
+    alias: null,
+    displayName: cal.summary,
+    primary: !!cal.primary,
+    backgroundColor: cal.backgroundColor || "#4285F4",
+    enabled: true,
+  }));
 }
 
 /**
@@ -247,75 +219,6 @@ export async function createEvent(
 
   const data = (await res.json()) as { id: string; htmlLink: string };
   return { id: data.id, htmlLink: data.htmlLink };
-}
-
-/**
- * Update an event on a calendar.
- */
-export async function updateEvent(
-  userId: string,
-  calendarId: string,
-  eventId: string,
-  updates: {
-    summary?: string;
-    startIso?: string;
-    endIso?: string;
-    location?: string | null;
-    description?: string | null;
-  },
-  env: Env
-): Promise<void> {
-  const accessToken = await getValidAccessToken(userId, env);
-
-  // Fetch current event first (PATCH requires the full resource for some fields)
-  const body: Record<string, unknown> = {};
-  if (updates.summary !== undefined) body.summary = updates.summary;
-  if (updates.location !== undefined) body.location = updates.location;
-  if (updates.description !== undefined) body.description = updates.description;
-  if (updates.startIso) body.start = { dateTime: updates.startIso };
-  if (updates.endIso) body.end = { dateTime: updates.endIso };
-
-  const res = await fetch(
-    `${CAL_API}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }
-  );
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Update event failed ${res.status}: ${err}`);
-  }
-}
-
-/**
- * Delete an event from a calendar.
- */
-export async function deleteEvent(
-  userId: string,
-  calendarId: string,
-  eventId: string,
-  env: Env
-): Promise<void> {
-  const accessToken = await getValidAccessToken(userId, env);
-
-  const res = await fetch(
-    `${CAL_API}/calendars/${encodeURIComponent(calendarId)}/events/${eventId}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }
-  );
-
-  if (!res.ok && res.status !== 410) {
-    const err = await res.text();
-    throw new Error(`Delete event failed ${res.status}: ${err}`);
-  }
 }
 
 function toCalendarEvent(evt: GCalEvent, calendarId: string, calendarName: string): CalendarEvent {

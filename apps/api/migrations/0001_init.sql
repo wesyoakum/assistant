@@ -1,4 +1,7 @@
--- Users table
+-- Minimal schema: raw data collection + generic chat only.
+-- No triage, classification, feedback, context, preferences, or push.
+
+-- Users
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   google_sub TEXT UNIQUE NOT NULL,
@@ -25,77 +28,84 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user_id ON oauth_tokens(user_id);
 
--- Triage items
-CREATE TABLE IF NOT EXISTS triage_items (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  source_type TEXT NOT NULL CHECK(source_type IN ('email', 'document', 'image', 'voice')),
-  source_ref TEXT,
-  priority INTEGER NOT NULL DEFAULT 3 CHECK(priority BETWEEN 1 AND 5),
-  urgency INTEGER NOT NULL DEFAULT 3 CHECK(urgency BETWEEN 1 AND 5),
-  category TEXT,
-  summary TEXT,
-  suggested_action TEXT,
-  classifier_json TEXT,
-  status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'done', 'dismissed')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_triage_items_user_status ON triage_items(user_id, status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_triage_items_user_priority ON triage_items(user_id, priority DESC, urgency DESC);
-
--- Feedback
-CREATE TABLE IF NOT EXISTS feedback (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  triage_item_id TEXT NOT NULL REFERENCES triage_items(id),
-  kind TEXT NOT NULL CHECK(kind IN ('up', 'down', 'wrong_priority')),
-  corrected_priority INTEGER CHECK(corrected_priority BETWEEN 1 AND 5),
-  corrected_urgency INTEGER CHECK(corrected_urgency BETWEEN 1 AND 5),
-  note TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id, created_at DESC);
-
--- Calendar suggestions
-CREATE TABLE IF NOT EXISTS calendar_suggestions (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  triage_item_id TEXT REFERENCES triage_items(id),
-  title TEXT NOT NULL,
-  start_iso TEXT NOT NULL,
-  end_iso TEXT NOT NULL,
-  location TEXT,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted', 'rejected')),
-  google_event_id TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Ingested files
-CREATE TABLE IF NOT EXISTS ingested_files (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  kind TEXT NOT NULL CHECK(kind IN ('pdf', 'image', 'audio')),
-  r2_key TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'done', 'error')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Push tokens
-CREATE TABLE IF NOT EXISTS push_tokens (
-  id TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL REFERENCES users(id),
-  expo_token TEXT UNIQUE NOT NULL,
-  platform TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- Gmail sync state
+-- Gmail incremental sync state
 CREATE TABLE IF NOT EXISTS gmail_sync_state (
   id TEXT PRIMARY KEY,
   user_id TEXT UNIQUE NOT NULL REFERENCES users(id),
   history_id TEXT,
   last_synced_at TEXT
 );
+
+-- Raw collected emails (no classification — pulled and stored as-is)
+CREATE TABLE IF NOT EXISTS raw_emails (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  message_id TEXT NOT NULL,
+  thread_id TEXT,
+  subject TEXT,
+  from_addr TEXT,
+  email_date TEXT,
+  snippet TEXT,
+  body_text TEXT,
+  collected_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_emails_user_msg ON raw_emails(user_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_raw_emails_user ON raw_emails(user_id, collected_at DESC);
+
+-- Ingested files (raw upload to R2 — stored, not analyzed)
+CREATE TABLE IF NOT EXISTS ingested_files (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK(kind IN ('pdf', 'image', 'audio')),
+  r2_key TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'stored' CHECK(status IN ('stored', 'error')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- iCal feed subscriptions
+CREATE TABLE IF NOT EXISTS ical_feeds (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  url TEXT NOT NULL,
+  name TEXT,
+  color TEXT DEFAULT '#8B5CF6',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_synced_at TEXT,
+  last_etag TEXT,
+  error_message TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ical_feeds_user ON ical_feeds(user_id);
+
+-- Events parsed from iCal feeds
+CREATE TABLE IF NOT EXISTS ical_events (
+  id TEXT PRIMARY KEY,
+  feed_id TEXT NOT NULL REFERENCES ical_feeds(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  uid TEXT NOT NULL,
+  summary TEXT,
+  description TEXT,
+  location TEXT,
+  start_iso TEXT NOT NULL,
+  end_iso TEXT NOT NULL,
+  all_day INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(feed_id, uid)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ical_events_user_start ON ical_events(user_id, start_iso);
+
+-- Generic chat transcript (persisted, no summarization/context)
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id),
+  role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id, created_at);

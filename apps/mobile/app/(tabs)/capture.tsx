@@ -14,7 +14,6 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Audio } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../src/state/auth";
 import { API_BASE, apiFetch } from "../../src/api/client";
@@ -25,12 +24,8 @@ interface IngestedFile {
   id: string;
   kind: "image" | "pdf" | "audio";
   r2_key: string;
-  status: "pending" | "processing" | "done" | "error";
+  status: "stored" | "error";
   created_at: string;
-}
-
-interface TriageItemRef {
-  id: string;
 }
 
 function fileIcon(kind: string): keyof typeof Ionicons.glyphMap {
@@ -53,9 +48,7 @@ function fileKindLabel(kind: string): string {
 
 function statusColor(status: string): string {
   switch (status) {
-    case "done": return "#38a169";
-    case "processing":
-    case "pending": return "#ed8936";
+    case "stored": return "#38a169";
     case "error": return "#e53e3e";
     default: return "#a0aec0";
   }
@@ -63,9 +56,7 @@ function statusColor(status: string): string {
 
 function statusLabel(status: string): string {
   switch (status) {
-    case "done": return "Done";
-    case "processing": return "Processing";
-    case "pending": return "Pending";
+    case "stored": return "Stored";
     case "error": return "Error";
     default: return status;
   }
@@ -109,7 +100,7 @@ function FileThumbnail({ file, token }: { file: IngestedFile; token: string }) {
   const [blobUri, setBlobUri] = useState<string | null>(null);
 
   useEffect(() => {
-    if (file.kind === "image" && file.status === "done") {
+    if (file.kind === "image" && file.status === "stored") {
       fetch(`${API_BASE}/files/${file.id}/download`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -138,7 +129,6 @@ function FileThumbnail({ file, token }: { file: IngestedFile; token: string }) {
 
 export default function CaptureScreen() {
   const { token } = useAuth();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [state, setState] = useState<UploadState>("idle");
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
@@ -154,10 +144,10 @@ export default function CaptureScreen() {
     enabled: !!token,
   });
 
-  const handleResult = (id: string) => {
+  const handleResult = (_id: string) => {
     setState("done");
     queryClient.invalidateQueries({ queryKey: ["files"] });
-    Alert.alert("Captured", "Your item is being analyzed and will appear in Triage shortly.", [
+    Alert.alert("Uploaded", "Your file has been stored.", [
       { text: "OK", onPress: () => setState("idle") },
     ]);
   };
@@ -283,33 +273,10 @@ export default function CaptureScreen() {
     }
   };
 
-  const handleFileTap = useCallback(async (file: IngestedFile) => {
-    if (file.status !== "done") return;
-
-    // Find the triage item that references this file
-    try {
-      const data = await apiFetch<{ items: TriageItemRef[] }>(
-        `/triage?source_type=${file.kind === "audio" ? "voice" : file.kind === "pdf" ? "document" : "image"}&limit=50`
-      );
-      const match = data.items.find((item: any) => item.source_ref === file.id);
-      if (match) {
-        router.push(`/triage/${match.id}`);
-      } else {
-        Alert.alert("Not Found", "No triage item found for this file yet.");
-      }
-    } catch {
-      Alert.alert("Error", "Could not look up triage item.");
-    }
-  }, [router]);
-
   const busy = state === "uploading" || state === "processing";
 
   const renderFileRow = useCallback(({ item: file }: { item: IngestedFile }) => (
-    <Pressable
-      style={styles.fileRow}
-      onPress={() => handleFileTap(file)}
-      disabled={file.status !== "done"}
-    >
+    <View style={styles.fileRow}>
       <FileThumbnail file={file} token={token!} />
       <View style={styles.fileInfo}>
         <Text style={styles.fileKind}>{fileKindLabel(file.kind)}</Text>
@@ -320,11 +287,8 @@ export default function CaptureScreen() {
           {statusLabel(file.status)}
         </Text>
       </View>
-      {file.status === "done" && (
-        <Ionicons name="chevron-forward" size={18} color="#ccc" />
-      )}
-    </Pressable>
-  ), [token, handleFileTap]);
+    </View>
+  ), [token]);
 
   const files = filesData?.files ?? [];
 
@@ -342,7 +306,7 @@ export default function CaptureScreen() {
           <Text style={styles.heading}>Capture</Text>
           <Text style={styles.subtext}>
             Take a photo, pick a file, or record a voice memo. It will be
-            analyzed and added to your triage.
+            uploaded and stored.
           </Text>
 
           <View style={styles.grid}>
