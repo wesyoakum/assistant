@@ -108,12 +108,11 @@ interface ControlStatus {
   pending: number;
 }
 
-type SettingsTab = "general" | "calendars" | "context";
+type SettingsTab = "general" | "calendars";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "general", label: "General" },
   { key: "calendars", label: "Calendars" },
-  { key: "context", label: "Context" },
 ];
 
 export default function SettingsScreen() {
@@ -361,76 +360,9 @@ export default function SettingsScreen() {
         ))}
       </View>
 
-      {/* Spend Control section (General) */}
+      {/* General section */}
       {tab === "general" && (
         <>
-          <Text style={styles.sectionTitle}>Spend Control</Text>
-          <View style={styles.card}>
-            <View style={styles.calRow}>
-              <View style={styles.calInfo}>
-                <Text style={styles.calName}>Controlled mode</Text>
-                <Text style={styles.calPrimary}>
-                  Pause automatic polling & classification. Collect and classify
-                  one batch at a time. Disables high-priority push.
-                </Text>
-              </View>
-              <Switch
-                value={controlled}
-                onValueChange={(v) =>
-                  modeMutation.mutate({ mode: v ? "controlled" : "normal" })
-                }
-                trackColor={{ false: "#ddd", true: "#7c3aed" }}
-              />
-            </View>
-            {controlled && (
-              <View style={styles.calRow}>
-                <View style={styles.calInfo}>
-                  <Text style={styles.calName}>Classify batch size</Text>
-                  <Text style={styles.calPrimary}>
-                    Items classified per "Classify next" press
-                  </Text>
-                </View>
-                <View style={styles.stepper}>
-                  <Pressable
-                    style={styles.stepperBtn}
-                    onPress={() =>
-                      modeMutation.mutate({
-                        batch_size: Math.max(1, batchSize - 1),
-                      })
-                    }
-                    disabled={batchSize <= 1}
-                  >
-                    <Text style={styles.stepperBtnText}>−</Text>
-                  </Pressable>
-                  <Text style={styles.stepperValue}>{batchSize}</Text>
-                  <Pressable
-                    style={styles.stepperBtn}
-                    onPress={() =>
-                      modeMutation.mutate({
-                        batch_size: Math.min(20, batchSize + 1),
-                      })
-                    }
-                    disabled={batchSize >= 20}
-                  >
-                    <Text style={styles.stepperBtnText}>+</Text>
-                  </Pressable>
-                </View>
-              </View>
-            )}
-            {controlled && (
-              <View style={styles.calRow}>
-                <View style={styles.calInfo}>
-                  <Text style={styles.calName}>
-                    {control?.collected ?? 0} collected · awaiting classification
-                  </Text>
-                  <Text style={styles.calPrimary}>
-                    Collect & classify from the Triage tab
-                  </Text>
-                </View>
-              </View>
-            )}
-          </View>
-
           <Text style={styles.sectionTitle}>API Usage</Text>
           <UsageSummary />
         </>
@@ -674,74 +606,6 @@ export default function SettingsScreen() {
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.card}>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert(
-              "Fresh Start",
-              "This will clear all triage items, chat history, reminders, and summaries — then re-evaluate all emails and files from scratch. Your preferences, context, and feedback are kept.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Fresh Start",
-                  style: "destructive",
-                  onPress: async () => {
-                    try {
-                      const result = await apiFetch<{
-                        deleted: number;
-                        emailsQueued: number;
-                        filesQueued: number;
-                      }>("/triage/fresh-start", { method: "POST" });
-                      queryClient.invalidateQueries();
-                      Alert.alert(
-                        "Fresh Start Complete",
-                        `Cleared ${result.deleted} items. Re-queuing ${result.emailsQueued} emails and ${result.filesQueued} files. Calendar events will repopulate automatically.`
-                      );
-                    } catch (err: unknown) {
-                      Alert.alert("Error", err instanceof Error ? err.message : "Failed");
-                    }
-                  },
-                },
-              ]
-            );
-          }}
-        >
-          <Text style={[styles.clearChatText, { color: "#e53e3e" }]}>Fresh Start</Text>
-        </Pressable>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert(
-              "Re-evaluate Triage",
-              "This will dismiss all open triage items and re-classify them with the latest rules and preferences. Items will reappear as they're processed.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Re-evaluate",
-                  onPress: async () => {
-                    try {
-                      const result = await apiFetch<{
-                        dismissed: number;
-                        emailsQueued: number;
-                        filesQueued: number;
-                        calendarSkipped: number;
-                      }>("/triage/reclassify-all", { method: "POST" });
-                      queryClient.invalidateQueries({ queryKey: ["triage"] });
-                      Alert.alert(
-                        "Re-evaluation Started",
-                        `Dismissed ${result.dismissed} items. Re-queued ${result.emailsQueued} emails and ${result.filesQueued} files. Calendar items will repopulate automatically.`
-                      );
-                    } catch (err: unknown) {
-                      Alert.alert("Error", err instanceof Error ? err.message : "Failed to re-evaluate");
-                    }
-                  },
-                },
-              ]
-            );
-          }}
-        >
-          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>Re-evaluate All Triage Items</Text>
-        </Pressable>
         <Pressable
           style={styles.clearChatBtn}
           onPress={() => {

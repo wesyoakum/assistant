@@ -157,7 +157,7 @@ export default function CaptureScreen() {
   const handleResult = (id: string) => {
     setState("done");
     queryClient.invalidateQueries({ queryKey: ["files"] });
-    Alert.alert("Captured", "Your item is being analyzed and will appear in Triage shortly.", [
+    Alert.alert("Captured", "File captured successfully.", [
       { text: "OK", onPress: () => setState("idle") },
     ]);
   };
@@ -284,23 +284,8 @@ export default function CaptureScreen() {
   };
 
   const handleFileTap = useCallback(async (file: IngestedFile) => {
-    if (file.status !== "done") return;
-
-    // Find the triage item that references this file
-    try {
-      const data = await apiFetch<{ items: TriageItemRef[] }>(
-        `/triage?source_type=${file.kind === "audio" ? "voice" : file.kind === "pdf" ? "document" : "image"}&limit=50`
-      );
-      const match = data.items.find((item: any) => item.source_ref === file.id);
-      if (match) {
-        router.push(`/triage/${match.id}`);
-      } else {
-        Alert.alert("Not Found", "No triage item found for this file yet.");
-      }
-    } catch {
-      Alert.alert("Error", "Could not look up triage item.");
-    }
-  }, [router]);
+    // Files are stored but not processed — nothing to navigate to
+  }, []);
 
   const busy = state === "uploading" || state === "processing";
 
@@ -341,8 +326,8 @@ export default function CaptureScreen() {
         <>
           <Text style={styles.heading}>Capture</Text>
           <Text style={styles.subtext}>
-            Take a photo, pick a file, or record a voice memo. It will be
-            analyzed and added to your triage.
+            Take a photo, pick a file, or record a voice memo. Your files are
+            stored here.
           </Text>
 
           <View style={styles.grid}>

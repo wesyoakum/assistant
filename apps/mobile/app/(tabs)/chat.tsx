@@ -15,8 +15,7 @@ import {
   Alert,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { useLocalSearchParams } from "expo-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import Markdown from "react-native-markdown-display";
 import { apiFetch } from "../../src/api/client";
 
@@ -28,10 +27,6 @@ interface Message {
 
 interface ChatResponse {
   reply: string;
-  savedContext?: string[];
-  createdItems?: string[];
-  editedItems?: string[];
-  calendarActions?: string[];
 }
 
 interface HistoryResponse {
@@ -39,96 +34,41 @@ interface HistoryResponse {
 }
 
 export default function ChatScreen() {
-  const params = useLocalSearchParams<{ triageId?: string; context?: string }>();
   const [messages, setMessages] = useState<Message[]>([]);
-  const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
   const didInit = useRef(false);
 
-  // Load persisted history + greeting on mount
+  // Load history on mount
   useEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
 
     (async () => {
-      // Load history first
-      let existingMessages: Message[] = [];
       try {
         const history = await apiFetch<HistoryResponse>("/chat/history?limit=50");
         if (history.messages.length > 0) {
-          existingMessages = history.messages;
+          setMessages(history.messages);
+          return;
         }
       } catch {
         // Continue
       }
 
-      // If navigating from triage detail, ask assistant to discuss the item
-      if (params.context && params.triageId) {
-        if (existingMessages.length > 0) {
-          setMessages(existingMessages);
-        }
-        try {
-          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const data = await apiFetch<ChatResponse>("/chat", {
-            method: "POST",
-            body: JSON.stringify({
-              message: `The user tapped "Discuss in Chat" on this triage item: "${params.context}". Introduce this item briefly, summarize what you know about it, and ask if they'd like to take action, reprioritize, or get more information.`,
-              triage_item_id: params.triageId,
-              timezone: tz,
-            }),
-          });
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: data.reply,
-            },
-          ]);
-        } catch {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: "system-0",
-              role: "assistant",
-              content: `Let's discuss: ${params.context}`,
-            },
-          ]);
-        }
-        return;
-      }
-
-      // Normal load: show history or greeting
-      if (existingMessages.length > 0) {
-        setMessages(existingMessages);
-        return;
-      }
-
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      try {
-        const data = await apiFetch<{ greeting: string }>(
-          `/chat/greeting?tz=${encodeURIComponent(tz)}`
-        );
-        setMessages([{
-          id: "greeting-0",
-          role: "assistant",
-          content: data.greeting,
-        }]);
-      } catch {
-        // Fail silently
-      }
+      // Static greeting for empty chat
+      setMessages([{
+        id: "greeting-0",
+        role: "assistant",
+        content: "How can I help?",
+      }]);
     })();
   }, []);
 
   const sendMutation = useMutation({
     mutationFn: async (text: string) => {
-      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const body: Record<string, unknown> = { message: text, timezone: tz };
-      if (params.triageId) body.triage_item_id = params.triageId;
       return apiFetch<ChatResponse>("/chat", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ message: text }),
       });
     },
     onSuccess: (data) => {
@@ -140,16 +80,6 @@ export default function ChatScreen() {
           content: data.reply,
         },
       ]);
-      if (data.savedContext?.length) {
-        queryClient.invalidateQueries({ queryKey: ["user-context"] });
-      }
-      if (data.createdItems?.length || data.editedItems?.length) {
-        queryClient.invalidateQueries({ queryKey: ["triage"] });
-      }
-      if (data.calendarActions?.length) {
-        queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-        queryClient.invalidateQueries({ queryKey: ["calendar-suggestions"] });
-      }
     },
     onError: (err: Error) => {
       setMessages((prev) => [
@@ -248,7 +178,7 @@ export default function ChatScreen() {
           style={styles.input}
           value={input}
           onChangeText={setInput}
-          placeholder="Message your assistant..."
+          placeholder="Message..."
           placeholderTextColor="#999"
           multiline
           maxLength={2000}
@@ -344,4 +274,3 @@ const mdStyles = {
   code_inline: { backgroundColor: "#d5d5d5", paddingHorizontal: 4, borderRadius: 3, fontSize: 14 },
   fence: { backgroundColor: "#d5d5d5", padding: 8, borderRadius: 6, fontSize: 13 },
 };
-

@@ -102,29 +102,6 @@ export default function CalendarScreen() {
     queryFn: () => apiFetch<EventsResponse>("/calendar/events"),
   });
 
-  const { data: sugData } = useQuery({
-    queryKey: ["calendar-suggestions"],
-    queryFn: () => apiFetch<SuggestionsResponse>("/calendar/suggestions"),
-  });
-
-  const acceptMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/calendar/suggestions/${id}/accept`, { method: "POST" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["calendar-suggestions"] });
-      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-    },
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/calendar/suggestions/${id}/reject`, { method: "POST" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["calendar-suggestions"] });
-    },
-  });
-
-  const suggestions = sugData?.suggestions || [];
 
   const sections = useMemo(() => {
     const events = data?.events || [];
@@ -164,43 +141,14 @@ export default function CalendarScreen() {
         sections.length === 0 ? styles.center : styles.list
       }
       ListHeaderComponent={
-        suggestions.length > 0 ? (
-          <View style={styles.suggestionsWrap}>
-            <Text style={styles.suggestionsTitle}>Suggested Events</Text>
-            {suggestions.map((s) => (
-              <View key={s.id} style={styles.suggestionCard}>
-                <View style={styles.suggestionContent}>
-                  <Text style={styles.suggestionName}>{s.title}</Text>
-                  <Text style={styles.suggestionTime}>
-                    {new Date(s.start_iso).toLocaleString("en-US", {
-                      month: "short", day: "numeric",
-                      hour: "numeric", minute: "2-digit",
-                    })}
-                  </Text>
-                  {s.location && (
-                    <Text style={styles.suggestionMeta}>{s.location}</Text>
-                  )}
-                </View>
-                <View style={styles.suggestionActions}>
-                  <Pressable
-                    style={styles.acceptBtn}
-                    onPress={() => acceptMutation.mutate(s.id)}
-                    disabled={acceptMutation.isPending}
-                  >
-                    <Text style={styles.acceptText}>Add</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.rejectBtn}
-                    onPress={() => rejectMutation.mutate(s.id)}
-                    disabled={rejectMutation.isPending}
-                  >
-                    <Text style={styles.rejectText}>Skip</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-          </View>
-        ) : null
+        <Pressable
+          style={{ backgroundColor: "#4285F4", paddingVertical: 10, alignItems: "center", marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 10 }}
+          onPress={() => refetch()}
+        >
+          <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>
+            {isRefetching ? "Syncing..." : "Sync Calendar"}
+          </Text>
+        </Pressable>
       }
       ListEmptyComponent={
         <Text style={styles.emptyText}>No upcoming events</Text>

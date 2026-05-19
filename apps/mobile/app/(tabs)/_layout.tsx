@@ -10,7 +10,7 @@ function tabIcon(name: IconName) {
   );
 }
 
-const APP_VERSION = "v11";
+const APP_VERSION = "v12";
 
 export default function TabsLayout() {
   return (
@@ -35,6 +35,7 @@ export default function TabsLayout() {
         options={{
           title: "Triage",
           tabBarIcon: tabIcon("flash-outline"),
+          href: null,
         }}
       />
       <Tabs.Screen

@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import {
   View,
   Text,
@@ -8,34 +8,23 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
-import { Swipeable } from "react-native-gesture-handler";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import { apiFetch } from "../../src/api/client";
 
-interface TriageItem {
+interface RawEmail {
   id: string;
-  source_type: string;
-  priority: number;
-  urgency: number;
-  category: string | null;
-  summary: string | null;
-  suggested_action: string | null;
-  status: string;
-  source_ref: string | null;
-  event_at: string | null;
-  source_title: string | null;
-  created_at: string;
+  message_id: string;
+  subject: string | null;
+  from_addr: string | null;
+  email_date: string | null;
+  snippet: string | null;
+  collected_at: string;
 }
 
-interface TriageResponse {
-  items: TriageItem[];
-  cursor?: string;
-}
-
-function formatEmailDate(dateStr: string | null, fallback: string): string {
-  const d = new Date(dateStr || fallback);
-  if (isNaN(d.getTime())) return "Unknown";
+function formatEmailDate(dateStr: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
 
   const now = new Date();
   const diff = now.getTime() - d.getTime();
@@ -43,66 +32,26 @@ function formatEmailDate(dateStr: string | null, fallback: string): string {
 
   if (mins >= 0 && mins < 60) return `${mins}m ago`;
   if (mins >= 0 && mins < 24 * 60) return `${Math.floor(mins / 60)}h ago`;
-
-  // If today, show time
   if (d.toDateString() === now.toDateString()) {
     return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   }
-
-  // Otherwise show date
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function priorityColor(p: number): string {
-  if (p >= 4) return "#e53e3e";
-  if (p === 3) return "#ed8936";
-  if (p === 2) return "#3182ce";
-  return "#a0aec0";
-}
-
 export default function EmailScreen() {
-  const router = useRouter();
   const queryClient = useQueryClient();
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["emails"],
-    queryFn: () =>
-      apiFetch<TriageResponse>("/triage?source_type=email&status=open"),
+    queryFn: () => apiFetch<{ emails: RawEmail[] }>("/gmail/emails"),
   });
-
-  const dismissMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/triage/${id}/status`, {
-        method: "POST",
-        body: JSON.stringify({ status: "dismissed" }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["emails"] });
-      queryClient.invalidateQueries({ queryKey: ["triage"] });
-    },
-  });
-
-  const { data: control } = useQuery({
-    queryKey: ["control-status"],
-    queryFn: () => apiFetch<{ mode: string }>("/control/status"),
-  });
-  const controlled = control?.mode === "controlled";
 
   const syncMutation = useMutation({
     mutationFn: () => apiFetch("/gmail/sync", { method: "POST" }),
     onSuccess: () => {
-      setTimeout(
-        () => queryClient.invalidateQueries({ queryKey: ["emails"] }),
-        3000
-      );
+      queryClient.invalidateQueries({ queryKey: ["emails"] });
     },
   });
-
-  // Auto-sync on mount — skip in controlled mode
-  useEffect(() => {
-    if (controlled) return;
-    syncMutation.mutate();
-  }, [controlled]);
 
   const handleRefresh = useCallback(() => {
     syncMutation.mutate();
@@ -117,92 +66,71 @@ export default function EmailScreen() {
     );
   }
 
-  const items = data?.items || [];
+  const emails = data?.emails || [];
 
   return (
-    <FlatList
-      data={items}
-      keyExtractor={(item) => item.id}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefetching || syncMutation.isPending}
-          onRefresh={handleRefresh}
-        />
-      }
-      contentContainerStyle={items.length === 0 ? styles.center : styles.list}
-      ListEmptyComponent={
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>
-            {controlled ? "Controlled mode — collect from Triage tab" : "No emails to review"}
-          </Text>
-          {!controlled && (
-            <Pressable
-              style={styles.syncBtn}
-              onPress={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-            >
-              <Text style={styles.syncBtnText}>
-                {syncMutation.isPending ? "Syncing..." : "Sync Gmail"}
-              </Text>
-            </Pressable>
-          )}
-        </View>
-      }
-      renderItem={({ item }) => (
-        <Swipeable
-          renderRightActions={() => (
-            <Pressable
-              style={styles.swipeDismiss}
-              onPress={() => dismissMutation.mutate(item.id)}
-            >
-              <Text style={styles.swipeDismissText}>Dismiss</Text>
-            </Pressable>
-          )}
-          onSwipeableOpen={(direction) => {
-            if (direction === "right") dismissMutation.mutate(item.id);
-          }}
-        >
-          <Pressable
-            style={styles.row}
-            onPress={() => router.push(`/triage/${item.id}`)}
-          >
-            <View
-              style={[styles.priorityDot, { backgroundColor: priorityColor(item.priority) }]}
-            />
+    <View style={{ flex: 1 }}>
+      <Pressable
+        style={styles.syncBtn}
+        onPress={() => syncMutation.mutate()}
+        disabled={syncMutation.isPending}
+      >
+        <Text style={styles.syncBtnText}>
+          {syncMutation.isPending ? "Syncing..." : "Sync Email"}
+        </Text>
+      </Pressable>
+
+      <FlatList
+        data={emails}
+        keyExtractor={(item) => item.id}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching || syncMutation.isPending}
+            onRefresh={handleRefresh}
+          />
+        }
+        contentContainerStyle={emails.length === 0 ? styles.center : styles.list}
+        ListEmptyComponent={
+          <Text style={styles.emptyText}>No emails yet. Tap Sync Email above.</Text>
+        }
+        renderItem={({ item }) => (
+          <View style={styles.row}>
             <View style={styles.rowContent}>
-              {item.source_title && (
+              {item.from_addr && (
                 <Text style={styles.sender} numberOfLines={1}>
-                  {item.source_title}
+                  {item.from_addr}
                 </Text>
               )}
-              <Text style={styles.summary} numberOfLines={2}>
-                {item.summary || "No subject"}
+              <Text style={styles.subject} numberOfLines={1}>
+                {item.subject || "(no subject)"}
               </Text>
-              {item.suggested_action && (
-                <Text style={styles.action} numberOfLines={1}>
-                  {item.suggested_action}
+              {item.snippet && (
+                <Text style={styles.snippet} numberOfLines={2}>
+                  {item.snippet}
                 </Text>
               )}
             </View>
             <Text style={styles.time}>
-              {formatEmailDate(item.event_at, item.created_at)}
+              {formatEmailDate(item.email_date)}
             </Text>
-          </Pressable>
-        </Swipeable>
-      )}
-    />
+          </View>
+        )}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   list: { paddingBottom: 20 },
-  emptyWrap: { alignItems: "center" },
-  emptyText: { fontSize: 16, color: "#999", marginBottom: 16 },
+  emptyText: { fontSize: 16, color: "#999" },
   syncBtn: {
     backgroundColor: "#4285F4",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
     borderRadius: 10,
   },
   syncBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
@@ -215,22 +143,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
   },
-  priorityDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 12,
-  },
   rowContent: { flex: 1, marginRight: 10 },
   sender: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 2 },
-  summary: { fontSize: 15, color: "#222", lineHeight: 20 },
-  action: { fontSize: 13, color: "#666", marginTop: 3 },
+  subject: { fontSize: 15, color: "#222", lineHeight: 20 },
+  snippet: { fontSize: 13, color: "#666", marginTop: 3, lineHeight: 18 },
   time: { fontSize: 12, color: "#999" },
-  swipeDismiss: {
-    backgroundColor: "#e53e3e",
-    justifyContent: "center",
-    alignItems: "center",
-    width: 90,
-  },
-  swipeDismissText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 });
