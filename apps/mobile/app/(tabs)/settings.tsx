@@ -3,13 +3,13 @@ import {
   View,
   Text,
   TextInput,
-  Switch,
   Pressable,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
   Alert,
   Linking,
+  Switch,
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
@@ -90,23 +90,6 @@ interface IcalFeedsResponse {
   feeds: IcalFeed[];
 }
 
-interface ContextEntry {
-  id: string;
-  kind: string;
-  label: string;
-  detail: string | null;
-}
-
-interface ContextResponse {
-  entries: ContextEntry[];
-}
-
-interface ControlStatus {
-  mode: "normal" | "controlled";
-  batchSize: number;
-  collected: number;
-  pending: number;
-}
 
 type SettingsTab = "general" | "calendars";
 
@@ -121,43 +104,6 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [tab, setTab] = useState<SettingsTab>("general");
 
-  // --- Spend control (controlled mode) ---
-  const { data: control } = useQuery({
-    queryKey: ["control-status"],
-    queryFn: () => apiFetch<ControlStatus>("/control/status"),
-  });
-
-  const modeMutation = useMutation({
-    mutationFn: (patch: { mode?: "normal" | "controlled"; batch_size?: number }) =>
-      apiFetch<{ mode: string; batchSize: number }>("/control/mode", {
-        method: "POST",
-        body: JSON.stringify(patch),
-      }),
-    onMutate: async (patch) => {
-      await queryClient.cancelQueries({ queryKey: ["control-status"] });
-      const prev = queryClient.getQueryData<ControlStatus>(["control-status"]);
-      queryClient.setQueryData<ControlStatus>(["control-status"], (old) =>
-        old
-          ? {
-              ...old,
-              mode: patch.mode ?? old.mode,
-              batchSize: patch.batch_size ?? old.batchSize,
-            }
-          : old
-      );
-      return { prev };
-    },
-    onError: (_e, _v, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(["control-status"], ctx.prev);
-    },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ["control-status"] });
-      queryClient.invalidateQueries({ queryKey: ["triage"] });
-    },
-  });
-
-  const controlled = control?.mode === "controlled";
-  const batchSize = control?.batchSize ?? 1;
 
   const { data, isLoading } = useQuery({
     queryKey: ["calendars"],
@@ -194,23 +140,6 @@ export default function SettingsScreen() {
     },
   });
 
-  const { data: ctxData, isLoading: ctxLoading } = useQuery({
-    queryKey: ["user-context"],
-    queryFn: () => apiFetch<ContextResponse>("/context"),
-  });
-
-  const deleteContextMutation = useMutation({
-    mutationFn: (id: string) =>
-      apiFetch(`/context/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["user-context"] });
-    },
-  });
-
-  const allEntries = ctxData?.entries || [];
-  const contextEntries = allEntries.filter((e) => e.kind !== "feature" && e.kind !== "preference");
-  const preferences = allEntries.filter((e) => e.kind === "preference");
-  const featureRequests = allEntries.filter((e) => e.kind === "feature");
 
   const aliasMutation = useMutation({
     mutationFn: ({ id, alias }: { id: string; alias: string | null }) =>
@@ -434,93 +363,6 @@ export default function SettingsScreen() {
       </>
       )}
 
-      {/* My Context section */}
-      {tab === "context" && (
-      <>
-      <Text style={styles.sectionTitle}>My Context</Text>
-      <View style={styles.card}>
-        {ctxLoading ? (
-          <ActivityIndicator style={styles.loader} />
-        ) : contextEntries.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Tell the assistant about people, teams, or activities in Chat and they'll appear here.
-          </Text>
-        ) : (
-          contextEntries.map((entry) => (
-            <View key={entry.id} style={styles.ctxRow}>
-              <View style={styles.ctxContent}>
-                <Text style={styles.ctxKind}>{entry.kind}</Text>
-                <Text style={styles.ctxLabel}>{entry.label}</Text>
-                {entry.detail && (
-                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={() => deleteContextMutation.mutate(entry.id)}
-                style={styles.ctxDelete}
-              >
-                <Text style={styles.ctxDeleteText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Preferences section */}
-      <Text style={styles.sectionTitle}>Assistant Preferences</Text>
-      <View style={styles.card}>
-        {preferences.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Tell the assistant how you'd like it to behave in Chat.
-          </Text>
-        ) : (
-          preferences.map((entry) => (
-            <View key={entry.id} style={styles.ctxRow}>
-              <View style={styles.ctxContent}>
-                <Text style={styles.ctxLabel}>{entry.label}</Text>
-                {entry.detail && (
-                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={() => deleteContextMutation.mutate(entry.id)}
-                style={styles.ctxDelete}
-              >
-                <Text style={styles.ctxDeleteText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))
-        )}
-      </View>
-
-      {/* Feature Requests section */}
-      <Text style={styles.sectionTitle}>Feature Requests</Text>
-      <View style={styles.card}>
-        {featureRequests.length === 0 ? (
-          <Text style={styles.emptyText}>
-            Tell the assistant about features you'd like added.
-          </Text>
-        ) : (
-          featureRequests.map((entry) => (
-            <View key={entry.id} style={styles.ctxRow}>
-              <View style={styles.ctxContent}>
-                <Text style={styles.ctxLabel}>{entry.label}</Text>
-                {entry.detail && (
-                  <Text style={styles.ctxDetail}>{entry.detail}</Text>
-                )}
-              </View>
-              <Pressable
-                onPress={() => deleteContextMutation.mutate(entry.id)}
-                style={styles.ctxDelete}
-              >
-                <Text style={styles.ctxDeleteText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))
-        )}
-      </View>
-      </>
-      )}
 
       {/* iCal Feeds section */}
       {tab === "calendars" && (
@@ -580,21 +422,6 @@ export default function SettingsScreen() {
       <>
       <Text style={styles.sectionTitle}>Notifications</Text>
       <View style={styles.card}>
-        <View style={styles.calRow}>
-          <View style={styles.calInfo}>
-            <Text style={styles.calName}>High priority alerts</Text>
-            <Text style={styles.calPrimary}>
-              {controlled
-                ? "Disabled while in controlled mode"
-                : "Push when importance or urgency is 4+"}
-            </Text>
-          </View>
-          <Switch
-            value={!controlled}
-            disabled
-            trackColor={{ false: "#ddd", true: "#4285F4" }}
-          />
-        </View>
         <Pressable
           style={styles.clearChatBtn}
           onPress={() => router.push("/notifications")}
@@ -625,6 +452,44 @@ export default function SettingsScreen() {
           }}
         >
           <Text style={styles.clearChatText}>Clear Chat History</Text>
+        </Pressable>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => {
+            Alert.alert("Clear Emails", "This will delete all stored emails and reset sync state.", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Clear",
+                style: "destructive",
+                onPress: async () => {
+                  await apiFetch("/gmail/emails", { method: "DELETE" });
+                  queryClient.invalidateQueries({ queryKey: ["emails"] });
+                  Alert.alert("Done", "All email data cleared.");
+                },
+              },
+            ]);
+          }}
+        >
+          <Text style={styles.clearChatText}>Clear Emails</Text>
+        </Pressable>
+        <Pressable
+          style={styles.clearChatBtn}
+          onPress={() => {
+            Alert.alert("Clear Calendar Data", "This will delete all synced calendar data (sync state, suggestions, events).", [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Clear",
+                style: "destructive",
+                onPress: async () => {
+                  await apiFetch("/calendar/data", { method: "DELETE" });
+                  queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+                  Alert.alert("Done", "All calendar data cleared.");
+                },
+              },
+            ]);
+          }}
+        >
+          <Text style={styles.clearChatText}>Clear Calendar Data</Text>
         </Pressable>
         <Pressable
           style={styles.clearChatBtn}
@@ -673,26 +538,6 @@ const styles = StyleSheet.create({
   },
   tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
   tabTextActive: { color: "#111" },
-  stepper: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  stepperBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#f0f0f3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  stepperBtnText: { fontSize: 20, fontWeight: "600", color: "#4285F4" },
-  stepperValue: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#222",
-    minWidth: 36,
-    textAlign: "center",
-  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "600",
@@ -755,18 +600,6 @@ const styles = StyleSheet.create({
   },
   addBtnDisabled: { opacity: 0.4 },
   addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  ctxRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  ctxContent: { flex: 1, marginRight: 10 },
-  ctxKind: { fontSize: 11, fontWeight: "600", color: "#4285F4", textTransform: "uppercase" },
-  ctxLabel: { fontSize: 15, color: "#222" },
-  ctxDetail: { fontSize: 13, color: "#888", marginTop: 1 },
   ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
   ctxDeleteText: { fontSize: 13, color: "#e53e3e" },
   clearChatBtn: {

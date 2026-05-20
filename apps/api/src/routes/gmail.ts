@@ -84,4 +84,16 @@ gmail.get("/emails", async (c) => {
   return c.json({ emails: results });
 });
 
+// Clear all stored emails and reset sync state
+gmail.delete("/emails", async (c) => {
+  const userId = c.get("userId");
+  await c.env.DB.prepare("DELETE FROM pending_emails WHERE user_id = ? AND source_type = 'email'")
+    .bind(userId)
+    .run();
+  await c.env.DB.prepare("DELETE FROM gmail_sync_state WHERE user_id = ?")
+    .bind(userId)
+    .run();
+  return c.json({ ok: true });
+});
+
 export { gmail };

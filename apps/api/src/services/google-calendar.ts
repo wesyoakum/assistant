@@ -163,8 +163,8 @@ export async function subscribeCalendar(
 export async function listUpcomingEvents(
   userId: string,
   env: Env,
-  daysAhead = 14,
-  maxPerCalendar = 25
+  daysAhead = 365,
+  maxPerCalendar = 150
 ): Promise<CalendarEvent[]> {
   const accessToken = await getValidAccessToken(userId, env);
   const calendars = await listCalendars(userId, env);

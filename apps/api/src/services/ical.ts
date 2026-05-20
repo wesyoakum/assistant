@@ -170,7 +170,7 @@ export async function syncIcalFeed(feedId: string, env: Env): Promise<void> {
 export async function listIcalEvents(
   userId: string,
   env: Env,
-  days = 14
+  days = 365
 ): Promise<CalendarEvent[]> {
   const now = new Date().toISOString();
   const future = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();

@@ -123,56 +123,94 @@ export async function fetchNewMessages(
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   if (!historyId) {
-    // First sync: get recent unread
-    const listRes = await fetch(
-      `${GMAIL_API}/messages?q=is:unread&maxResults=20`,
-      { headers }
-    );
-    if (!listRes.ok) throw new Error(`Gmail list failed: ${listRes.status}`);
-    const listData = (await listRes.json()) as {
-      messages?: { id: string }[];
-    };
+    // First sync: all emails from last 5 days
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    const afterDate = `${fiveDaysAgo.getFullYear()}/${String(fiveDaysAgo.getMonth() + 1).padStart(2, "0")}/${String(fiveDaysAgo.getDate()).padStart(2, "0")}`;
+
+    const allMessageIds: string[] = [];
+    let pageToken: string | undefined;
+
+    // Paginate to get all messages in the date range
+    do {
+      const params = new URLSearchParams({
+        q: `after:${afterDate}`,
+        maxResults: "100",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const listRes = await fetch(
+        `${GMAIL_API}/messages?${params}`,
+        { headers }
+      );
+      if (!listRes.ok) throw new Error(`Gmail list failed: ${listRes.status}`);
+      const listData = (await listRes.json()) as {
+        messages?: { id: string }[];
+        nextPageToken?: string;
+      };
+
+      for (const m of listData.messages || []) {
+        allMessageIds.push(m.id);
+      }
+      pageToken = listData.nextPageToken;
+    } while (pageToken);
 
     const profile = await getGmailProfile(accessToken);
-    const messageIds = listData.messages?.map((m) => m.id) || [];
     const results = await Promise.all(
-      messageIds.slice(0, 20).map((id) => getMessageDetail(accessToken, id))
+      allMessageIds.map((id) => getMessageDetail(accessToken, id))
     );
     const messages = results.filter((m): m is GmailMessage => m !== null);
 
     return { messages, newHistoryId: profile.historyId };
   }
 
-  // Incremental sync via history
-  const histRes = await fetch(
-    `${GMAIL_API}/history?startHistoryId=${historyId}&historyTypes=messageAdded&maxResults=20`,
-    { headers }
-  );
+  // Incremental sync: all new messages since last pull
+  const allMessageIds = new Set<string>();
+  let pageToken: string | undefined;
 
-  if (histRes.status === 404) {
-    // historyId too old, do full sync
-    return fetchNewMessages(accessToken, null);
-  }
-  if (!histRes.ok) throw new Error(`Gmail history failed: ${histRes.status}`);
+  do {
+    const params = new URLSearchParams({
+      startHistoryId: historyId,
+      historyTypes: "messageAdded",
+      maxResults: "100",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
 
-  const histData = (await histRes.json()) as {
-    history?: { messagesAdded?: { message: { id: string } }[] }[];
-    historyId: string;
-  };
+    const histRes = await fetch(
+      `${GMAIL_API}/history?${params}`,
+      { headers }
+    );
 
-  const messageIds = new Set<string>();
-  for (const h of histData.history || []) {
-    for (const added of h.messagesAdded || []) {
-      messageIds.add(added.message.id);
+    if (histRes.status === 404) {
+      // historyId too old, do full sync
+      return fetchNewMessages(accessToken, null);
     }
-  }
+    if (!histRes.ok) throw new Error(`Gmail history failed: ${histRes.status}`);
+
+    const histData = (await histRes.json()) as {
+      history?: { messagesAdded?: { message: { id: string } }[] }[];
+      historyId: string;
+      nextPageToken?: string;
+    };
+
+    for (const h of histData.history || []) {
+      for (const added of h.messagesAdded || []) {
+        allMessageIds.add(added.message.id);
+      }
+    }
+
+    pageToken = histData.nextPageToken;
+    // Update historyId to the latest from this page
+    if (!pageToken) {
+      historyId = histData.historyId;
+    }
+  } while (pageToken);
 
   const results = await Promise.all(
-    [...messageIds].slice(0, 20).map((id) => getMessageDetail(accessToken, id))
+    [...allMessageIds].map((id) => getMessageDetail(accessToken, id))
   );
   const messages = results.filter((m): m is GmailMessage => m !== null);
 
-  return { messages, newHistoryId: histData.historyId };
+  return { messages, newHistoryId: historyId };
 }
 
 /**

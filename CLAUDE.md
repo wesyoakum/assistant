@@ -28,25 +28,27 @@ file and `EVALUATION.md` disagree, `EVALUATION.md` is more recent and wins.
 
 Top-of-stack work, in order:
 
-1. **Build a classifier eval harness** (`apps/api/evals/`) — **DONE**. Baseline
-   not yet run; will run as part of step 2.
-2. **Reframe to source-agnostic action items + Monitor class.** See **`REFRAME.md`**
-   in the repo root for the full implementation plan. This must land before the
-   §6 bug sweep — several of those bugs (the duplicate code paths, the
-   `result.priority` mismatch, the `extracted_content` gap) dissolve by
-   construction once the four classify paths are consolidated. Eval fixtures
-   will be re-labeled with `expected_quadrant` as part of this work.
-3. **Fix the remaining §6 bugs in `EVALUATION.md`.** Many are 1-line silent-failure
+1. **Build a classifier eval harness** (`apps/api/evals/`) — **DONE**.
+2. **Run baseline eval against Sonnet and Opus** — **DONE**. See
+   `apps/api/evals/results/BASELINE.md`. Outcome: Sonnet beats Opus on quadrant
+   accuracy (80.4% vs 76.1%) at 6.4× lower cost. Switch the classifier to
+   Sonnet (`claude-sonnet-4-6`).
+3. **Reframe to source-agnostic action items + Monitor class** — **DONE**. See
+   `REFRAME.md`.
+4. **Execute `PRODUCT_DIRECTIONS.md`.** Five product changes that came out of the
+   baseline eval + labeling exercise, in order: (1) compound input splitting,
+   (2) quadrant transitions data model + audit, (3) manual quadrant movement UI,
+   (4) time-based auto-promotion, (5) spawned action items. Each is its own
+   session. This is the active stack.
+5. **Fix the remaining §6 bugs in `EVALUATION.md`.** Many are 1-line silent-failure
    bugs (cron schedule running 6× more often than intended, Gmail body extractor
    missing nested multipart and HTML-only emails). Strike #1, #5, #8 first —
-   the reframe in step 2 makes them unreachable.
-4. **Switch chat from regex JSON-action-blocks to Anthropic `tool_use`.** The
+   the reframe in step 3 makes them unreachable.
+6. **Switch chat from regex JSON-action-blocks to Anthropic `tool_use`.** The
    current `routes/chat.ts` parses tool calls via regex with `catch {}` swallows;
    malformed model output silently no-ops while the reply still says "done."
    This is the single largest reliability issue in the codebase.
-5. **Move classifier model from Opus back toward Sonnet** (the brief's original
-   choice). Wire model strings per call-site, not as module constants.
-6. **Two-pass classifier** (extract facts → score against rubric) for fact
+7. **Two-pass classifier** (extract facts → score against rubric) for fact
    reliability. Validate runs against the eval harness.
 
 Working conventions for changes:

@@ -17,9 +17,89 @@ const calendar: CalendarApp = new Hono();
 
 calendar.use("*", authMiddleware);
 
-// List upcoming events from enabled calendars (Google + iCal merged)
+// List calendar events — syncs from Google + iCal if no stored data
 calendar.get("/events", async (c) => {
   const userId = c.get("userId");
+
+  const forceRefresh = c.req.query("refresh") === "true";
+
+  // Check if we have stored events
+  const count = await c.env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM pending_emails WHERE user_id = ? AND source_type = 'calendar'"
+  ).bind(userId).first<{ cnt: number }>();
+
+  // Sync if empty or forced refresh
+  if (!count || count.cnt === 0 || forceRefresh) {
+    // Clear existing before re-sync
+    if (forceRefresh) {
+      await c.env.DB.prepare(
+        "DELETE FROM pending_emails WHERE user_id = ? AND source_type = 'calendar'"
+      ).bind(userId).run();
+    }
+
+    // Re-sync iCal feeds so ical_events table is populated
+    const { results: feeds } = await c.env.DB.prepare(
+      "SELECT id FROM ical_feeds WHERE user_id = ? AND enabled = 1"
+    ).bind(userId).all<{ id: string }>();
+    for (const feed of feeds) {
+      try { await syncIcalFeed(feed.id, c.env); } catch { /* logged inside */ }
+    }
+
+    const [googleEvents, icalEvents] = await Promise.allSettled([
+      listUpcomingEvents(userId, c.env),
+      listIcalEvents(userId, c.env),
+    ]);
+
+    const fetched = [
+      ...(googleEvents.status === "fulfilled" ? googleEvents.value : []),
+      ...(icalEvents.status === "fulfilled" ? icalEvents.value : []),
+    ];
+
+    for (const evt of fetched) {
+      const evtId = `${evt.calendarId || "ical"}-${evt.id}`;
+      await c.env.DB.prepare(
+        `INSERT OR IGNORE INTO pending_emails
+           (id, user_id, message_id, subject, from_addr, email_date, snippet, body_text, source_type, collected_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'calendar', datetime('now'))`
+      ).bind(
+        crypto.randomUUID(), userId, evtId,
+        evt.summary || "", evt.calendarName || evt.organizer || "",
+        evt.start || "", evt.location || "", JSON.stringify(evt),
+      ).run();
+    }
+  }
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, subject, body_text, email_date, collected_at
+     FROM pending_emails
+     WHERE user_id = ? AND source_type = 'calendar'
+     ORDER BY email_date ASC`
+  )
+    .bind(userId)
+    .all<{ id: string; subject: string; body_text: string; email_date: string; collected_at: string }>();
+
+  const events = results.map((row) => {
+    try {
+      return JSON.parse(row.body_text);
+    } catch {
+      return { id: row.id, summary: row.subject, start: row.email_date };
+    }
+  });
+
+  return c.json({ events });
+});
+
+// Manual sync — fetches from Google + iCal and stores locally
+calendar.post("/sync", async (c) => {
+  const userId = c.get("userId");
+
+  // Re-sync iCal feeds first
+  const { results: feeds } = await c.env.DB.prepare(
+    "SELECT id FROM ical_feeds WHERE user_id = ? AND enabled = 1"
+  ).bind(userId).all<{ id: string }>();
+  for (const feed of feeds) {
+    try { await syncIcalFeed(feed.id, c.env); } catch { /* logged inside */ }
+  }
 
   const [googleEvents, icalEvents] = await Promise.allSettled([
     listUpcomingEvents(userId, c.env),
@@ -31,11 +111,33 @@ calendar.get("/events", async (c) => {
     ...(icalEvents.status === "fulfilled" ? icalEvents.value : []),
   ];
 
-  events.sort(
-    (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()
-  );
+  // Clear existing stored calendar events for this user
+  await c.env.DB.prepare(
+    "DELETE FROM pending_emails WHERE user_id = ? AND source_type = 'calendar'"
+  ).bind(userId).run();
 
-  return c.json({ events });
+  // Store each event
+  let stored = 0;
+  for (const evt of events) {
+    const evtId = `${evt.calendarId || "ical"}-${evt.id}`;
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO pending_emails
+         (id, user_id, message_id, subject, from_addr, email_date, snippet, body_text, source_type, collected_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'calendar', datetime('now'))`
+    ).bind(
+      crypto.randomUUID(),
+      userId,
+      evtId,
+      evt.summary || "",
+      evt.calendarName || evt.organizer || "",
+      evt.start || "",
+      evt.location || "",
+      JSON.stringify(evt),
+    ).run();
+    stored++;
+  }
+
+  return c.json({ synced: events.length, stored });
 });
 
 // List all calendars with enabled/disabled state
@@ -162,6 +264,17 @@ calendar.post("/events", async (c) => {
 
   const event = await createEvent(userId, body, c.env);
   return c.json({ ok: true, googleEventId: event.id, htmlLink: event.htmlLink });
+});
+
+// Clear all calendar data (sync state, suggestions, calendar triage items, ical events)
+calendar.delete("/data", async (c) => {
+  const userId = c.get("userId");
+  await c.env.DB.prepare("DELETE FROM calendar_sync_state WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM calendar_suggestions WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM triage_items WHERE user_id = ? AND source_type IN ('calendar','event')").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM ical_events WHERE user_id = ?").bind(userId).run();
+  await c.env.DB.prepare("DELETE FROM pending_emails WHERE user_id = ? AND source_type = 'calendar'").bind(userId).run();
+  return c.json({ ok: true });
 });
 
 // --- iCal feed management ---

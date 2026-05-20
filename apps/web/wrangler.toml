@@ -5,3 +5,7 @@ compatibility_date = "2024-12-01"
 routes = [
   { pattern = "whyapp.us", custom_domain = true }
 ]
+
+[[kv_namespaces]]
+binding = "TRIGGER_RESULTS"
+id = "97cd047727b64fb7a9f1faa83167abda"

@@ -81,19 +81,6 @@ function timeUntil(iso: string): string | null {
   return `in ${Math.floor(mins / 60)}h`;
 }
 
-interface Suggestion {
-  id: string;
-  title: string;
-  start_iso: string;
-  end_iso: string;
-  location: string | null;
-  triage_summary: string | null;
-}
-
-interface SuggestionsResponse {
-  suggestions: Suggestion[];
-}
-
 export default function CalendarScreen() {
   const queryClient = useQueryClient();
 
@@ -101,6 +88,15 @@ export default function CalendarScreen() {
     queryKey: ["calendar-events"],
     queryFn: () => apiFetch<EventsResponse>("/calendar/events"),
   });
+
+  const syncMutation = useMutation({
+    mutationFn: () => apiFetch("/calendar/sync", { method: "POST" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+
+  const isSyncing = syncMutation.isPending;
 
 
   const sections = useMemo(() => {
@@ -142,11 +138,12 @@ export default function CalendarScreen() {
       }
       ListHeaderComponent={
         <Pressable
-          style={{ backgroundColor: "#4285F4", paddingVertical: 10, alignItems: "center", marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 10 }}
-          onPress={() => refetch()}
+          style={{ backgroundColor: "#4285F4", paddingVertical: 10, alignItems: "center", marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 10, opacity: isSyncing ? 0.6 : 1 }}
+          onPress={() => syncMutation.mutate()}
+          disabled={isSyncing}
         >
           <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>
-            {isRefetching ? "Syncing..." : "Sync Calendar"}
+            {isSyncing ? "Syncing..." : "Sync Calendar"}
           </Text>
         </Pressable>
       }
@@ -249,43 +246,4 @@ const styles = StyleSheet.create({
     color: "#ed8936",
     paddingTop: 1,
   },
-  suggestionsWrap: {
-    padding: 16,
-    paddingBottom: 8,
-  },
-  suggestionsTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#ed8936",
-    marginBottom: 8,
-  },
-  suggestionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff8f0",
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: "#fde6cc",
-  },
-  suggestionContent: { flex: 1, marginRight: 10 },
-  suggestionName: { fontSize: 15, fontWeight: "600", color: "#333" },
-  suggestionTime: { fontSize: 13, color: "#888", marginTop: 2 },
-  suggestionMeta: { fontSize: 12, color: "#aaa", marginTop: 1 },
-  suggestionActions: { gap: 6 },
-  acceptBtn: {
-    backgroundColor: "#4285F4",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  acceptText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  rejectBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    alignItems: "center",
-  },
-  rejectText: { color: "#999", fontSize: 13 },
 });

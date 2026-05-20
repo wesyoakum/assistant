@@ -1,5 +1,9 @@
+interface Env {
+  TRIGGER_RESULTS: KVNamespace;
+}
+
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/privacy") {
@@ -10,9 +14,107 @@ export default {
       return html(usagePage);
     }
 
+    if (url.pathname === "/trigger") {
+      return html(triggerPage);
+    }
+
+    if (url.pathname === "/api/trigger" && request.method === "POST") {
+      return handleTriggerProxy(request);
+    }
+
+    // Routine posts results here
+    if (url.pathname === "/api/trigger-results" && request.method === "POST") {
+      return handleResultPost(request, env);
+    }
+
+    // Trigger page polls here
+    if (url.pathname.startsWith("/api/trigger-results/") && request.method === "GET") {
+      const sessionId = url.pathname.split("/api/trigger-results/")[1];
+      return handleResultGet(sessionId, env);
+    }
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
     return html(homePage);
   },
 };
+
+async function handleResultPost(request: Request, env: Env): Promise<Response> {
+  try {
+    const { result_key, session_id, status, output } = await request.json() as {
+      result_key?: string;
+      session_id?: string;
+      status?: string;
+      output?: string;
+    };
+    const key = result_key || session_id;
+    if (!key) {
+      return Response.json({ error: "Missing result_key or session_id" }, { status: 400 });
+    }
+    const result = {
+      result_key: key,
+      status: status || "complete",
+      output: output || "",
+      posted_at: new Date().toISOString(),
+    };
+    // Store for 24 hours
+    await env.TRIGGER_RESULTS.put(key, JSON.stringify(result), { expirationTtl: 86400 });
+    return Response.json({ ok: true });
+  } catch (e: any) {
+    return Response.json({ error: e.message }, { status: 500 });
+  }
+}
+
+async function handleResultGet(sessionId: string, env: Env): Promise<Response> {
+  if (!sessionId) {
+    return Response.json({ error: "Missing session_id" }, { status: 400 });
+  }
+  const data = await env.TRIGGER_RESULTS.get(sessionId);
+  if (!data) {
+    return Response.json({ status: "pending" });
+  }
+  return Response.json(JSON.parse(data));
+}
+
+async function handleTriggerProxy(request: Request): Promise<Response> {
+  try {
+    const { apiKey, triggerUrl, text } = await request.json() as {
+      apiKey?: string;
+      triggerUrl?: string;
+      text?: string;
+    };
+    if (!apiKey || !triggerUrl) {
+      return Response.json({ error: { message: "Missing apiKey or triggerUrl" } }, { status: 400 });
+    }
+
+    const body: Record<string, string> = {};
+    if (text) body.text = text;
+
+    const res = await fetch(triggerUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + apiKey,
+        "anthropic-beta": "experimental-cc-routine-2026-04-01",
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+    return Response.json(data, { status: res.status });
+  } catch (e: any) {
+    return Response.json({ error: { message: e.message || "Proxy error" } }, { status: 500 });
+  }
+}
 
 function html(body: string): Response {
   return new Response(body, {
@@ -39,6 +141,10 @@ const homePage = `<!DOCTYPE html>
       justify-content: center;
       padding: 24px;
     }
+    nav { width: 100%; max-width: 480px; display: flex; justify-content: center; gap: 24px; padding: 16px 0; margin-bottom: 16px; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
     .container { max-width: 480px; text-align: center; }
     h1 { font-size: 48px; font-weight: 700; margin-bottom: 12px; }
     .tagline { font-size: 20px; color: #666; margin-bottom: 32px; line-height: 1.5; }
@@ -67,6 +173,12 @@ const homePage = `<!DOCTYPE html>
   </style>
 </head>
 <body>
+  <nav>
+    <a href="/" class="active">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/usage">Usage</a>
+    <a href="/trigger">Trigger</a>
+  </nav>
   <div class="container">
     <h1>whyapp</h1>
     <p class="tagline">A personal assistant that learns how you prioritize what matters.</p>
@@ -78,9 +190,7 @@ const homePage = `<!DOCTYPE html>
       <li>Trainable priority system that adapts to your feedback</li>
     </ul>
     <a class="badge" href="#">Available via TestFlight</a>
-    <footer>
-      <a href="/privacy">Privacy Policy</a>
-    </footer>
+    <footer>whyapp</footer>
   </div>
 </body>
 </html>`;
@@ -109,10 +219,20 @@ const privacyPage = `<!DOCTYPE html>
     li { margin-bottom: 6px; font-size: 16px; }
     a { color: #4285F4; text-decoration: none; }
     a:hover { text-decoration: underline; }
+    nav { max-width: 640px; margin: 0 auto; display: flex; gap: 24px; padding: 16px 0; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
     footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #eee; font-size: 14px; color: #aaa; }
   </style>
 </head>
 <body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/privacy" class="active">Privacy</a>
+    <a href="/usage">Usage</a>
+    <a href="/trigger">Trigger</a>
+  </nav>
   <div class="container">
     <h1>Privacy Policy</h1>
     <p class="updated">Last updated: May 12, 2026</p>
@@ -171,9 +291,7 @@ const privacyPage = `<!DOCTYPE html>
     <h2>Contact</h2>
     <p>For questions about this privacy policy, contact us at the email associated with this app's developer account.</p>
 
-    <footer>
-      <a href="/">Home</a>
-    </footer>
+    <footer>whyapp</footer>
   </div>
 </body>
 </html>`;
@@ -207,10 +325,19 @@ const usagePage = `<!DOCTYPE html>
     .recent-table td { padding: 6px 8px; border-bottom: 1px solid #f5f5f5; white-space: nowrap; }
     .loading { text-align: center; padding: 40px; color: #aaa; }
     .error { color: #e53e3e; padding: 12px; background: #fff5f5; border-radius: 8px; margin-bottom: 16px; }
+    nav { max-width: 900px; margin: 0 auto; display: flex; gap: 24px; padding: 16px 0; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/usage" class="active">Usage</a>
+  </nav>
   <div class="container">
     <h1>API Usage</h1>
     <p class="subtitle">Anthropic Claude API spend tracking</p>
@@ -395,6 +522,285 @@ const usagePage = `<!DOCTYPE html>
     function card(label, value, detail) {
       return '<div class="card"><div class="label">' + label + '</div><div class="value">' + value + '</div><div class="detail">' + detail + '</div></div>';
     }
+  </script>
+</body>
+</html>`;
+
+const triggerPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trigger Routine — whyapp</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #222; padding: 16px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 20px; }
+    nav { max-width: 600px; margin: 0 auto; display: flex; gap: 24px; padding: 16px 0; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
+    .section { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .section label { display: block; font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }
+    .section input, .section textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; }
+    .section textarea { min-height: 80px; resize: vertical; }
+    .key-row { display: flex; gap: 8px; }
+    .key-row input { flex: 1; }
+    .btn-small { padding: 10px 16px; border: 1px solid #ddd; border-radius: 8px; background: #fff; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .btn-small:hover { background: #f5f5f5; }
+    .fire-btn {
+      width: 100%; padding: 14px; border: none; border-radius: 12px;
+      background: #4285F4; color: #fff; font-size: 16px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    .fire-btn:hover { background: #3367d6; }
+    .fire-btn:disabled { background: #a4c2f4; cursor: not-allowed; }
+    .status { margin-top: 12px; font-size: 14px; color: #666; }
+    .status.error { color: #e53e3e; }
+    .status.success { color: #38a169; }
+    .result { background: #fff; border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .result-title { font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+    .result pre { background: #f8f8f8; border-radius: 8px; padding: 12px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .result a { color: #4285F4; font-size: 13px; text-decoration: none; display: inline-block; margin-top: 8px; }
+    .result a:hover { text-decoration: underline; }
+    .history { background: #fff; border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .history-title { font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+    .history-item { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+    .history-item:last-child { border-bottom: none; }
+    .history-item .time { color: #888; }
+    .history-item a { color: #4285F4; text-decoration: none; font-size: 12px; }
+    .clear-btn { font-size: 12px; color: #aaa; background: none; border: none; cursor: pointer; margin-top: 8px; }
+    .clear-btn:hover { color: #e53e3e; }
+    .saved-badge { font-size: 11px; color: #38a169; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/usage">Usage</a>
+    <a href="/trigger" class="active">Trigger</a>
+  </nav>
+  <div class="container">
+    <h1>Trigger Routine</h1>
+    <p class="subtitle">Fire a Claude Code routine via API</p>
+
+    <div class="section">
+      <label>API Token <span id="savedBadge" class="saved-badge" style="display:none">saved</span></label>
+      <div class="key-row">
+        <input id="apiKey" type="password" placeholder="sk-ant-oat01-..." />
+        <button class="btn-small" id="saveBtn">Save</button>
+        <button class="btn-small" id="clearKeyBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Trigger URL</label>
+      <input id="triggerUrl" type="text" value="https://api.anthropic.com/v1/claude_code/routines/trig_01Vt4Cvnebv8NYdArZFqLu6F/fire" />
+    </div>
+
+    <div class="section">
+      <label>Context (optional)</label>
+      <textarea id="contextText" placeholder="Optional text to pass to the routine..."></textarea>
+    </div>
+
+    <button class="fire-btn" id="fireBtn">Fire Routine</button>
+    <div id="status" class="status"></div>
+    <div id="resultBox"></div>
+    <div id="historyBox"></div>
+  </div>
+
+  <script>
+    const LS_KEY = "whyapp_trigger_apikey";
+    const LS_URL = "whyapp_trigger_url";
+    const LS_HISTORY = "whyapp_trigger_history";
+
+    const apiKeyInput = document.getElementById("apiKey");
+    const triggerUrlInput = document.getElementById("triggerUrl");
+    const contextText = document.getElementById("contextText");
+    const fireBtn = document.getElementById("fireBtn");
+    const saveBtn = document.getElementById("saveBtn");
+    const clearKeyBtn = document.getElementById("clearKeyBtn");
+    const savedBadge = document.getElementById("savedBadge");
+    const statusEl = document.getElementById("status");
+    const resultBox = document.getElementById("resultBox");
+    const historyBox = document.getElementById("historyBox");
+
+    // Load saved values
+    const savedKey = localStorage.getItem(LS_KEY);
+    if (savedKey) { apiKeyInput.value = savedKey; savedBadge.style.display = "inline"; }
+    const savedUrl = localStorage.getItem(LS_URL);
+    if (savedUrl) triggerUrlInput.value = savedUrl;
+
+    saveBtn.addEventListener("click", () => {
+      const key = apiKeyInput.value.trim();
+      if (key) {
+        localStorage.setItem(LS_KEY, key);
+        savedBadge.style.display = "inline";
+      }
+      const url = triggerUrlInput.value.trim();
+      if (url) localStorage.setItem(LS_URL, url);
+    });
+
+    clearKeyBtn.addEventListener("click", () => {
+      localStorage.removeItem(LS_KEY);
+      apiKeyInput.value = "";
+      savedBadge.style.display = "none";
+    });
+
+    triggerUrlInput.addEventListener("change", () => {
+      localStorage.setItem(LS_URL, triggerUrlInput.value.trim());
+    });
+
+    fireBtn.addEventListener("click", fire);
+
+    async function fire() {
+      const key = apiKeyInput.value.trim();
+      const url = triggerUrlInput.value.trim();
+      if (!key) { showStatus("Enter your API token", "error"); return; }
+      if (!url) { showStatus("Enter a trigger URL", "error"); return; }
+
+      fireBtn.disabled = true;
+      fireBtn.textContent = "Firing...";
+      showStatus("Sending request...", "");
+      resultBox.innerHTML = "";
+
+      try {
+        const ctx = contextText.value.trim();
+        const resultKey = crypto.randomUUID();
+        const fullContext = "RESULT_KEY: " + resultKey + (ctx ? "\\n\\n" + ctx : "");
+
+        const res = await fetch("/api/trigger", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: key, triggerUrl: url, text: fullContext })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          showStatus("Error " + res.status + ": " + (data.error?.message || JSON.stringify(data)), "error");
+          resultBox.innerHTML = '<div class="result"><div class="result-title">Response</div><pre>' + JSON.stringify(data, null, 2) + '</pre></div>';
+          return;
+        }
+
+        showStatus("Routine fired! Waiting for results...", "success");
+        let resultHtml = '<div class="result"><div class="result-title">Session</div>';
+        if (data.claude_code_session_url) {
+          resultHtml += '<a href="' + data.claude_code_session_url + '" target="_blank">Open session in Claude &rarr;</a>';
+        }
+        resultHtml += '<div id="pollStatus" style="margin-top:12px;font-size:13px;color:#888">Polling for results...</div>';
+        resultHtml += '<div id="routineOutput"></div>';
+        resultHtml += '</div>';
+        resultBox.innerHTML = resultHtml;
+
+        // Poll for results using the result key we passed in context
+        pollForResults(resultKey);
+
+        // Save to history
+        const history = JSON.parse(localStorage.getItem(LS_HISTORY) || "[]");
+        history.unshift({
+          time: new Date().toISOString(),
+          resultKey: resultKey,
+          sessionId: data.claude_code_session_id || null,
+          sessionUrl: data.claude_code_session_url || null,
+          context: ctx ? ctx.slice(0, 100) : null
+        });
+        if (history.length > 20) history.length = 20;
+        localStorage.setItem(LS_HISTORY, JSON.stringify(history));
+        renderHistory();
+
+      } catch (e) {
+        showStatus("Request failed: " + e.message, "error");
+      } finally {
+        fireBtn.disabled = false;
+        fireBtn.textContent = "Fire Routine";
+      }
+    }
+
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    let pollTimer = null;
+    function pollForResults(sessionId) {
+      let attempts = 0;
+      const maxAttempts = 60; // 5 min at 5s intervals
+      const pollStatus = document.getElementById("pollStatus");
+      const routineOutput = document.getElementById("routineOutput");
+
+      function poll() {
+        attempts++;
+        fetch("/api/trigger-results/" + sessionId)
+          .then(r => r.json())
+          .then(data => {
+            if (data.status === "pending") {
+              if (attempts >= maxAttempts) {
+                pollStatus.textContent = "Timed out waiting for results. The routine may still be running.";
+                pollStatus.style.color = "#e53e3e";
+                return;
+              }
+              pollStatus.textContent = "Waiting for results... (" + (attempts * 5) + "s)";
+              pollTimer = setTimeout(poll, 5000);
+            } else {
+              pollStatus.textContent = "Results received!";
+              pollStatus.style.color = "#38a169";
+              routineOutput.innerHTML = '<div class="result-title" style="margin-top:12px">Output</div><pre style="background:#f8f8f8;border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap;word-break:break-word;line-height:1.6">' + escapeHtml(data.output || "(no output)") + '</pre>';
+            }
+          })
+          .catch(() => {
+            pollStatus.textContent = "Poll error. Retrying...";
+            if (attempts < maxAttempts) pollTimer = setTimeout(poll, 5000);
+          });
+      }
+      poll();
+    }
+
+    function loadResult(resultKey) {
+      const routineOutput = document.getElementById("routineOutput");
+      if (!routineOutput) {
+        resultBox.innerHTML = '<div class="result"><div id="pollStatus" style="font-size:13px;color:#888">Loading...</div><div id="routineOutput"></div></div>';
+      }
+      fetch("/api/trigger-results/" + resultKey)
+        .then(r => r.json())
+        .then(data => {
+          const out = document.getElementById("routineOutput") || resultBox;
+          if (data.status === "pending") {
+            out.innerHTML = '<p style="color:#888;font-size:13px;margin-top:8px">No results yet for this run.</p>';
+          } else {
+            out.innerHTML = '<div class="result-title" style="margin-top:12px">Output</div><pre style="background:#f8f8f8;border-radius:8px;padding:12px;font-size:13px;white-space:pre-wrap;word-break:break-word;line-height:1.6">' + escapeHtml(data.output || "(no output)") + '</pre>';
+          }
+          const ps = document.getElementById("pollStatus");
+          if (ps) ps.style.display = "none";
+        });
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
+
+    function renderHistory() {
+      const history = JSON.parse(localStorage.getItem(LS_HISTORY) || "[]");
+      if (history.length === 0) { historyBox.innerHTML = ""; return; }
+
+      let html = '<div class="history"><div class="history-title">Recent Runs</div>';
+      for (const h of history) {
+        const time = new Date(h.time).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        html += '<div class="history-item"><span class="time">' + time + '</span>';
+        if (h.context) html += '<span style="color:#666;margin:0 8px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + h.context + '</span>';
+        if (h.resultKey) html += '<a href="#" onclick="loadResult(\\'' + h.resultKey + '\\');return false" style="margin-right:8px">View results</a>';
+        if (h.sessionUrl) html += '<a href="' + h.sessionUrl + '" target="_blank">Session</a>';
+        html += '</div>';
+      }
+      html += '<button class="clear-btn" onclick="localStorage.removeItem(\\'whyapp_trigger_history\\');historyBox.innerHTML=\\'\\'">Clear history</button>';
+      html += '</div>';
+      historyBox.innerHTML = html;
+    }
+
+    renderHistory();
   </script>
 </body>
 </html>`;

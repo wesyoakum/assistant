@@ -60,10 +60,6 @@ function AuthGate() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen
-        name="triage"
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
         name="notifications"
         options={{ headerShown: true, title: "Notification History" }}
       />
@@ -79,7 +75,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthGate />
       </QueryClientProvider>
-      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v11</Text>
+      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v12</Text>
     </GestureHandlerRootView>
   );
 }

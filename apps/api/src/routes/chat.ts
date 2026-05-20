@@ -30,7 +30,87 @@ chat.post("/", async (c) => {
     .bind(userId)
     .all<{ role: "user" | "assistant"; content: string }>();
 
-  const messages: { role: "user" | "assistant"; content: string }[] = [];
+  // Load stored emails and calendar events for context
+  const { results: emailRows } = await c.env.DB.prepare(
+    `SELECT subject, from_addr, email_date, snippet, body_text
+     FROM pending_emails WHERE user_id = ? AND source_type = 'email'
+     ORDER BY email_date DESC LIMIT 50`
+  ).bind(userId).all<{ subject: string; from_addr: string; email_date: string; snippet: string; body_text: string }>();
+
+  const { results: calRows } = await c.env.DB.prepare(
+    `SELECT subject, body_text, email_date
+     FROM pending_emails WHERE user_id = ? AND source_type = 'calendar'
+     ORDER BY email_date ASC LIMIT 50`
+  ).bind(userId).all<{ subject: string; body_text: string; email_date: string }>();
+
+  let dataContext = "";
+
+  if (emailRows.length > 0) {
+    dataContext += "\n\n<emails>\n";
+    for (const e of emailRows) {
+      dataContext += `From: ${e.from_addr}\nDate: ${e.email_date}\nSubject: ${e.subject}\n${e.body_text ? e.body_text.slice(0, 500) : e.snippet}\n---\n`;
+    }
+    dataContext += "</emails>";
+  }
+
+  if (calRows.length > 0) {
+    dataContext += "\n\n<calendar_events>\n";
+    for (const ev of calRows) {
+      try {
+        const parsed = JSON.parse(ev.body_text);
+        dataContext += `Event: ${parsed.summary || ev.subject}\nWhen: ${parsed.start || ev.email_date}${parsed.end ? " - " + parsed.end : ""}\nCalendar: ${parsed.calendarName || ""}\n${parsed.location ? "Location: " + parsed.location + "\n" : ""}${parsed.description ? "Details: " + parsed.description.slice(0, 300) + "\n" : ""}---\n`;
+      } catch {
+        dataContext += `Event: ${ev.subject}\nWhen: ${ev.email_date}\n---\n`;
+      }
+    }
+    dataContext += "</calendar_events>";
+  }
+
+  // Load pending reminders for context
+  const { results: reminderRows } = await c.env.DB.prepare(
+    `SELECT message, fire_at, status FROM reminders
+     WHERE user_id = ? AND status = 'pending'
+     ORDER BY fire_at ASC LIMIT 20`
+  ).bind(userId).all<{ message: string; fire_at: string; status: string }>();
+
+  let remindersContext = "";
+  if (reminderRows.length > 0) {
+    remindersContext += "\n\n<pending_reminders>\n";
+    for (const r of reminderRows) {
+      remindersContext += `- "${r.message}" at ${r.fire_at}\n`;
+    }
+    remindersContext += "</pending_reminders>";
+  }
+
+  const now = new Date();
+  const systemPrompt = `You are a helpful personal assistant. You have access to the user's synced emails, calendar events, and pending reminders below. Use this data to answer questions about their schedule, emails, priorities, and upcoming commitments.
+
+Current date/time: ${now.toISOString()} (UTC). The user is in US Central Time.
+
+You can create reminders that will be delivered as push notifications. When the user asks you to remind them about something, use the create_reminder tool. Parse relative times like "in 30 minutes", "tomorrow at 9am", "next Monday" into ISO 8601 UTC timestamps. When the user says a time without a timezone, assume US Central Time and convert to UTC.${dataContext}${remindersContext}`;
+
+  const tools = [
+    {
+      name: "create_reminder",
+      description: "Schedule a push notification reminder for the user at a specific time. Use this when the user asks to be reminded about something.",
+      input_schema: {
+        type: "object",
+        properties: {
+          message: {
+            type: "string",
+            description: "The reminder message to show in the push notification",
+          },
+          fire_at: {
+            type: "string",
+            description: "ISO 8601 UTC timestamp for when to fire the reminder (e.g. 2026-05-20T15:00:00Z)",
+          },
+        },
+        required: ["message", "fire_at"],
+      },
+    },
+  ];
+
+  const messages: { role: "user" | "assistant"; content: string | object[] }[] = [];
   for (const row of historyRows.reverse()) {
     messages.push({ role: row.role, content: row.content });
   }
@@ -46,8 +126,15 @@ chat.post("/", async (c) => {
     body: JSON.stringify({
       model: CHAT_MODEL,
       max_tokens: 1024,
-      system: "You are a helpful assistant.",
+      system: [
+        {
+          type: "text",
+          text: systemPrompt,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages,
+      tools,
     }),
   });
 
@@ -57,13 +144,87 @@ chat.post("/", async (c) => {
     return c.json({ error: "Assistant unavailable", detail: `${res.status}: ${err.slice(0, 200)}` }, 502);
   }
 
+  type ContentBlock =
+    | { type: "text"; text: string }
+    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> };
+
   const data = (await res.json()) as {
-    content: { type: string; text?: string }[];
+    content: ContentBlock[];
+    stop_reason: string;
     usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
   };
   await logUsage(c.env.DB, userId, "chat", CHAT_MODEL, data.usage);
-  const textBlock = data.content.find((b) => b.type === "text");
-  const reply = textBlock?.text || "Sorry, I couldn't generate a response.";
+
+  // Process tool calls
+  const toolResults: { type: "tool_result"; tool_use_id: string; content: string }[] = [];
+  const createdReminders: string[] = [];
+
+  for (const block of data.content) {
+    if (block.type === "tool_use" && block.name === "create_reminder") {
+      const input = block.input as { message: string; fire_at: string };
+      const reminderId = crypto.randomUUID();
+
+      await c.env.DB.prepare(
+        "INSERT INTO reminders (id, user_id, message, fire_at) VALUES (?, ?, ?, ?)"
+      ).bind(reminderId, userId, input.message, input.fire_at).run();
+
+      createdReminders.push(`"${input.message}" at ${input.fire_at}`);
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: `Reminder created: "${input.message}" scheduled for ${input.fire_at}`,
+      });
+    }
+  }
+
+  let reply: string;
+
+  if (toolResults.length > 0 && data.stop_reason === "tool_use") {
+    // Send tool results back to get a natural language response
+    const followUpMessages = [
+      ...messages,
+      { role: "assistant" as const, content: data.content },
+      { role: "user" as const, content: toolResults },
+    ];
+
+    const followUpRes = await fetch(CLAUDE_API, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": c.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        max_tokens: 1024,
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: followUpMessages,
+        tools,
+      }),
+    });
+
+    if (followUpRes.ok) {
+      const followUpData = (await followUpRes.json()) as {
+        content: ContentBlock[];
+        usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+      };
+      await logUsage(c.env.DB, userId, "chat", CHAT_MODEL, followUpData.usage);
+      const textBlock = followUpData.content.find((b): b is { type: "text"; text: string } => b.type === "text");
+      reply = textBlock?.text || `Reminder set: ${createdReminders.join(", ")}`;
+    } else {
+      reply = `Reminder set: ${createdReminders.join(", ")}`;
+    }
+  } else {
+    // No tool calls — just extract text
+    const textBlock = data.content.find((b): b is { type: "text"; text: string } => b.type === "text");
+    reply = textBlock?.text || "Sorry, I couldn't generate a response.";
+  }
 
   // Persist messages
   await c.env.DB.prepare(

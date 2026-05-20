@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -40,6 +40,7 @@ function formatEmailDate(dateStr: string | null): string {
 
 export default function EmailScreen() {
   const queryClient = useQueryClient();
+  const lastSyncTime = useRef<string | null>(null);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["emails"],
@@ -47,11 +48,24 @@ export default function EmailScreen() {
   });
 
   const syncMutation = useMutation({
-    mutationFn: () => apiFetch("/gmail/sync", { method: "POST" }),
+    mutationFn: () => {
+      const syncStart = new Date().toISOString();
+      return apiFetch<{ synced: number; stored: number }>("/gmail/sync", { method: "POST" }).then((result) => {
+        if (result.stored > 0) {
+          lastSyncTime.current = syncStart;
+        }
+        return result;
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
     },
   });
+
+  const isNew = (email: RawEmail) => {
+    if (!lastSyncTime.current) return false;
+    return email.collected_at >= lastSyncTime.current;
+  };
 
   const handleRefresh = useCallback(() => {
     syncMutation.mutate();
@@ -76,7 +90,11 @@ export default function EmailScreen() {
         disabled={syncMutation.isPending}
       >
         <Text style={styles.syncBtnText}>
-          {syncMutation.isPending ? "Syncing..." : "Sync Email"}
+          {syncMutation.isPending
+            ? "Syncing..."
+            : syncMutation.data?.stored
+              ? `Sync Email (${syncMutation.data.stored} new)`
+              : "Sync Email"}
         </Text>
       </Pressable>
 
@@ -93,28 +111,35 @@ export default function EmailScreen() {
         ListEmptyComponent={
           <Text style={styles.emptyText}>No emails yet. Tap Sync Email above.</Text>
         }
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowContent}>
-              {item.from_addr && (
-                <Text style={styles.sender} numberOfLines={1}>
-                  {item.from_addr}
+        renderItem={({ item }) => {
+          const fresh = isNew(item);
+          return (
+            <View style={[styles.row, fresh && styles.rowNew]}>
+              {fresh && <View style={styles.newDot} />}
+              <View style={styles.rowContent}>
+                {item.from_addr && (
+                  <Text style={[styles.sender, fresh && styles.senderNew]} numberOfLines={1}>
+                    {item.from_addr}
+                  </Text>
+                )}
+                <Text style={[styles.subject, fresh && styles.subjectNew]} numberOfLines={1}>
+                  {item.subject || "(no subject)"}
                 </Text>
-              )}
-              <Text style={styles.subject} numberOfLines={1}>
-                {item.subject || "(no subject)"}
-              </Text>
-              {item.snippet && (
-                <Text style={styles.snippet} numberOfLines={2}>
-                  {item.snippet}
+                {item.snippet && (
+                  <Text style={styles.snippet} numberOfLines={2}>
+                    {item.snippet}
+                  </Text>
+                )}
+              </View>
+              <View style={styles.timeCol}>
+                <Text style={styles.time}>
+                  {formatEmailDate(item.email_date)}
                 </Text>
-              )}
+                {fresh && <Text style={styles.newLabel}>NEW</Text>}
+              </View>
             </View>
-            <Text style={styles.time}>
-              {formatEmailDate(item.email_date)}
-            </Text>
-          </View>
-        )}
+          );
+        }}
       />
     </View>
   );
@@ -143,9 +168,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
   },
+  rowNew: {
+    backgroundColor: "#f0f7ff",
+    borderLeftWidth: 3,
+    borderLeftColor: "#4285F4",
+  },
+  newDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#4285F4",
+    marginRight: 8,
+  },
   rowContent: { flex: 1, marginRight: 10 },
   sender: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 2 },
+  senderNew: { color: "#1a56db" },
   subject: { fontSize: 15, color: "#222", lineHeight: 20 },
+  subjectNew: { fontWeight: "700" },
   snippet: { fontSize: 13, color: "#666", marginTop: 3, lineHeight: 18 },
+  timeCol: { alignItems: "flex-end" },
   time: { fontSize: 12, color: "#999" },
+  newLabel: { fontSize: 10, fontWeight: "700", color: "#4285F4", marginTop: 2 },
 });
