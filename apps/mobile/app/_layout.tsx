@@ -59,10 +59,6 @@ function AuthGate() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen
-        name="notifications"
-        options={{ headerShown: true, title: "Notification History" }}
-      />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="index" />
     </Stack>

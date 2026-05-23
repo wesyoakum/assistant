@@ -191,62 +191,6 @@ calendar.post("/calendars/:id/alias", async (c) => {
   return c.json({ ok: true });
 });
 
-// List pending calendar suggestions
-// Suggestions disabled — classification pipeline paused
-calendar.get("/suggestions", async (c) => {
-  return c.json({ suggestions: [] });
-});
-
-// Accept a suggestion — creates a Google Calendar event
-calendar.post("/suggestions/:id/accept", async (c) => {
-  const userId = c.get("userId");
-  const id = c.req.param("id");
-
-  const suggestion = await c.env.DB.prepare(
-    "SELECT * FROM calendar_suggestions WHERE id = ? AND user_id = ? AND status = 'pending'"
-  )
-    .bind(id, userId)
-    .first<{
-      id: string;
-      title: string;
-      start_iso: string;
-      end_iso: string;
-      location: string | null;
-    }>();
-
-  if (!suggestion) return c.json({ error: "Not found" }, 404);
-
-  const event = await createEvent(userId, {
-    title: suggestion.title,
-    startIso: suggestion.start_iso,
-    endIso: suggestion.end_iso,
-    location: suggestion.location || undefined,
-  }, c.env);
-
-  await c.env.DB.prepare(
-    "UPDATE calendar_suggestions SET status = 'accepted', google_event_id = ? WHERE id = ?"
-  )
-    .bind(event.id, id)
-    .run();
-
-  return c.json({ ok: true, googleEventId: event.id, htmlLink: event.htmlLink });
-});
-
-// Reject a suggestion
-calendar.post("/suggestions/:id/reject", async (c) => {
-  const userId = c.get("userId");
-  const id = c.req.param("id");
-
-  const result = await c.env.DB.prepare(
-    "UPDATE calendar_suggestions SET status = 'rejected' WHERE id = ? AND user_id = ? AND status = 'pending'"
-  )
-    .bind(id, userId)
-    .run();
-
-  if (!result.meta.changes) return c.json({ error: "Not found" }, 404);
-  return c.json({ ok: true });
-});
-
 // Create an event directly
 calendar.post("/events", async (c) => {
   const userId = c.get("userId");
@@ -266,12 +210,10 @@ calendar.post("/events", async (c) => {
   return c.json({ ok: true, googleEventId: event.id, htmlLink: event.htmlLink });
 });
 
-// Clear all calendar data (sync state, suggestions, calendar triage items, ical events)
+// Clear cached calendar data (sync state + raw event store).
 calendar.delete("/data", async (c) => {
   const userId = c.get("userId");
   await c.env.DB.prepare("DELETE FROM calendar_sync_state WHERE user_id = ?").bind(userId).run();
-  await c.env.DB.prepare("DELETE FROM calendar_suggestions WHERE user_id = ?").bind(userId).run();
-  await c.env.DB.prepare("DELETE FROM triage_items WHERE user_id = ? AND source_type IN ('calendar','event')").bind(userId).run();
   await c.env.DB.prepare("DELETE FROM ical_events WHERE user_id = ?").bind(userId).run();
   await c.env.DB.prepare("DELETE FROM pending_emails WHERE user_id = ? AND source_type = 'calendar'").bind(userId).run();
   return c.json({ ok: true });

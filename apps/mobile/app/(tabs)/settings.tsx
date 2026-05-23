@@ -417,19 +417,8 @@ export default function SettingsScreen() {
       </>
       )}
 
-      {/* Notifications section */}
       {tab === "general" && (
       <>
-      <Text style={styles.sectionTitle}>Notifications</Text>
-      <View style={styles.card}>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => router.push("/notifications")}
-        >
-          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>View Notification History</Text>
-        </Pressable>
-      </View>
-
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.card}>

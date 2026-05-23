@@ -3,7 +3,6 @@ import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
 import { verifyJwt } from "../services/jwt";
-import type { QueueMessage } from "@assistant/shared";
 
 type FilesApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 

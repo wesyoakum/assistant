@@ -1,7 +1,7 @@
 /**
  * GroupMe API helpers.
- * Smoke-test scope: per-user encrypted token storage + read-only API wrappers
- * (users/me, groups, group messages). No triage, no message storage.
+ * Per-user encrypted token storage + read-only API wrappers (users/me,
+ * groups, group messages).
  *
  * GroupMe API base: https://api.groupme.com/v3
  * Auth: pass `?token=<access_token>` on every request.
