@@ -10,6 +10,7 @@ import { context } from "./routes/context";
 import { push } from "./routes/push";
 import { control } from "./routes/control";
 import { usage } from "./routes/usage";
+import { groupme } from "./routes/groupme";
 import { syncIcalFeed } from "./services/ical";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
@@ -27,6 +28,7 @@ export type Env = {
   ANTHROPIC_API_KEY: string;
   ENVIRONMENT: string;
   BRAVE_SEARCH_API_KEY: string;
+  GROUPME_CLIENT_ID: string;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -47,6 +49,7 @@ app.route("/context", context);
 app.route("/push", push);
 app.route("/control", control);
 app.route("/usage", usage);
+app.route("/groupme", groupme);
 
 // Fresh start: clear triage + chat + summaries, re-evaluate from source data.
 // Keeps user_context, feedback, auth, push tokens.
