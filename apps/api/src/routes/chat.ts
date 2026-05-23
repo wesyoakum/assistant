@@ -10,6 +10,13 @@ type ChatApp = Hono<{ Bindings: Env; Variables: AuthVariables }>;
 
 const chat: ChatApp = new Hono();
 
+function summarizeToolActions(reminders: string[], contextSaves: string[]): string {
+  const parts: string[] = [];
+  if (reminders.length) parts.push(`Reminder set: ${reminders.join(", ")}`);
+  if (contextSaves.length) parts.push(`Remembered: ${contextSaves.join(", ")}`);
+  return parts.length ? parts.join(". ") : "Done.";
+}
+
 chat.use("*", authMiddleware);
 
 chat.post("/", async (c) => {
@@ -82,12 +89,37 @@ chat.post("/", async (c) => {
     remindersContext += "</pending_reminders>";
   }
 
+  // Load remembered user context — both background facts and hard preferences.
+  const { results: contextRows } = await c.env.DB.prepare(
+    `SELECT kind, label, detail FROM user_context WHERE user_id = ? ORDER BY kind, label`
+  ).bind(userId).all<{ kind: string; label: string; detail: string | null }>();
+
+  let userContextBlock = "";
+  if (contextRows.length > 0) {
+    const preferences = contextRows.filter((r) => r.kind === "preference");
+    const regular = contextRows.filter((r) => r.kind !== "preference" && r.kind !== "feature");
+    if (regular.length > 0) {
+      userContextBlock += "\n\n## Remembered Context\nThings the user has previously asked you to remember:\n";
+      for (const r of regular) {
+        userContextBlock += `- ${r.kind}: ${r.label}${r.detail ? ` — ${r.detail}` : ""}\n`;
+      }
+    }
+    if (preferences.length > 0) {
+      userContextBlock += "\n\n## User Preferences (follow these)\n";
+      for (const p of preferences) {
+        userContextBlock += `- **${p.label}**: ${p.detail || ""}\n`;
+      }
+    }
+  }
+
   const now = new Date();
   const systemPrompt = `You are a helpful personal assistant. You have access to the user's synced emails, calendar events, and pending reminders below. Use this data to answer questions about their schedule, emails, priorities, and upcoming commitments.
 
 Current date/time: ${now.toISOString()} (UTC). The user is in US Central Time.
 
-You can create reminders that will be delivered as push notifications. When the user asks you to remind them about something, use the create_reminder tool. Parse relative times like "in 30 minutes", "tomorrow at 9am", "next Monday" into ISO 8601 UTC timestamps. When the user says a time without a timezone, assume US Central Time and convert to UTC.${dataContext}${remindersContext}`;
+You can create reminders that will be delivered as push notifications. When the user asks you to remind them about something, use the create_reminder tool. Parse relative times like "in 30 minutes", "tomorrow at 9am", "next Monday" into ISO 8601 UTC timestamps. When the user says a time without a timezone, assume US Central Time and convert to UTC.
+
+When the user asks you to remember something about them, their preferences, or how you should behave (e.g. "remember that…", "from now on…", "I prefer…"), use the save_context tool to persist it. Use kind="preference" for behavioral rules you should follow (these become hard rules); use a descriptive kind like "person", "project", "fact", "habit", etc. for background information. Pick a short label and put the substance in detail.${userContextBlock}${dataContext}${remindersContext}`;
 
   const tools = [
     {
@@ -106,6 +138,29 @@ You can create reminders that will be delivered as push notifications. When the 
           },
         },
         required: ["message", "fire_at"],
+      },
+    },
+    {
+      name: "save_context",
+      description:
+        "Persist a fact, preference, or instruction the user wants you to remember across conversations. Use kind='preference' for behavioral rules the assistant and classifier should follow; otherwise pick a descriptive kind such as 'person', 'project', 'fact', 'habit', 'goal'. Keep label short (a few words) and put the substance in detail.",
+      input_schema: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            description: "Category, e.g. 'preference', 'person', 'project', 'fact', 'habit', 'goal'.",
+          },
+          label: {
+            type: "string",
+            description: "Short identifier — a few words. For preferences, phrase as a rule (e.g. 'No work emails on weekends').",
+          },
+          detail: {
+            type: "string",
+            description: "Full content of what to remember. Optional if the label is self-contained.",
+          },
+        },
+        required: ["kind", "label"],
       },
     },
   ];
@@ -158,6 +213,7 @@ You can create reminders that will be delivered as push notifications. When the 
   // Process tool calls
   const toolResults: { type: "tool_result"; tool_use_id: string; content: string }[] = [];
   const createdReminders: string[] = [];
+  const savedContext: string[] = [];
 
   for (const block of data.content) {
     if (block.type === "tool_use" && block.name === "create_reminder") {
@@ -173,6 +229,30 @@ You can create reminders that will be delivered as push notifications. When the 
         type: "tool_result",
         tool_use_id: block.id,
         content: `Reminder created: "${input.message}" scheduled for ${input.fire_at}`,
+      });
+    } else if (block.type === "tool_use" && block.name === "save_context") {
+      const input = block.input as { kind: string; label: string; detail?: string };
+      const kind = input.kind?.trim();
+      const label = input.label?.trim();
+      if (!kind || !label) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: "Error: kind and label are required.",
+        });
+        continue;
+      }
+      const detail = input.detail?.trim() || null;
+      const contextId = crypto.randomUUID();
+      await c.env.DB.prepare(
+        "INSERT INTO user_context (id, user_id, kind, label, detail) VALUES (?, ?, ?, ?, ?)"
+      ).bind(contextId, userId, kind, label, detail).run();
+
+      savedContext.push(`${kind}: ${label}`);
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: `Saved: ${kind} — ${label}${detail ? ` (${detail})` : ""}`,
       });
     }
   }
@@ -216,9 +296,9 @@ You can create reminders that will be delivered as push notifications. When the 
       };
       await logUsage(c.env.DB, userId, "chat", CHAT_MODEL, followUpData.usage);
       const textBlock = followUpData.content.find((b): b is { type: "text"; text: string } => b.type === "text");
-      reply = textBlock?.text || `Reminder set: ${createdReminders.join(", ")}`;
+      reply = textBlock?.text || summarizeToolActions(createdReminders, savedContext);
     } else {
-      reply = `Reminder set: ${createdReminders.join(", ")}`;
+      reply = summarizeToolActions(createdReminders, savedContext);
     }
   } else {
     // No tool calls — just extract text

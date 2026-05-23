@@ -18,6 +18,10 @@ export default {
       return html(triggerPage);
     }
 
+    if (url.pathname === "/claude.md" || url.pathname === "/claude-md") {
+      return html(claudeMdPage);
+    }
+
     if (url.pathname === "/api/trigger" && request.method === "POST") {
       return handleTriggerProxy(request);
     }
@@ -178,6 +182,7 @@ const homePage = `<!DOCTYPE html>
     <a href="/privacy">Privacy</a>
     <a href="/usage">Usage</a>
     <a href="/trigger">Trigger</a>
+    <a href="/claude.md">CLAUDE.md</a>
   </nav>
   <div class="container">
     <h1>whyapp</h1>
@@ -232,6 +237,7 @@ const privacyPage = `<!DOCTYPE html>
     <a href="/privacy" class="active">Privacy</a>
     <a href="/usage">Usage</a>
     <a href="/trigger">Trigger</a>
+    <a href="/claude.md">CLAUDE.md</a>
   </nav>
   <div class="container">
     <h1>Privacy Policy</h1>
@@ -337,6 +343,8 @@ const usagePage = `<!DOCTYPE html>
     <a href="/">Home</a>
     <a href="/privacy">Privacy</a>
     <a href="/usage" class="active">Usage</a>
+    <a href="/trigger">Trigger</a>
+    <a href="/claude.md">CLAUDE.md</a>
   </nav>
   <div class="container">
     <h1>API Usage</h1>
@@ -582,6 +590,7 @@ const triggerPage = `<!DOCTYPE html>
     <a href="/privacy">Privacy</a>
     <a href="/usage">Usage</a>
     <a href="/trigger" class="active">Trigger</a>
+    <a href="/claude.md">CLAUDE.md</a>
   </nav>
   <div class="container">
     <h1>Trigger Routine</h1>
@@ -801,6 +810,93 @@ const triggerPage = `<!DOCTYPE html>
     }
 
     renderHistory();
+  </script>
+</body>
+</html>`;
+const CLAUDE_MD_CONTENT = "# Personal Assistant iOS App (\"whyapp\") — Project Brief\n\n## What this is\n\nA chat-first personal assistant for solo use, distributed to 1–2 testers via\nTestFlight. The triage / classifier pipeline that the project started with has\nbeen removed. The current shape is:\n\n- **Chat** is the primary interface. It can read your synced emails, calendar\n  events, and pending reminders, set reminders, and persist memories\n  (\"remember that…\", \"from now on…\") into `user_context` so future chats\n  pick them up automatically.\n- **Raw data tabs** (Email, Calendar, Capture) show synced source data with\n  manual Sync buttons. No classification, no scoring, no ranking.\n- **GroupMe** smoke-test integration: per-user encrypted token, read-only API\n  wrappers for groups + messages.\n\n## Stack (locked)\n\n- Mobile: **Expo (React Native) + TypeScript**, distributed via **EAS Build → TestFlight**.\n- Backend: **Cloudflare Workers + D1 + R2** (Hono framework). Workers Paid plan.\n- AI: **Anthropic Claude** for chat. Currently `claude-opus-4-7` for chat\n  (see `apps/api/src/services/claude.ts`).\n- Auth: **Google OAuth** = app identity.\n- Domain: **`whyapp.us`**. API at `api.whyapp.us`. OAuth callback at\n  `https://api.whyapp.us/auth/google/callback`.\n- iOS URL scheme: `whyapp://`\n\n## Repo layout\n\n```\nassistant/\n  package.json, pnpm-workspace.yaml, tsconfig.base.json\n  apps/\n    mobile/   # Expo app (expo-router)\n    api/      # Cloudflare Worker (Hono)\n    web/      # marketing + privacy-policy Worker for whyapp.us\n  packages/\n    shared/   # tiny shared TS types\n```\n\n## Backend (`apps/api/`)\n\nHono on Workers; D1 for data; R2 for files; a 1-minute cron for firing\nreminders. The queue binding is kept but unused — the consumer drains\nmessages.\n\n### Live D1 tables (source of truth: `apps/api/migrations/*.sql`)\n\n- `users` — id, google_sub, email, name, picture_url\n- `oauth_tokens` — encrypted Google access + refresh tokens (AES-GCM)\n- `gmail_sync_state` — history_id for incremental Gmail sync\n- `pending_emails` — raw store for synced emails (`source_type='email'`)\n  and calendar events (`source_type='calendar'`); chat reads from here\n- `calendar_sync_state` — per-(user, calendar, event) hash for change detection\n- `user_calendar_prefs` — per-calendar enabled flag + alias\n- `ical_feeds`, `ical_events` — external iCal subscriptions\n- `ingested_files` — uploaded files in R2 (kind, r2_key, status)\n- `user_context` — kind / label / detail. Chat memory.\n  `kind='preference'` entries are surfaced as hard rules in the chat prompt.\n- `chat_messages`, `chat_summaries` — chat history and rollups\n- `reminders` — chat-created reminders (id, message, fire_at, status)\n- `push_tokens` — Expo push tokens\n- `notification_log` — outbound reminders\n- `api_usage` — per-call cost log\n- `groupme_tokens` — per-user encrypted GroupMe access tokens\n\nDropped in migration `0019_drop_triage.sql`: `triage_items`, `feedback`,\n`calendar_suggestions`, `user_settings`, plus the `triage_item_id` columns\non `reminders` and `notification_log`.\n\n### API surface (Hono routes)\n\nAll authed endpoints require `Authorization: Bearer <session_jwt>`.\nJWT is HS256, 30-day expiry.\n\n- **Auth:** `GET /auth/google/start`, `GET /auth/google/callback`, `POST /auth/logout`, `GET /me`.\n- **Gmail:** `POST /gmail/sync`, `GET /gmail/emails`, `DELETE /gmail/emails`.\n- **Calendar:** `GET /calendar/events`, `POST /calendar/sync`, `POST /calendar/events`,\n  per-calendar toggles + aliases, iCal feed CRUD, `DELETE /calendar/data`.\n- **Files:** `POST /files/upload` (≤100MB to R2), `GET /files`, `GET /files/:id`, `GET /files/:id/download`.\n- **Chat:** `POST /chat` (Anthropic tool_use — `create_reminder`, `save_context`),\n  `GET /chat/greeting`, `GET /chat/history`, `DELETE /chat/history`.\n- **Context:** `GET /context`, `POST /context`, `DELETE /context/:id` — manual\n  user_context management. The chat's `save_context` tool writes to the same table.\n- **Push:** `POST /push/register`, `POST /push/unregister` (for reminder delivery).\n- **Usage:** `GET /usage*` — per-day cost rollup.\n- **GroupMe:** `GET /groupme/connect`, `GET /groupme/callback` (OAuth flow);\n  `POST /groupme/token` (paste an existing access token directly);\n  `GET /groupme/status`, `GET /groupme/me`, `GET /groupme/groups`,\n  `GET /groupme/groups/:id/messages`, `DELETE /groupme/` (disconnect).\n\n### Chat memory\n\nThe chat system prompt injects two slots of `user_context`:\n\n- Entries with `kind='preference'` appear under **User Preferences (follow these)**\n  as hard rules the assistant must follow.\n- Other entries appear under **Remembered Context** as background facts.\n\nThe `save_context` tool lets the model write new entries when the user says\n\"remember that…\" / \"from now on…\" / \"I prefer…\". Use a descriptive kind\n(`person`, `project`, `fact`, `habit`, `goal`) for background; use `preference`\nfor behavioral rules.\n\n### Cron\n\n`crons = [\"* * * * *\"]`. The single job in `scheduled()` fires due reminders\nand ships them as Expo push.\n\n### OAuth security\n\n- Master key in Worker secret `OAUTH_ENCRYPTION_KEY` (32-byte base64).\n- Per-token: random 12-byte IV, AES-GCM encrypt access + refresh tokens,\n  store `{ciphertext, iv}` in D1.\n- Mobile holds only the Worker session JWT (in `expo-secure-store`); third-party\n  tokens (Google, GroupMe) never leave the Worker.\n\n## Mobile (`apps/mobile/`)\n\nStack: Expo SDK 54, `expo-router` (file-based), TS strict, React Query, Zustand,\n`expo-secure-store`, `expo-image-picker`, `expo-document-picker`, `expo-av`,\n`expo-notifications`.\n\nTabs:\n- `chat.tsx` — primary interface.\n- `email.tsx` — raw email list with Sync button.\n- `calendar.tsx` — upcoming events with Sync button.\n- `capture.tsx` — camera / document / voice memo upload.\n- `settings.tsx` — General (account, sign out, clear chat / emails / calendar) +\n  Calendars (per-calendar toggle + alias + iCal feed CRUD).\n\n## Google API gotchas\n\n- Stay in OAuth Testing mode for v1 (no verification, 100 test users max).\n- Refresh tokens expire after 7 days in Testing mode — build re-auth UX\n  (catch 401 → back to sign-in) from day one.\n- Add each tester Gmail to test users before they sign in.\n\n## GroupMe gotchas\n\n- The OAuth callback URL configured in the GroupMe app must match\n  `https://api.whyapp.us/groupme/callback` for the OAuth flow to work.\n- The dev access token shown on the app's dev.groupme.com page can be pasted\n  directly into `POST /groupme/token` to skip OAuth entirely (this is the\n  fastest path for owner-only testing).\n- `GROUPME_CLIENT_ID` is a non-secret app ID; set via\n  `wrangler secret put GROUPME_CLIENT_ID` only if you want `/groupme/connect`.\n\n## Push notifications\n\n- Generate APNs Auth Key (.p8) in Apple Developer; upload via `eas credentials`.\n- On first launch after sign-in: `Notifications.getExpoPushTokenAsync({projectId})`\n  → `POST /push/register`.\n- Worker pushes via `https://exp.host/--/api/v2/push/send`.\n- Only the `reminder` category is in use.\n\n## Key files\n\nBackend (`apps/api/`):\n- `wrangler.toml` — D1, R2, Queue bindings; cron; secrets list.\n- `src/index.ts` — Hono router, reminders cron, push helper, queue drain.\n- `src/routes/` — `auth`, `gmail`, `calendar`, `chat`, `files`, `context`, `push`, `usage`, `groupme`.\n- `src/services/` — `gmail`, `google-calendar`, `claude` (just `CHAT_MODEL` + `logUsage`),\n  `ical`, `crypto`, `jwt`, `groupme`.\n- `src/middleware/auth.ts` — JWT verification + `userId` injection.\n- `migrations/0001_init.sql` … `migrations/0019_drop_triage.sql` — append-only.\n\nMobile (`apps/mobile/`):\n- `app.json`, `eas.json` — bundle id `us.whyapp`, scheme `whyapp`.\n- `src/api/client.ts`, `src/state/auth.ts`, `src/hooks/useNotifications.ts`.\n- `app/_layout.tsx`, `app/(tabs)/_layout.tsx`, `app/sign-in.tsx`, `app/index.tsx`.\n- `app/(tabs)/{chat,email,calendar,capture,settings}.tsx`.\n\nShared (`packages/shared/src/types.ts`): minimal — `User` only.\n\n## Operating cost (2 testers)\n\n- Apple Developer: ~$8/mo\n- Domain: ~$1/mo\n- Cloudflare Workers Paid: ~$5/mo\n- Anthropic API (chat-only, Opus): variable, check `GET /usage`\n- EAS: free tier\n";
+
+const claudeMdPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLAUDE.md — whyapp</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #fff;
+      color: #24292f;
+      padding: 24px;
+      line-height: 1.6;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    nav { max-width: 800px; margin: 0 auto; display: flex; gap: 24px; padding: 16px 0; flex-wrap: wrap; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
+    .source-link { font-size: 13px; color: #888; margin-bottom: 16px; }
+    .source-link a { color: #4285F4; text-decoration: none; }
+    .source-link a:hover { text-decoration: underline; }
+    .markdown-body h1 { font-size: 28px; font-weight: 700; margin: 0 0 16px; padding-bottom: 10px; border-bottom: 1px solid #d1d9e0; }
+    .markdown-body h2 { font-size: 22px; font-weight: 600; margin: 28px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #d1d9e0; }
+    .markdown-body h3 { font-size: 18px; font-weight: 600; margin: 22px 0 10px; }
+    .markdown-body h4 { font-size: 16px; font-weight: 600; margin: 18px 0 8px; }
+    .markdown-body p { margin: 0 0 12px; }
+    .markdown-body ul, .markdown-body ol { padding-left: 28px; margin: 0 0 12px; }
+    .markdown-body li { margin: 2px 0; }
+    .markdown-body li > p { margin-bottom: 4px; }
+    .markdown-body code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.88em;
+    }
+    .markdown-body pre {
+      background: #f8f9fa;
+      padding: 14px 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 0 0 14px;
+      line-height: 1.5;
+    }
+    .markdown-body pre code { background: transparent; padding: 0; font-size: 13px; }
+    .markdown-body a { color: #4285F4; text-decoration: none; }
+    .markdown-body a:hover { text-decoration: underline; }
+    .markdown-body strong { font-weight: 600; }
+    .markdown-body blockquote { border-left: 4px solid #d1d9e0; padding-left: 16px; color: #57606a; margin: 0 0 12px; }
+    .markdown-body hr { border: none; border-top: 1px solid #d1d9e0; margin: 24px 0; }
+    .loading { color: #888; font-style: italic; }
+    footer { max-width: 800px; margin: 32px auto 0; padding-top: 16px; border-top: 1px solid #eee; font-size: 13px; color: #aaa; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js"></script>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/usage">Usage</a>
+    <a href="/trigger">Trigger</a>
+    <a href="/claude.md" class="active">CLAUDE.md</a>
+  </nav>
+  <div class="container">
+    <p class="source-link">Source: <a href="https://github.com/wesyoakum/assistant/blob/main/CLAUDE.md" target="_blank">CLAUDE.md on GitHub</a></p>
+    <article id="content" class="markdown-body"><p class="loading">Rendering…</p></article>
+  </div>
+  <footer>whyapp</footer>
+  <script id="md" type="text/markdown">${CLAUDE_MD_CONTENT}</script>
+  <script>
+    (function () {
+      var md = document.getElementById("md").textContent;
+      var out = document.getElementById("content");
+      if (typeof marked === "undefined") {
+        out.innerHTML = "<pre>" + md.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</pre>";
+        return;
+      }
+      marked.setOptions({ gfm: true, breaks: false });
+      out.innerHTML = marked.parse(md);
+    })();
   </script>
 </body>
 </html>`;

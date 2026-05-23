@@ -31,10 +31,6 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="triage"
-        options={{ href: null }}
-      />
-      <Tabs.Screen
         name="email"
         options={{
           title: "Email",

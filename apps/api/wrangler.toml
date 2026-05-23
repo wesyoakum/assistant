@@ -42,3 +42,6 @@ crons = ["* * * * *"]
 # - OAUTH_ENCRYPTION_KEY  (32-byte base64, AES-GCM master key)
 # - SESSION_JWT_SECRET
 # - ANTHROPIC_API_KEY
+# - GROUPME_CLIENT_ID     (public app ID from dev.groupme.com; only needed for the
+#                          OAuth /groupme/connect flow. Token-paste smoke test
+#                          via POST /groupme/token works without it.)

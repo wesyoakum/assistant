@@ -29,10 +29,6 @@ interface IngestedFile {
   created_at: string;
 }
 
-interface TriageItemRef {
-  id: string;
-}
-
 function fileIcon(kind: string): keyof typeof Ionicons.glyphMap {
   switch (kind) {
     case "image": return "image-outline";
