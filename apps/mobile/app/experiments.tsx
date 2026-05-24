@@ -618,12 +618,35 @@ export function ExperimentsContent() {
 
   // Microphone frequency spectrum — uses live-audio-stream + FFT.
   // Mutually exclusive with the metering recording above (don't run both).
-  const FFT_SIZE = 1024;
+  const FFT_SIZE = 4096;
+  const SAMPLE_RATE = 44100;
+  const N_BANDS = 96;
+  const MIN_FREQ = 30;
+  const MAX_FREQ = 12000;
+
   const fftRef = useRef<FFT | null>(null);
   const fftOutRef = useRef<number[] | null>(null);
+  const windowRef = useRef<Float32Array | null>(null);
+  const bandEdgesRef = useRef<Int32Array | null>(null);
+  const accumRef = useRef<Float32Array>(new Float32Array(0));
   if (!fftRef.current) {
     fftRef.current = new FFT(FFT_SIZE);
     fftOutRef.current = fftRef.current.createComplexArray();
+    // Hanning window
+    const w = new Float32Array(FFT_SIZE);
+    for (let i = 0; i < FFT_SIZE; i++) {
+      w[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FFT_SIZE - 1)));
+    }
+    windowRef.current = w;
+    // Log-spaced band edges (in bin indices)
+    const edges = new Int32Array(N_BANDS + 1);
+    const ratio = Math.log(MAX_FREQ / MIN_FREQ);
+    for (let i = 0; i <= N_BANDS; i++) {
+      const f = MIN_FREQ * Math.exp((ratio * i) / N_BANDS);
+      const bin = Math.round((f * FFT_SIZE) / SAMPLE_RATE);
+      edges[i] = Math.min(FFT_SIZE / 2 - 1, Math.max(0, bin));
+    }
+    bandEdgesRef.current = edges;
   }
   const [spectrum, setSpectrum] = useState<number[]>([]);
   const [spectrumOn, setSpectrumOn] = useState(false);
@@ -632,15 +655,13 @@ export function ExperimentsContent() {
     try {
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) return;
+      accumRef.current = new Float32Array(0);
       LiveAudioStream.init({
-        sampleRate: 44100,
+        sampleRate: SAMPLE_RATE,
         channels: 1,
         bitsPerSample: 16,
         audioSource: 6,
-        bufferSize: FFT_SIZE * 2,
-        // wavFile is required by the type but we never call stop() to flush,
-        // and the file is overwritten between runs — we only care about the
-        // 'data' callback stream.
+        bufferSize: FFT_SIZE,
         wavFile: "spectrum.wav",
       });
       LiveAudioStream.on("data", (b64: string) => {
@@ -648,32 +669,50 @@ export function ExperimentsContent() {
           typeof atob === "function"
             ? atob(b64)
             : Buffer.from(b64, "base64").toString("binary");
-        const samples = new Float32Array(FFT_SIZE);
-        const limit = Math.min(FFT_SIZE, Math.floor(buf.length / 2));
-        for (let i = 0; i < limit; i++) {
+        const incoming = new Float32Array(Math.floor(buf.length / 2));
+        for (let i = 0; i < incoming.length; i++) {
           const lo = buf.charCodeAt(i * 2);
           const hi = buf.charCodeAt(i * 2 + 1);
           let v = (hi << 8) | lo;
           if (v & 0x8000) v -= 0x10000;
-          samples[i] = v / 32768;
+          incoming[i] = v / 32768;
         }
+        // Accumulate; process full FFT_SIZE frames; keep leftover.
+        const prev = accumRef.current;
+        const combined = new Float32Array(prev.length + incoming.length);
+        combined.set(prev);
+        combined.set(incoming, prev.length);
+
+        const win = windowRef.current!;
         const out = fftOutRef.current!;
-        fftRef.current!.realTransform(out, samples);
-        fftRef.current!.completeSpectrum(out);
-        const N_BANDS = 32;
-        const binsPerBand = Math.floor(FFT_SIZE / 2 / N_BANDS);
-        const bands = new Array(N_BANDS);
-        for (let band = 0; band < N_BANDS; band++) {
-          let mag = 0;
-          for (let i = 0; i < binsPerBand; i++) {
-            const bin = band * binsPerBand + i;
-            const re = out[bin * 2];
-            const im = out[bin * 2 + 1];
-            mag += Math.sqrt(re * re + im * im);
+        const edges = bandEdgesRef.current!;
+        let offset = 0;
+        let lastBands: number[] | null = null;
+        while (combined.length - offset >= FFT_SIZE) {
+          const frame = new Float32Array(FFT_SIZE);
+          for (let i = 0; i < FFT_SIZE; i++) {
+            frame[i] = combined[offset + i] * win[i];
           }
-          bands[band] = mag / binsPerBand;
+          fftRef.current!.realTransform(out, frame);
+          fftRef.current!.completeSpectrum(out);
+          const bands = new Array<number>(N_BANDS);
+          for (let band = 0; band < N_BANDS; band++) {
+            const lo = edges[band];
+            const hi = Math.max(edges[band + 1], lo + 1);
+            let mag = 0;
+            for (let bin = lo; bin < hi; bin++) {
+              const re = out[bin * 2];
+              const im = out[bin * 2 + 1];
+              mag += Math.sqrt(re * re + im * im);
+            }
+            bands[band] = mag / (hi - lo);
+          }
+          lastBands = bands;
+          // 50% overlap for smoother visuals
+          offset += FFT_SIZE / 2;
         }
-        setSpectrum(bands);
+        accumRef.current = combined.slice(offset);
+        if (lastBands) setSpectrum(lastBands);
       });
       LiveAudioStream.start();
       setSpectrumOn(true);
@@ -1233,7 +1272,7 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
         <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
-          32-band FFT of live mic, ~43 Hz per band. Don't run both this and the level meter above.
+          96 log-spaced bands · 30 Hz – 12 kHz · 4096-point FFT · Hanning windowed.
         </Text>
       </View>
     </>

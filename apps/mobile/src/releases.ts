@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v45",
+    title: "Hi-res mic spectrum",
+    pr: 39,
+    notes: [
+      "4096-point FFT, 96 log-spaced bands from 30 Hz to 12 kHz",
+      "Hanning window + 50% overlap for smoother visuals",
+    ],
+  },
+  {
     version: "v44",
     title: "More sensors (needs a TestFlight build)",
     notes: [
