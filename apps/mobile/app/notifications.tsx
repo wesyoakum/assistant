@@ -10,6 +10,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { apiFetch } from "../src/api/client";
+import { type Theme } from "../src/theme";
+import { useStyles } from "../src/hooks/useStyles";
 
 interface NotificationEntry {
   id: string;
@@ -66,6 +68,7 @@ function categoryColor(category: string | null): string {
 }
 
 export default function NotificationHistory() {
+  const styles = useStyles(makeStyles);
   const router = useRouter();
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["notification-history"],
@@ -117,30 +120,32 @@ export default function NotificationHistory() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  list: { paddingBottom: 20 },
-  emptyText: { fontSize: 16, color: "#999" },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: "#fff",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  iconText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-  content: { flex: 1, marginRight: 10 },
-  title: { fontSize: 14, fontWeight: "600", color: "#333", marginBottom: 2 },
-  body: { fontSize: 14, color: "#666", lineHeight: 19 },
-  time: { fontSize: 12, color: "#999" },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.background },
+    list: { paddingBottom: 20, backgroundColor: theme.background },
+    emptyText: { fontSize: 16, color: theme.textSubtle },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      backgroundColor: theme.surface,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    iconCircle: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: "center",
+      alignItems: "center",
+      marginRight: 12,
+    },
+    iconText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+    content: { flex: 1, marginRight: 10 },
+    title: { fontSize: 14, fontWeight: "600", color: theme.text, marginBottom: 2 },
+    body: { fontSize: 14, color: theme.textMuted, lineHeight: 19 },
+    time: { fontSize: 12, color: theme.textSubtle },
+  });
+}

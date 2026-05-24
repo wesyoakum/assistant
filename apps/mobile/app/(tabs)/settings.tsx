@@ -16,6 +16,8 @@ import { useRouter } from "expo-router";
 import { useAuth } from "../../src/state/auth";
 import { useMe } from "../../src/hooks/useMe";
 import { apiFetch } from "../../src/api/client";
+import { useTheme, useAppearance, type Theme, type AppearanceMode } from "../../src/theme";
+import { useStyles } from "../../src/hooks/useStyles";
 
 interface UsageSummaryData {
   today: { calls: number; costCents: number };
@@ -26,6 +28,7 @@ interface UsageSummaryData {
 
 function UsageSummary() {
   const { token } = useAuth();
+  const theme = useTheme();
   const { data, isLoading } = useQuery({
     queryKey: ["usage-summary"],
     queryFn: () => apiFetch<UsageSummaryData>("/usage/summary"),
@@ -38,7 +41,7 @@ function UsageSummary() {
   if (!data) return null;
 
   return (
-    <View style={{ backgroundColor: "#fff", borderRadius: 12, overflow: "hidden" }}>
+    <View style={{ backgroundColor: theme.surface, borderRadius: 12, overflow: "hidden" }}>
       <View style={{ flexDirection: "row", paddingVertical: 12 }}>
         {[
           { label: "Today", v: data.today },
@@ -47,17 +50,17 @@ function UsageSummary() {
           { label: "All", v: data.allTime },
         ].map((col) => (
           <View key={col.label} style={{ flex: 1, alignItems: "center" }}>
-            <Text style={{ fontSize: 11, color: "#888", fontWeight: "600", textTransform: "uppercase" }}>{col.label}</Text>
+            <Text style={{ fontSize: 11, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>{col.label}</Text>
             <Text style={{ fontSize: 20, fontWeight: "700", marginTop: 2 }}>{fmt(col.v.costCents)}</Text>
-            <Text style={{ fontSize: 11, color: "#aaa" }}>{col.v.calls} calls</Text>
+            <Text style={{ fontSize: 11, color: theme.textSubtle }}>{col.v.calls} calls</Text>
           </View>
         ))}
       </View>
       <Pressable
-        style={{ paddingVertical: 12, alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#eee" }}
+        style={{ paddingVertical: 12, alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border }}
         onPress={() => Linking.openURL("https://whyapp.us/usage#token=" + (token || ""))}
       >
-        <Text style={{ fontSize: 14, fontWeight: "600", color: "#3D7F94" }}>View Full Dashboard</Text>
+        <Text style={{ fontSize: 14, fontWeight: "600", color: theme.primary }}>View Full Dashboard</Text>
       </Pressable>
     </View>
   );
@@ -127,6 +130,8 @@ interface GroupMeGroupsResponse {
 function GroupMeSection() {
   const queryClient = useQueryClient();
   const [token, setToken] = useState("");
+  const theme = useTheme();
+  const styles = useStyles(makeStyles);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ["groupme-status"],
@@ -188,9 +193,9 @@ function GroupMeSection() {
   if (!status?.connected) {
     return (
       <View style={{ padding: 16 }}>
-        <Text style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>
+        <Text style={{ fontSize: 14, color: theme.textMuted, marginBottom: 12 }}>
           Paste an access token from{" "}
-          <Text style={{ color: "#3D7F94" }} onPress={() => Linking.openURL("https://dev.groupme.com")}>
+          <Text style={{ color: theme.primary }} onPress={() => Linking.openURL("https://dev.groupme.com")}>
             dev.groupme.com
           </Text>
           {" "}(sign in, then tap "Access Token" in the top right).
@@ -200,7 +205,7 @@ function GroupMeSection() {
           value={token}
           onChangeText={setToken}
           placeholder="GroupMe access token"
-          placeholderTextColor="#aaa"
+          placeholderTextColor={theme.textSubtle}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
@@ -224,7 +229,7 @@ function GroupMeSection() {
 
   return (
     <>
-      <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee", flexDirection: "row", alignItems: "center" }}>
+      <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
         <View style={{ flex: 1 }}>
           <Text style={{ fontSize: 15, fontWeight: "500" }}>Connected as {status.groupme_name || "GroupMe user"}</Text>
         </View>
@@ -250,11 +255,11 @@ function GroupMeSection() {
         <Text style={styles.emptyText}>No groups found</Text>
       ) : (
         groups.map((g) => (
-          <View key={g.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
+          <View key={g.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}>
             <View style={{ flex: 1, marginRight: 12 }}>
               <Text style={{ fontSize: 15, fontWeight: "500" }}>{g.name}</Text>
               {g.member_count != null && (
-                <Text style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                <Text style={{ fontSize: 12, color: theme.textSubtle, marginTop: 2 }}>
                   {g.member_count} members
                   {g.last_message_at ? ` • last message ${new Date(g.last_message_at * 1000).toLocaleString()}` : ""}
                 </Text>
@@ -263,7 +268,7 @@ function GroupMeSection() {
             <Switch
               value={g.enabled}
               onValueChange={(enabled) => toggleMutation.mutate({ id: g.id, enabled })}
-              trackColor={{ false: "#ddd", true: "#3D7F94" }}
+              trackColor={{ false: theme.border, true: theme.primary }}
             />
           </View>
         ))
@@ -272,7 +277,54 @@ function GroupMeSection() {
   );
 }
 
+function AppearancePicker() {
+  const theme = useTheme();
+  const mode = useAppearance((s) => s.mode);
+  const setMode = useAppearance((s) => s.setMode);
+
+  const options: { value: AppearanceMode; label: string }[] = [
+    { value: "system", label: "System" },
+    { value: "light", label: "Light" },
+    { value: "dark", label: "Dark" },
+  ];
+
+  return (
+    <View style={{ flexDirection: "row", padding: 12, gap: 8 }}>
+      {options.map((opt) => {
+        const active = mode === opt.value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => setMode(opt.value)}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              borderRadius: 8,
+              alignItems: "center",
+              backgroundColor: active ? theme.primary : theme.surfaceAlt,
+              borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+              borderColor: theme.border,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 14,
+                fontWeight: "600",
+                color: active ? "#fff" : theme.text,
+              }}
+            >
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function PreferencesList() {
+  const styles = useStyles(makeStyles);
+  const theme = useTheme();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["context"],
@@ -301,7 +353,7 @@ function PreferencesList() {
 
   if (prefs.length === 0) {
     return (
-      <Text style={{ padding: 16, fontSize: 14, color: "#999", textAlign: "center" }}>
+      <Text style={{ padding: 16, fontSize: 14, color: theme.textSubtle, textAlign: "center" }}>
         No preferences yet. Ask the chat to remember something.
       </Text>
     );
@@ -310,11 +362,11 @@ function PreferencesList() {
   return (
     <>
       {prefs.map((p) => (
-        <View key={p.id} style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
+        <View key={p.id} style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}>
           <View style={{ flex: 1, marginRight: 12 }}>
             <Text style={{ fontSize: 15, color: "#1F2024", fontWeight: "500" }}>{p.label}</Text>
             {p.detail && (
-              <Text style={{ fontSize: 13, color: "#666", marginTop: 2 }}>{p.detail}</Text>
+              <Text style={{ fontSize: 13, color: theme.textMuted, marginTop: 2 }}>{p.detail}</Text>
             )}
           </View>
           <Pressable onPress={() => handleDelete(p)} style={{ paddingVertical: 4, paddingHorizontal: 8 }}>
@@ -341,6 +393,8 @@ export default function SettingsScreen() {
   const router = useRouter();
   const [tab, setTab] = useState<SettingsTab>("general");
   const { data: me } = useMe();
+  const theme = useTheme();
+  const styles = useStyles(makeStyles);
 
 
   const { data, isLoading } = useQuery({
@@ -581,7 +635,7 @@ export default function SettingsScreen() {
                 onValueChange={(enabled) =>
                   toggleMutation.mutate({ id: cal.id, enabled })
                 }
-                trackColor={{ false: "#ddd", true: "#3D7F94" }}
+                trackColor={{ false: theme.border, true: theme.primary }}
               />
             </View>
           ))
@@ -593,7 +647,7 @@ export default function SettingsScreen() {
             value={calUrl}
             onChangeText={setCalUrl}
             placeholder="Calendar ID, ICS URL, or webcal://"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={theme.textSubtle}
             autoCapitalize="none"
             autoCorrect={false}
             keyboardType="url"
@@ -661,7 +715,7 @@ export default function SettingsScreen() {
           disabled={addFeedMutation.isPending}
         >
           {addFeedMutation.isPending ? (
-            <ActivityIndicator size="small" color="#3D7F94" />
+            <ActivityIndicator size="small" color={theme.primary} />
           ) : (
             <Text style={styles.addFeedBtnText}>+ Add iCal Feed</Text>
           )}
@@ -673,13 +727,18 @@ export default function SettingsScreen() {
       {/* Notifications section */}
       {tab === "general" && (
       <>
+      <Text style={styles.sectionTitle}>Appearance</Text>
+      <View style={styles.card}>
+        <AppearancePicker />
+      </View>
+
       <Text style={styles.sectionTitle}>Notifications</Text>
       <View style={styles.card}>
         <Pressable
           style={styles.clearChatBtn}
           onPress={() => router.push("/notifications")}
         >
-          <Text style={[styles.clearChatText, { color: "#3D7F94" }]}>View Notification History</Text>
+          <Text style={[styles.clearChatText, { color: theme.primary }]}>View Notification History</Text>
         </Pressable>
       </View>
 
@@ -691,7 +750,7 @@ export default function SettingsScreen() {
               style={styles.clearChatBtn}
               onPress={() => router.push("/experiments")}
             >
-              <Text style={[styles.clearChatText, { color: "#3D7F94" }]}>Experiments</Text>
+              <Text style={[styles.clearChatText, { color: theme.primary }]}>Experiments</Text>
             </Pressable>
           </View>
         </>
@@ -772,7 +831,7 @@ export default function SettingsScreen() {
             }
           }}
         >
-          <Text style={[styles.clearChatText, { color: "#888" }]}>Copy Session Token</Text>
+          <Text style={[styles.clearChatText, { color: theme.textSubtle }]}>Copy Session Token</Text>
         </Pressable>
         <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Sign Out</Text>
@@ -784,109 +843,111 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#EDE3D1" },
-  content: { padding: 16, paddingBottom: 40 },
-  tabBar: {
-    flexDirection: "row",
-    backgroundColor: "#e5e5ea",
-    borderRadius: 9,
-    padding: 3,
-    marginBottom: 8,
-  },
-  tabItem: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 7,
-    alignItems: "center",
-  },
-  tabItemActive: {
-    backgroundColor: "#fff",
-  },
-  tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
-  tabTextActive: { color: "#1F2024" },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#888",
-    textTransform: "uppercase",
-    marginBottom: 8,
-    marginTop: 16,
-    marginLeft: 4,
-  },
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  loader: { padding: 20 },
-  emptyText: { padding: 16, fontSize: 15, color: "#999", textAlign: "center" },
-  calRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  calDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 12,
-  },
-  calInfo: { flex: 1, marginRight: 12 },
-  calName: { fontSize: 15, color: "#1F2024" },
-  calOriginal: { fontSize: 11, color: "#aaa", marginTop: 1 },
-  calPrimary: { fontSize: 12, color: "#999", marginTop: 1 },
-  addRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#eee",
-  },
-  addInput: {
-    flex: 1,
-    fontSize: 14,
-    color: "#1F2024",
-    backgroundColor: "#f5f5f5",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginRight: 8,
-  },
-  addBtn: {
-    backgroundColor: "#3D7F94",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    minWidth: 50,
-    alignItems: "center",
-  },
-  addBtnDisabled: { opacity: 0.4 },
-  addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
-  ctxDeleteText: { fontSize: 13, color: "#BA2D2D" },
-  clearChatBtn: {
-    paddingVertical: 14,
-    alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  clearChatText: { fontSize: 16, fontWeight: "600", color: "#CB7D34" },
-  signOutBtn: {
-    paddingVertical: 14,
-    alignItems: "center",
-  },
-  signOutText: { fontSize: 16, fontWeight: "600", color: "#BA2D2D" },
-  feedError: { fontSize: 11, color: "#BA2D2D", marginTop: 1 },
-  addFeedBtn: {
-    paddingVertical: 12,
-    alignItems: "center",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#eee",
-  },
-  addFeedBtnText: { fontSize: 15, fontWeight: "600", color: "#3D7F94" },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    content: { padding: 16, paddingBottom: 40 },
+    tabBar: {
+      flexDirection: "row",
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 9,
+      padding: 3,
+      marginBottom: 8,
+    },
+    tabItem: {
+      flex: 1,
+      paddingVertical: 7,
+      borderRadius: 7,
+      alignItems: "center",
+    },
+    tabItemActive: {
+      backgroundColor: theme.surface,
+    },
+    tabText: { fontSize: 13, fontWeight: "600", color: theme.textMuted },
+    tabTextActive: { color: theme.text },
+    sectionTitle: {
+      fontSize: 13,
+      fontWeight: "600",
+      color: theme.textSubtle,
+      textTransform: "uppercase",
+      marginBottom: 8,
+      marginTop: 16,
+      marginLeft: 4,
+    },
+    card: {
+      backgroundColor: theme.surface,
+      borderRadius: 12,
+      overflow: "hidden",
+    },
+    loader: { padding: 20 },
+    emptyText: { padding: 16, fontSize: 15, color: theme.textSubtle, textAlign: "center" },
+    calRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    calDot: {
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      marginRight: 12,
+    },
+    calInfo: { flex: 1, marginRight: 12 },
+    calName: { fontSize: 15, color: theme.text },
+    calOriginal: { fontSize: 11, color: theme.textSubtle, marginTop: 1 },
+    calPrimary: { fontSize: 12, color: theme.textSubtle, marginTop: 1 },
+    addRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.border,
+    },
+    addInput: {
+      flex: 1,
+      fontSize: 14,
+      color: theme.text,
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginRight: 8,
+    },
+    addBtn: {
+      backgroundColor: theme.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 8,
+      minWidth: 50,
+      alignItems: "center",
+    },
+    addBtnDisabled: { opacity: 0.4 },
+    addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+    ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
+    ctxDeleteText: { fontSize: 13, color: theme.destructive },
+    clearChatBtn: {
+      paddingVertical: 14,
+      alignItems: "center",
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    clearChatText: { fontSize: 16, fontWeight: "600", color: theme.warning },
+    signOutBtn: {
+      paddingVertical: 14,
+      alignItems: "center",
+    },
+    signOutText: { fontSize: 16, fontWeight: "600", color: theme.destructive },
+    feedError: { fontSize: 11, color: theme.destructive, marginTop: 1 },
+    addFeedBtn: {
+      paddingVertical: 12,
+      alignItems: "center",
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.border,
+    },
+    addFeedBtnText: { fontSize: 15, fontWeight: "600", color: theme.primary },
+  });
+}

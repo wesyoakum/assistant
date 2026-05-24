@@ -1,6 +1,7 @@
 import { Text } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../../src/theme";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -10,21 +11,23 @@ function tabIcon(name: IconName) {
   );
 }
 
-const APP_VERSION = "v12";
+const APP_VERSION = "v25";
 
 export default function TabsLayout() {
+  const theme = useTheme();
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#3D7F94",
-        tabBarInactiveTintColor: "#1F5961",
-        tabBarStyle: { backgroundColor: "#EDE3D1", borderTopColor: "#d6c9b3" },
-        headerStyle: { backgroundColor: "#1F5961" },
-        headerTintColor: "#EDE3D1",
-        headerTitleStyle: { color: "#EDE3D1", fontWeight: "600" },
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.scheme === "dark" ? theme.textSubtle : theme.primaryDark,
+        tabBarStyle: { backgroundColor: theme.tabBarBg, borderTopColor: theme.tabBarBorder },
+        headerStyle: { backgroundColor: theme.headerBg },
+        headerTintColor: theme.headerText,
+        headerTitleStyle: { color: theme.headerText, fontWeight: "600" },
+        sceneStyle: { backgroundColor: theme.background },
         headerShown: true,
         headerRight: () => (
-          <Text style={{ fontSize: 10, color: "#EDE3D1", opacity: 0.7, marginRight: 12 }}>{APP_VERSION}</Text>
+          <Text style={{ fontSize: 10, color: theme.headerText, opacity: 0.7, marginRight: 12 }}>{APP_VERSION}</Text>
         ),
       }}
     >

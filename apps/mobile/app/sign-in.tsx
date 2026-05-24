@@ -9,11 +9,14 @@ import {
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import { useAuth } from "../src/state/auth";
+import { type Theme } from "../src/theme";
+import { useStyles } from "../src/hooks/useStyles";
 
 const AUTH_BASE = "https://api.whyapp.us/auth/google/start";
 
 export default function SignIn() {
   const { setToken, isLoading } = useAuth();
+  const styles = useStyles(makeStyles);
 
   // Build the return URL that works in both Expo Go (exp://) and standalone (whyapp://)
   const returnUrl = Linking.createURL("auth");
@@ -62,34 +65,36 @@ export default function SignIn() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    padding: 24,
-  },
-  title: {
-    fontSize: 40,
-    fontWeight: "700",
-    marginBottom: 8,
-    color: "#1F2024",
-  },
-  subtitle: {
-    fontSize: 18,
-    color: "#666",
-    marginBottom: 48,
-  },
-  button: {
-    backgroundColor: "#3D7F94",
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: theme.background,
+      padding: 24,
+    },
+    title: {
+      fontSize: 40,
+      fontWeight: "700",
+      marginBottom: 8,
+      color: theme.text,
+    },
+    subtitle: {
+      fontSize: 18,
+      color: theme.textMuted,
+      marginBottom: 48,
+    },
+    button: {
+      backgroundColor: theme.primary,
+      paddingHorizontal: 32,
+      paddingVertical: 16,
+      borderRadius: 12,
+    },
+    buttonText: {
+      color: "#fff",
+      fontSize: 17,
+      fontWeight: "600",
+    },
+  });
+}

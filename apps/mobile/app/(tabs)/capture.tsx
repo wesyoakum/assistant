@@ -18,6 +18,8 @@ import { useRouter } from "expo-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../../src/state/auth";
 import { API_BASE, apiFetch } from "../../src/api/client";
+import { type Theme, useTheme } from "../../src/theme";
+import { useStyles } from "../../src/hooks/useStyles";
 
 type UploadState = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -107,6 +109,8 @@ async function uploadFile(
 
 function FileThumbnail({ file, token }: { file: IngestedFile; token: string }) {
   const [blobUri, setBlobUri] = useState<string | null>(null);
+  const styles = useStyles(makeStyles);
+  const theme = useTheme();
 
   useEffect(() => {
     if (file.kind === "image" && file.status === "done") {
@@ -131,12 +135,14 @@ function FileThumbnail({ file, token }: { file: IngestedFile; token: string }) {
 
   return (
     <View style={styles.fileIconWrap}>
-      <Ionicons name={fileIcon(file.kind)} size={24} color="#3D7F94" />
+      <Ionicons name={fileIcon(file.kind)} size={24} color={theme.primary} />
     </View>
   );
 }
 
 export default function CaptureScreen() {
+  const styles = useStyles(makeStyles);
+  const theme = useTheme();
   const { token } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -306,7 +312,7 @@ export default function CaptureScreen() {
         </Text>
       </View>
       {file.status === "done" && (
-        <Ionicons name="chevron-forward" size={18} color="#ccc" />
+        <Ionicons name="chevron-forward" size={18} color={theme.textSubtle} />
       )}
     </Pressable>
   ), [token, handleFileTap]);
@@ -332,17 +338,17 @@ export default function CaptureScreen() {
 
           <View style={styles.grid}>
             <Pressable style={styles.card} onPress={pickPhoto}>
-              <Ionicons name="camera-outline" size={32} color="#3D7F94" />
+              <Ionicons name="camera-outline" size={32} color={theme.primary} />
               <Text style={styles.cardLabel}>Camera</Text>
             </Pressable>
 
             <Pressable style={styles.card} onPress={pickImage}>
-              <Ionicons name="images-outline" size={32} color="#3D7F94" />
+              <Ionicons name="images-outline" size={32} color={theme.primary} />
               <Text style={styles.cardLabel}>Photo Library</Text>
             </Pressable>
 
             <Pressable style={styles.card} onPress={pickDocument}>
-              <Ionicons name="document-outline" size={32} color="#3D7F94" />
+              <Ionicons name="document-outline" size={32} color={theme.primary} />
               <Text style={styles.cardLabel}>Document</Text>
             </Pressable>
 
@@ -390,98 +396,100 @@ export default function CaptureScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  listContent: {
-    padding: 24,
-    paddingBottom: 40,
-  },
-  heading: { fontSize: 28, fontWeight: "700", color: "#1F2024", marginBottom: 8 },
-  subtext: { fontSize: 15, color: "#888", lineHeight: 22, marginBottom: 32 },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
-  },
-  card: {
-    width: "47%",
-    backgroundColor: "#f5f5f5",
-    borderRadius: 16,
-    paddingVertical: 28,
-    alignItems: "center",
-    gap: 8,
-  },
-  cardRecording: {
-    backgroundColor: "#fee2e2",
-  },
-  cardLabel: { fontSize: 14, fontWeight: "600", color: "#555", marginTop: 4 },
-  busyWrap: { alignItems: "center", gap: 12, paddingVertical: 40 },
-  busyText: { fontSize: 16, color: "#888" },
-  // Recent captures section
-  recentHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 32,
-    marginBottom: 12,
-  },
-  recentTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1F2024",
-  },
-  emptyText: {
-    fontSize: 14,
-    color: "#aaa",
-    textAlign: "center",
-    paddingVertical: 20,
-  },
-  fileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-    gap: 12,
-  },
-  fileThumbnail: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: "#f0f0f0",
-  },
-  fileIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    backgroundColor: "#f0f0f0",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  fileInfo: {
-    flex: 1,
-  },
-  fileKind: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#333",
-  },
-  fileDate: {
-    fontSize: 12,
-    color: "#999",
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: theme.background,
+    },
+    listContent: {
+      padding: 24,
+      paddingBottom: 40,
+    },
+    heading: { fontSize: 28, fontWeight: "700", color: theme.text, marginBottom: 8 },
+    subtext: { fontSize: 15, color: theme.textMuted, lineHeight: 22, marginBottom: 32 },
+    grid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
+    },
+    card: {
+      width: "47%",
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 16,
+      paddingVertical: 28,
+      alignItems: "center",
+      gap: 8,
+    },
+    cardRecording: {
+      backgroundColor: theme.scheme === "dark" ? "#4a1f1f" : "#fee2e2",
+    },
+    cardLabel: { fontSize: 14, fontWeight: "600", color: theme.text, marginTop: 4 },
+    busyWrap: { alignItems: "center", gap: 12, paddingVertical: 40 },
+    busyText: { fontSize: 16, color: theme.textMuted },
+    // Recent captures section
+    recentHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: 32,
+      marginBottom: 12,
+    },
+    recentTitle: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: theme.text,
+    },
+    emptyText: {
+      fontSize: 14,
+      color: theme.textSubtle,
+      textAlign: "center",
+      paddingVertical: 20,
+    },
+    fileRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 12,
+      paddingHorizontal: 4,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+      gap: 12,
+    },
+    fileThumbnail: {
+      width: 44,
+      height: 44,
+      borderRadius: 8,
+      backgroundColor: theme.surfaceAlt,
+    },
+    fileIconWrap: {
+      width: 44,
+      height: 44,
+      borderRadius: 8,
+      backgroundColor: theme.surfaceAlt,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    fileInfo: {
+      flex: 1,
+    },
+    fileKind: {
+      fontSize: 15,
+      fontWeight: "600",
+      color: theme.text,
+    },
+    fileDate: {
+      fontSize: 12,
+      color: theme.textSubtle,
+      marginTop: 2,
+    },
+    statusBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 8,
+    },
+    statusText: {
+      fontSize: 11,
+      fontWeight: "600",
+    },
+  });
+}

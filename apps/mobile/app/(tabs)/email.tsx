@@ -10,6 +10,8 @@ import {
 } from "react-native";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../../src/api/client";
+import { type Theme } from "../../src/theme";
+import { useStyles } from "../../src/hooks/useStyles";
 
 interface RawEmail {
   id: string;
@@ -41,6 +43,7 @@ function formatEmailDate(dateStr: string | null): string {
 export default function EmailScreen() {
   const queryClient = useQueryClient();
   const lastSyncTime = useRef<string | null>(null);
+  const styles = useStyles(makeStyles);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ["emails"],
@@ -145,48 +148,50 @@ export default function EmailScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  list: { paddingBottom: 20 },
-  emptyText: { fontSize: 16, color: "#999" },
-  syncBtn: {
-    backgroundColor: "#3D7F94",
-    paddingVertical: 10,
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    borderRadius: 10,
-  },
-  syncBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: "#fff",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  rowNew: {
-    backgroundColor: "#f0f7ff",
-    borderLeftWidth: 3,
-    borderLeftColor: "#3D7F94",
-  },
-  newDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#3D7F94",
-    marginRight: 8,
-  },
-  rowContent: { flex: 1, marginRight: 10 },
-  sender: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 2 },
-  senderNew: { color: "#1a56db" },
-  subject: { fontSize: 15, color: "#1F2024", lineHeight: 20 },
-  subjectNew: { fontWeight: "700" },
-  snippet: { fontSize: 13, color: "#666", marginTop: 3, lineHeight: 18 },
-  timeCol: { alignItems: "flex-end" },
-  time: { fontSize: 12, color: "#999" },
-  newLabel: { fontSize: 10, fontWeight: "700", color: "#3D7F94", marginTop: 2 },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.background },
+    list: { paddingBottom: 20 },
+    emptyText: { fontSize: 16, color: theme.textSubtle },
+    syncBtn: {
+      backgroundColor: theme.primary,
+      paddingVertical: 10,
+      alignItems: "center",
+      marginHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 8,
+      borderRadius: 10,
+    },
+    syncBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      backgroundColor: theme.surface,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    rowNew: {
+      backgroundColor: theme.scheme === "dark" ? theme.surfaceAlt : "#f0f7ff",
+      borderLeftWidth: 3,
+      borderLeftColor: theme.primary,
+    },
+    newDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: theme.primary,
+      marginRight: 8,
+    },
+    rowContent: { flex: 1, marginRight: 10 },
+    sender: { fontSize: 13, fontWeight: "600", color: theme.textMuted, marginBottom: 2 },
+    senderNew: { color: theme.primary },
+    subject: { fontSize: 15, color: theme.text, lineHeight: 20 },
+    subjectNew: { fontWeight: "700" },
+    snippet: { fontSize: 13, color: theme.textMuted, marginTop: 3, lineHeight: 18 },
+    timeCol: { alignItems: "flex-end" },
+    time: { fontSize: 12, color: theme.textSubtle },
+    newLabel: { fontSize: 10, fontWeight: "700", color: theme.primary, marginTop: 2 },
+  });
+}
