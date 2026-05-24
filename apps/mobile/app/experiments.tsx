@@ -655,6 +655,7 @@ export function ExperimentsContent() {
   const [bleScanning, setBleScanning] = useState(false);
   const [bleDevices, setBleDevices] = useState<Map<string, BleEntry>>(new Map());
   const [bleSelectedId, setBleSelectedId] = useState<string | null>(null);
+  const [bleSortBy, setBleSortBy] = useState<"signal" | "name">("signal");
   const [bleRssiHist, setBleRssiHist] = useState<number[]>([]);
   const bleRssiHistRef = useRef<{ id: string | null; samples: number[] }>({ id: null, samples: [] });
 
@@ -1463,35 +1464,110 @@ export function ExperimentsContent() {
       {labTab === "env" && (<>
       <Text style={styles.sectionTitle}>Bluetooth (BLE scan)</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>
-          State: {bleState}{bleScanning ? " · scanning" : ""}
-        </Text>
-        <Pressable
-          onPress={bleScanning ? stopBleScan : startBleScan}
-          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: bleScanning ? theme.destructive : theme.primary, marginBottom: 10 }}
-        >
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-            {bleScanning ? "Stop scan" : "Start scan"}
-          </Text>
-        </Pressable>
-        {Array.from(bleDevices.values())
-          .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))
-          .slice(0, 20)
-          .map((d) => (
-            <Pressable
-              key={d.id}
-              onPress={() => selectBleDevice(d.id)}
-              style={{ flexDirection: "row", paddingVertical: 6, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}
-            >
-              <View style={{ flex: 1, marginRight: 8 }}>
-                <Text style={{ color: theme.text, fontSize: 13 }} numberOfLines={1}>{d.name || d.localName || "(no name)"}</Text>
-                <Text style={{ color: theme.textSubtle, fontSize: 10 }} numberOfLines={1}>{d.id}</Text>
+        {bleSelectedId ? (() => {
+          const d = bleDevices.get(bleSelectedId);
+          return (
+            <>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+                <Pressable
+                  onPress={closeBleDetail}
+                  style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, marginRight: 12 }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>‹ Back</Text>
+                </Pressable>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: "700", color: theme.text }} numberOfLines={1}>
+                    {d?.name || d?.localName || "(no name)"}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: theme.textSubtle }} numberOfLines={1}>{bleSelectedId}</Text>
+                </View>
+                <Text style={{ fontSize: 16, fontWeight: "700", color: rssiColor(d?.rssi ?? null, theme), marginLeft: 8 }}>
+                  {d?.rssi != null ? `${d.rssi}` : "—"}
+                </Text>
               </View>
-              <Text style={{ color: rssiColor(d.rssi, theme), fontSize: 13, fontWeight: "700" }}>
-                {d.rssi != null ? `${d.rssi} dBm` : "—"}
+
+              <Sparkline samples={bleRssiHist} color={theme.primary} height={140} />
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, marginBottom: 16, textAlign: "right" }}>
+                {bleRssiHist.length} samples · {bleScanning ? "live" : "scan stopped"}
+              </Text>
+
+              <Section
+                title=""
+                rows={[
+                  { label: "Name", value: d?.name },
+                  { label: "Local name", value: d?.localName },
+                  { label: "RSSI (dBm)", value: d?.rssi },
+                  { label: "TX power (dBm)", value: d?.txPowerLevel },
+                  { label: "Is connectable", value: d?.isConnectable },
+                  { label: "Manufacturer data (b64)", value: d?.manufacturerData },
+                  { label: "Service UUIDs", value: d?.serviceUUIDs ? d.serviceUUIDs.join(", ") : null },
+                  { label: "Last seen", value: d ? new Date(d.seenAt).toLocaleTimeString() : null },
+                ]}
+              />
+            </>
+          );
+        })() : (
+          <>
+            <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>
+              State: {bleState}{bleScanning ? " · scanning" : ""}
+            </Text>
+            <Pressable
+              onPress={bleScanning ? stopBleScan : startBleScan}
+              style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: bleScanning ? theme.destructive : theme.primary, marginBottom: 10 }}
+            >
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                {bleScanning ? "Stop scan" : "Start scan"}
               </Text>
             </Pressable>
-          ))}
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+              {(["signal", "name"] as const).map((s) => {
+                const active = bleSortBy === s;
+                return (
+                  <Pressable
+                    key={s}
+                    onPress={() => setBleSortBy(s)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 6,
+                      borderRadius: 6,
+                      alignItems: "center",
+                      backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                      borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                      borderColor: theme.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: active ? "#fff" : theme.text }}>
+                      Sort by {s === "signal" ? "signal" : "name"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {Array.from(bleDevices.values())
+              .sort((a, b) => {
+                if (bleSortBy === "signal") return (b.rssi ?? -999) - (a.rssi ?? -999);
+                const an = (a.name || a.localName || a.id).toLowerCase();
+                const bn = (b.name || b.localName || b.id).toLowerCase();
+                return an < bn ? -1 : an > bn ? 1 : 0;
+              })
+              .slice(0, 30)
+              .map((d) => (
+                <Pressable
+                  key={d.id}
+                  onPress={() => selectBleDevice(d.id)}
+                  style={{ flexDirection: "row", paddingVertical: 6, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}
+                >
+                  <View style={{ flex: 1, marginRight: 8 }}>
+                    <Text style={{ color: theme.text, fontSize: 13 }} numberOfLines={1}>{d.name || d.localName || "(no name)"}</Text>
+                    <Text style={{ color: theme.textSubtle, fontSize: 10 }} numberOfLines={1}>{d.id}</Text>
+                  </View>
+                  <Text style={{ color: rssiColor(d.rssi, theme), fontSize: 13, fontWeight: "700" }}>
+                    {d.rssi != null ? `${d.rssi} dBm` : "—"}
+                  </Text>
+                </Pressable>
+              ))}
+          </>
+        )}
       </View>
       </>)}
 
@@ -1648,74 +1724,6 @@ export function ExperimentsContent() {
             <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Close</Text>
           </Pressable>
         </View>
-      </Modal>
-
-      <Modal
-        visible={!!bleSelectedId}
-        animationType="slide"
-        onRequestClose={closeBleDetail}
-      >
-        {(() => {
-          const d = bleSelectedId ? bleDevices.get(bleSelectedId) : null;
-          return (
-            <ScrollView
-              style={{ flex: 1, backgroundColor: theme.background }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
-            >
-              <Text style={{ fontSize: 20, fontWeight: "700", color: theme.text, marginBottom: 4 }}>
-                {d?.name || d?.localName || "(no name)"}
-              </Text>
-              <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 16 }} numberOfLines={2}>
-                {bleSelectedId}
-              </Text>
-
-              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
-                RSSI (dBm)
-              </Text>
-              <View style={[styles.card, { padding: 8, marginBottom: 4, position: "relative" }]}>
-                <Sparkline samples={bleRssiHist} color={theme.primary} height={120} />
-                {d?.rssi != null && (
-                  <Text
-                    style={{
-                      position: "absolute",
-                      top: 8,
-                      right: 12,
-                      fontSize: 16,
-                      fontWeight: "700",
-                      color: rssiColor(d.rssi, theme),
-                    }}
-                  >
-                    {d.rssi} dBm
-                  </Text>
-                )}
-              </View>
-              <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 16, textAlign: "right" }}>
-                {bleRssiHist.length} samples · {bleScanning ? "live" : "scan stopped"}
-              </Text>
-
-              <Section
-                title="Device info"
-                rows={[
-                  { label: "Name", value: d?.name },
-                  { label: "Local name", value: d?.localName },
-                  { label: "RSSI (dBm)", value: d?.rssi },
-                  { label: "TX power (dBm)", value: d?.txPowerLevel },
-                  { label: "Is connectable", value: d?.isConnectable },
-                  { label: "Manufacturer data (b64)", value: d?.manufacturerData },
-                  { label: "Service UUIDs", value: d?.serviceUUIDs ? d.serviceUUIDs.join(", ") : null },
-                  { label: "Last seen", value: d ? new Date(d.seenAt).toLocaleTimeString() : null },
-                ]}
-              />
-
-              <Pressable
-                onPress={closeBleDetail}
-                style={{ paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: theme.primary, marginTop: 4 }}
-              >
-                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Close</Text>
-              </Pressable>
-            </ScrollView>
-          );
-        })()}
       </Modal>
     </>
   );
