@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v59",
+    title: "BLE: sort by signal/name, inline detail view",
+    pr: 53,
+    notes: [
+      "Sort device list by signal strength (default) or name",
+      "Tapping a device replaces the list with its chart + info in place — no modal",
+    ],
+  },
+  {
     version: "v58",
     title: "Settings: Calendars + GroupMe move into Context",
     pr: 52,
