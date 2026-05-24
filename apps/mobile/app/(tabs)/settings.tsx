@@ -102,6 +102,145 @@ interface ContextResponse {
   entries: ContextEntry[];
 }
 
+interface GroupMeStatus {
+  connected: boolean;
+  groupme_user_id?: string | null;
+  groupme_name?: string | null;
+  connected_at?: string;
+}
+
+interface GroupMeGroup {
+  id: string;
+  name: string;
+  description: string | null;
+  image_url: string | null;
+  member_count: number | null;
+  last_message_at: number | null;
+}
+
+interface GroupMeGroupsResponse {
+  groups: GroupMeGroup[];
+}
+
+function GroupMeSection() {
+  const queryClient = useQueryClient();
+  const [token, setToken] = useState("");
+
+  const { data: status, isLoading: statusLoading } = useQuery({
+    queryKey: ["groupme-status"],
+    queryFn: () => apiFetch<GroupMeStatus>("/groupme/status"),
+  });
+
+  const { data: groupsData, isLoading: groupsLoading, error: groupsError } = useQuery({
+    queryKey: ["groupme-groups"],
+    queryFn: () => apiFetch<GroupMeGroupsResponse>("/groupme/groups"),
+    enabled: !!status?.connected,
+  });
+
+  const connectMutation = useMutation({
+    mutationFn: (accessToken: string) =>
+      apiFetch("/groupme/token", {
+        method: "POST",
+        body: JSON.stringify({ access_token: accessToken }),
+      }),
+    onSuccess: () => {
+      setToken("");
+      queryClient.invalidateQueries({ queryKey: ["groupme-status"] });
+      queryClient.invalidateQueries({ queryKey: ["groupme-groups"] });
+    },
+    onError: (err: Error) => Alert.alert("Could not connect GroupMe", err.message),
+  });
+
+  const disconnectMutation = useMutation({
+    mutationFn: () => apiFetch("/groupme", { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["groupme-status"] });
+      queryClient.removeQueries({ queryKey: ["groupme-groups"] });
+    },
+  });
+
+  if (statusLoading) return <ActivityIndicator style={{ padding: 16 }} />;
+
+  if (!status?.connected) {
+    return (
+      <View style={{ padding: 16 }}>
+        <Text style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>
+          Paste an access token from{" "}
+          <Text style={{ color: "#4285F4" }} onPress={() => Linking.openURL("https://dev.groupme.com")}>
+            dev.groupme.com
+          </Text>
+          {" "}(sign in, then tap "Access Token" in the top right).
+        </Text>
+        <TextInput
+          style={styles.addInput}
+          value={token}
+          onChangeText={setToken}
+          placeholder="GroupMe access token"
+          placeholderTextColor="#aaa"
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry
+        />
+        <Pressable
+          style={[styles.addBtn, { marginTop: 12 }, !token.trim() && styles.addBtnDisabled]}
+          onPress={() => token.trim() && connectMutation.mutate(token.trim())}
+          disabled={!token.trim() || connectMutation.isPending}
+        >
+          {connectMutation.isPending ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.addBtnText}>Connect</Text>
+          )}
+        </Pressable>
+      </View>
+    );
+  }
+
+  const groups = groupsData?.groups || [];
+
+  return (
+    <>
+      <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee", flexDirection: "row", alignItems: "center" }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 15, fontWeight: "500" }}>Connected as {status.groupme_name || "GroupMe user"}</Text>
+        </View>
+        <Pressable
+          onPress={() =>
+            Alert.alert("Disconnect GroupMe?", "This removes your stored access token.", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Disconnect", style: "destructive", onPress: () => disconnectMutation.mutate() },
+            ])
+          }
+          style={{ paddingVertical: 4, paddingHorizontal: 8 }}
+        >
+          <Text style={{ fontSize: 13, color: "#e53e3e" }}>Disconnect</Text>
+        </Pressable>
+      </View>
+      {groupsLoading ? (
+        <ActivityIndicator style={{ padding: 16 }} />
+      ) : groupsError ? (
+        <Text style={{ padding: 16, color: "#e53e3e" }}>
+          {(groupsError as Error).message}
+        </Text>
+      ) : groups.length === 0 ? (
+        <Text style={styles.emptyText}>No groups found</Text>
+      ) : (
+        groups.map((g) => (
+          <View key={g.id} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
+            <Text style={{ fontSize: 15, fontWeight: "500" }}>{g.name}</Text>
+            {g.member_count != null && (
+              <Text style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                {g.member_count} members
+                {g.last_message_at ? ` • last message ${new Date(g.last_message_at * 1000).toLocaleString()}` : ""}
+              </Text>
+            )}
+          </View>
+        ))
+      )}
+    </>
+  );
+}
+
 function PreferencesList() {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -157,11 +296,12 @@ function PreferencesList() {
 }
 
 
-type SettingsTab = "general" | "calendars";
+type SettingsTab = "general" | "calendars" | "groupme";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "general", label: "General" },
   { key: "calendars", label: "Calendars" },
+  { key: "groupme", label: "GroupMe" },
 ];
 
 export default function SettingsScreen() {
@@ -354,6 +494,16 @@ export default function SettingsScreen() {
           </Pressable>
         ))}
       </View>
+
+      {/* GroupMe section */}
+      {tab === "groupme" && (
+        <>
+          <Text style={styles.sectionTitle}>GroupMe</Text>
+          <View style={styles.card}>
+            <GroupMeSection />
+          </View>
+        </>
+      )}
 
       {/* General section */}
       {tab === "general" && (
