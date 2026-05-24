@@ -10,6 +10,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v42",
+    title: "Email + Calendar moved under Context",
+    notes: [
+      "Bottom tabs slim down to Chat | Capture | Settings",
+      "Email and Calendar views now live under Settings → Context",
+      "Clear Chat / Emails / Calendar buttons moved there too",
+    ],
+  },
+  {
     version: "v41",
     title: "What's new = one message per update",
     notes: ["Each release posts as its own chat message, not a bundle"],

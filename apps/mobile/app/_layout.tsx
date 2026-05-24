@@ -82,6 +82,14 @@ function AuthGate() {
         name="experiments"
         options={{ headerShown: true, title: "Experiments" }}
       />
+      <Stack.Screen
+        name="email"
+        options={{ headerShown: true, title: "Emails" }}
+      />
+      <Stack.Screen
+        name="calendar"
+        options={{ headerShown: true, title: "Calendar" }}
+      />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="index" />
     </Stack>
@@ -101,7 +109,7 @@ function VersionBadge() {
         fontWeight: "600",
       }}
     >
-      v41
+      v42
     </Text>
   );
 }

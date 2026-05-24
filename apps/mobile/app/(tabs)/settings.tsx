@@ -602,12 +602,95 @@ export default function SettingsScreen() {
         </>
       )}
 
-      {/* Context tab — user_context entries grouped here */}
+      {/* Context tab — preferences, data views, and per-source clear buttons */}
       {tab === "context" && (
         <>
           <Text style={styles.sectionTitle}>Preferences</Text>
           <View style={styles.card}>
             <PreferencesList />
+          </View>
+
+          <Text style={styles.sectionTitle}>Email</Text>
+          <View style={styles.card}>
+            <Pressable
+              style={styles.clearChatBtn}
+              onPress={() => router.push("/email")}
+            >
+              <Text style={[styles.clearChatText, { color: theme.primary }]}>View Emails</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.clearChatBtn, { borderBottomWidth: 0 }]}
+              onPress={() => {
+                Alert.alert("Clear Emails", "This will delete all stored emails and reset sync state.", [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Clear",
+                    style: "destructive",
+                    onPress: async () => {
+                      await apiFetch("/gmail/emails", { method: "DELETE" });
+                      queryClient.invalidateQueries({ queryKey: ["emails"] });
+                      Alert.alert("Done", "All email data cleared.");
+                    },
+                  },
+                ]);
+              }}
+            >
+              <Text style={styles.clearChatText}>Clear Emails</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.sectionTitle}>Calendar</Text>
+          <View style={styles.card}>
+            <Pressable
+              style={styles.clearChatBtn}
+              onPress={() => router.push("/calendar")}
+            >
+              <Text style={[styles.clearChatText, { color: theme.primary }]}>View Calendar</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.clearChatBtn, { borderBottomWidth: 0 }]}
+              onPress={() => {
+                Alert.alert("Clear Calendar Data", "This will delete all synced calendar data (sync state, suggestions, events).", [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Clear",
+                    style: "destructive",
+                    onPress: async () => {
+                      await apiFetch("/calendar/data", { method: "DELETE" });
+                      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+                      Alert.alert("Done", "All calendar data cleared.");
+                    },
+                  },
+                ]);
+              }}
+            >
+              <Text style={styles.clearChatText}>Clear Calendar Data</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.sectionTitle}>Chat</Text>
+          <View style={styles.card}>
+            <Pressable
+              style={[styles.clearChatBtn, { borderBottomWidth: 0 }]}
+              onPress={() => {
+                Alert.alert("Clear Chat", "This will delete your entire chat history.", [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Clear",
+                    style: "destructive",
+                    onPress: async () => {
+                      await apiFetch("/chat/history", { method: "DELETE" });
+                      queryClient.invalidateQueries({ queryKey: ["chat-history"] });
+                      Alert.alert("Done", "Chat history cleared. Opening a fresh chat.", [
+                        { text: "OK", onPress: () => router.replace("/(tabs)/chat") },
+                      ]);
+                    },
+                  },
+                ]);
+              }}
+            >
+              <Text style={styles.clearChatText}>Clear Chat History</Text>
+            </Pressable>
           </View>
         </>
       )}
@@ -757,64 +840,6 @@ export default function SettingsScreen() {
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.card}>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert("Clear Chat", "This will delete your entire chat history.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Clear",
-                style: "destructive",
-                onPress: async () => {
-                  await apiFetch("/chat/history", { method: "DELETE" });
-                  Alert.alert("Done", "Chat history cleared. Opening a fresh chat.", [
-                    { text: "OK", onPress: () => router.replace("/(tabs)/chat") },
-                  ]);
-                },
-              },
-            ]);
-          }}
-        >
-          <Text style={styles.clearChatText}>Clear Chat History</Text>
-        </Pressable>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert("Clear Emails", "This will delete all stored emails and reset sync state.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Clear",
-                style: "destructive",
-                onPress: async () => {
-                  await apiFetch("/gmail/emails", { method: "DELETE" });
-                  queryClient.invalidateQueries({ queryKey: ["emails"] });
-                  Alert.alert("Done", "All email data cleared.");
-                },
-              },
-            ]);
-          }}
-        >
-          <Text style={styles.clearChatText}>Clear Emails</Text>
-        </Pressable>
-        <Pressable
-          style={styles.clearChatBtn}
-          onPress={() => {
-            Alert.alert("Clear Calendar Data", "This will delete all synced calendar data (sync state, suggestions, events).", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Clear",
-                style: "destructive",
-                onPress: async () => {
-                  await apiFetch("/calendar/data", { method: "DELETE" });
-                  queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-                  Alert.alert("Done", "All calendar data cleared.");
-                },
-              },
-            ]);
-          }}
-        >
-          <Text style={styles.clearChatText}>Clear Calendar Data</Text>
-        </Pressable>
         <Pressable
           style={styles.clearChatBtn}
           onPress={() => {
