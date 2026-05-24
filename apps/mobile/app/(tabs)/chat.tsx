@@ -40,6 +40,7 @@ export default function ChatScreen() {
   const [pending, setPending] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const didInitialScroll = useRef(false);
   const theme = useTheme();
   const styles = useStyles(makeStyles);
   const mdStyles = useStyles(makeMdStyles);
@@ -140,9 +141,14 @@ export default function ChatScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.messageList}
-          onContentSizeChange={() =>
-            flatListRef.current?.scrollToEnd({ animated: true })
-          }
+          onContentSizeChange={() => {
+            // First time content lays out (chat opening): jump instantly so
+            // we appear at the bottom. After that, animate so new messages
+            // scroll in smoothly.
+            const animated = didInitialScroll.current;
+            didInitialScroll.current = true;
+            flatListRef.current?.scrollToEnd({ animated });
+          }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="small" color="#999" />
