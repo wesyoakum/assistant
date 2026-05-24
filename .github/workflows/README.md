@@ -5,7 +5,9 @@ Two workflows, two purposes:
 | Workflow | Where it runs | When | What it does |
 |---|---|---|---|
 | `eas-update.yml` | GitHub Actions | Push to `main` touching `apps/mobile/**` or `packages/shared/**`, or manual dispatch | Publishes an OTA update via `eas update`. JS/TS changes only. |
-| `../../.eas/workflows/build-ios-testflight.yml` | EAS (Expo's CI) | Manual dispatch only | Full native iOS build + TestFlight submit. Use after native changes (new Expo plugin, native module, SDK bump, `app.json` ios block). |
+| `eas-build.yml` | GitHub Actions | Manual dispatch only | Full native iOS build (on Expo's infra) + auto-submit to TestFlight. Use after native changes. |
+| `deploy-api.yml` | GitHub Actions | Push to `main` touching `apps/api/**` or `packages/shared/**`, or manual dispatch | Deploys the Cloudflare Worker (`api.whyapp.us`) via `wrangler deploy`. |
+| `../../.eas/workflows/build-ios-testflight.yml` | EAS (Expo's CI) | Manual dispatch only | Same as `eas-build.yml` but runs on Expo's Workflows. Kept as backup. |
 
 ## One-time setup (do this once, from any browser — phone works)
 
@@ -20,6 +22,13 @@ Two workflows, two purposes:
 2. "New repository secret" → name `EXPO_TOKEN`, paste the value.
 
 That's enough for OTA updates. The EAS workflow runs on Expo's infra and uses your Expo account directly — no GitHub secret needed.
+
+### 2b. (For API deploys) Cloudflare credentials
+
+1. Visit https://dash.cloudflare.com/profile/api-tokens → "Create Token" → use the **"Edit Cloudflare Workers"** template → Create.
+2. Copy the token.
+3. Get your Account ID: it's on the right sidebar of any zone in the Cloudflare dashboard (or under Workers & Pages → Overview).
+4. In GitHub secrets, add `CLOUDFLARE_API_TOKEN` (paste the token) and `CLOUDFLARE_ACCOUNT_ID` (paste the account id).
 
 ### 3. (One time) Rebuild for TestFlight with channels wired up
 

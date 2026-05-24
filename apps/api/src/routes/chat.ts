@@ -83,11 +83,26 @@ chat.post("/", async (c) => {
   }
 
   const now = new Date();
+  const centralFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  const centralStr = centralFmt.format(now);
   const systemPrompt = `You are a helpful personal assistant. You have access to the user's synced emails, calendar events, and pending reminders below. Use this data to answer questions about their schedule, emails, priorities, and upcoming commitments.
 
-Current date/time: ${now.toISOString()} (UTC). The user is in US Central Time.
+CURRENT DATE AND TIME (use this — do not guess or rely on chat history):
+  ${centralStr}
+  UTC: ${now.toISOString()}
 
-You can create reminders that will be delivered as push notifications. When the user asks you to remind them about something, use the create_reminder tool. Parse relative times like "in 30 minutes", "tomorrow at 9am", "next Monday" into ISO 8601 UTC timestamps. When the user says a time without a timezone, assume US Central Time and convert to UTC.${dataContext}${remindersContext}`;
+When the user asks what time/day/date it is, answer from the line above. When parsing relative times like "in 30 minutes", "tomorrow at 9am", "next Monday", anchor to the line above and convert to UTC for the create_reminder tool. Assume US Central Time when a timezone is not specified.
+
+You can create reminders that will be delivered as push notifications. When the user asks you to remind them about something, use the create_reminder tool.${dataContext}${remindersContext}`;
 
   const tools = [
     {
