@@ -1,4 +1,3 @@
-import { Text } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../src/theme";
@@ -10,8 +9,6 @@ function tabIcon(name: IconName) {
     <Ionicons name={name} size={size} color={color} />
   );
 }
-
-const APP_VERSION = "v25";
 
 export default function TabsLayout() {
   const theme = useTheme();
@@ -26,9 +23,6 @@ export default function TabsLayout() {
         headerTitleStyle: { color: theme.headerText, fontWeight: "600" },
         sceneStyle: { backgroundColor: theme.background },
         headerShown: true,
-        headerRight: () => (
-          <Text style={{ fontSize: 10, color: theme.headerText, opacity: 0.7, marginRight: 12 }}>{APP_VERSION}</Text>
-        ),
       }}
     >
       <Tabs.Screen
