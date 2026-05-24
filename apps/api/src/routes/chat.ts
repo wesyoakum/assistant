@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
-import { logUsage, CHAT_MODEL } from "../services/claude";
+import { logUsage, CHAT_MODEL, CLASSIFIER_MODEL } from "../services/claude";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 
@@ -279,6 +279,138 @@ chat.delete("/history", async (c) => {
     .bind(userId)
     .run();
   return c.json({ ok: true });
+});
+
+// Auto-briefing — generates a summary of new emails + upcoming week.
+// Throttled to once every 3 hours per user. Stores the result as an
+// assistant message in chat_messages so it shows up next time the user
+// opens chat.
+const BRIEFING_THROTTLE_MS = 3 * 60 * 60 * 1000;
+
+chat.post("/briefing", async (c) => {
+  const userId = c.get("userId");
+
+  // Throttle check
+  const settings = await c.env.DB.prepare(
+    "SELECT last_briefing_at FROM user_settings WHERE user_id = ?"
+  ).bind(userId).first<{ last_briefing_at: string | null }>();
+
+  const last = settings?.last_briefing_at ? new Date(settings.last_briefing_at).getTime() : 0;
+  const now = Date.now();
+  if (last && now - last < BRIEFING_THROTTLE_MS) {
+    return c.json({ skipped: true, reason: "throttled", next_at: new Date(last + BRIEFING_THROTTLE_MS).toISOString() });
+  }
+
+  // Pull emails received since last briefing (or last 24h if first time)
+  const since = last ? new Date(last).toISOString() : new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const { results: newEmails } = await c.env.DB.prepare(
+    `SELECT subject, from_addr, email_date, snippet, body_text
+       FROM pending_emails
+      WHERE user_id = ? AND source_type = 'email' AND email_date >= ?
+      ORDER BY email_date DESC LIMIT 50`
+  ).bind(userId, since).all<{ subject: string; from_addr: string; email_date: string; snippet: string; body_text: string }>();
+
+  // Pull next 7 days of calendar events
+  const weekFromNow = new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { results: events } = await c.env.DB.prepare(
+    `SELECT subject, body_text, email_date
+       FROM pending_emails
+      WHERE user_id = ? AND source_type = 'calendar' AND email_date <= ?
+      ORDER BY email_date ASC LIMIT 50`
+  ).bind(userId, weekFromNow).all<{ subject: string; body_text: string; email_date: string }>();
+
+  // If there's literally nothing new, skip (don't spam the chat)
+  if (newEmails.length === 0 && events.length === 0) {
+    await c.env.DB.prepare(
+      `INSERT INTO user_settings (user_id, last_briefing_at) VALUES (?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET last_briefing_at = excluded.last_briefing_at`
+    ).bind(userId, new Date(now).toISOString()).run();
+    return c.json({ skipped: true, reason: "empty" });
+  }
+
+  // Build briefing prompt
+  const centralFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+  const nowStr = centralFmt.format(new Date(now));
+
+  let dataBlock = `\n\nCURRENT TIME: ${nowStr}\n`;
+  if (newEmails.length > 0) {
+    dataBlock += `\n<new_emails since="${since}">\n`;
+    for (const e of newEmails) {
+      dataBlock += `From: ${e.from_addr}\nDate: ${e.email_date}\nSubject: ${e.subject}\n${(e.body_text || e.snippet || "").slice(0, 400)}\n---\n`;
+    }
+    dataBlock += `</new_emails>\n`;
+  }
+  if (events.length > 0) {
+    dataBlock += `\n<upcoming_events>\n`;
+    for (const ev of events) {
+      try {
+        const parsed = JSON.parse(ev.body_text);
+        dataBlock += `Event: ${parsed.summary || ev.subject}\nWhen: ${parsed.start || ev.email_date}${parsed.end ? " - " + parsed.end : ""}\n${parsed.location ? "Location: " + parsed.location + "\n" : ""}---\n`;
+      } catch {
+        dataBlock += `Event: ${ev.subject}\nWhen: ${ev.email_date}\n---\n`;
+      }
+    }
+    dataBlock += `</upcoming_events>\n`;
+  }
+
+  const systemPrompt = `You write a brief morning-briefing-style update for a personal-assistant app user. The user just opened the app — emails and calendar were just synced. Your job: give a friendly, scannable summary of:
+1. New emails (call out anything that looks important or time-sensitive; group routine stuff)
+2. The coming week's calendar (highlight today and tomorrow, then briefly note the rest)
+
+Keep it conversational and tight — under 200 words. No greeting like "Good morning" (the time of day varies). Skip sections that are empty. Use plain markdown for structure (## headings, bullet lists). End with a short prompt like "Anything you want me to dig into?".`;
+
+  const res = await fetch(CLAUDE_API, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": c.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: CLASSIFIER_MODEL,
+      max_tokens: 600,
+      system: systemPrompt,
+      messages: [{ role: "user", content: dataBlock }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("Briefing Claude error:", res.status, err);
+    return c.json({ error: "Briefing unavailable", detail: `${res.status}: ${err.slice(0, 200)}` }, 502);
+  }
+
+  const data = (await res.json()) as {
+    content: { type: string; text?: string }[];
+    usage?: { input_tokens: number; output_tokens: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+  };
+  await logUsage(c.env.DB, userId, "briefing", CLASSIFIER_MODEL, data.usage);
+
+  const text = data.content.find((b) => b.type === "text")?.text?.trim();
+  if (!text) {
+    return c.json({ error: "Empty briefing" }, 502);
+  }
+
+  // Persist as assistant chat message
+  await c.env.DB.prepare(
+    "INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, 'assistant', ?)"
+  ).bind(crypto.randomUUID(), userId, text).run();
+
+  // Update throttle timestamp
+  await c.env.DB.prepare(
+    `INSERT INTO user_settings (user_id, last_briefing_at) VALUES (?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET last_briefing_at = excluded.last_briefing_at`
+  ).bind(userId, new Date(now).toISOString()).run();
+
+  return c.json({ skipped: false, message: text, emails: newEmails.length, events: events.length });
 });
 
 export { chat };
