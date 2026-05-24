@@ -10,6 +10,11 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v37",
+    title: "Relative orientation",
+    notes: ["New card under Device Motion: tap 'Zero here' to start tracking how far you've rotated"],
+  },
+  {
     version: "v36",
     title: "Barometer in psi",
     notes: ["Tiny psi readout in the corner of the pressure chart"],
