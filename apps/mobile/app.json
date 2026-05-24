@@ -2,7 +2,7 @@
   "expo": {
     "name": "whyapp",
     "slug": "whyapp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "scheme": "whyapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -20,6 +20,8 @@
         "NSMicrophoneUsageDescription": "Needed for voice memos",
         "NSCameraUsageDescription": "Needed to capture documents and images",
         "NSPhotoLibraryUsageDescription": "Needed to select photos for ingestion",
+        "NSLocationWhenInUseUsageDescription": "Used in the Experiments screen to show your current location for testing.",
+        "NSMotionUsageDescription": "Used in the Experiments screen to show accelerometer and gyroscope data for testing.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
