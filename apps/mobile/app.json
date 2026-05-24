@@ -26,9 +26,6 @@
         "NSMotionUsageDescription": "Used in the Experiments screen to show accelerometer and gyroscope data for testing.",
         "NSBluetoothAlwaysUsageDescription": "Used in the Experiments screen to scan nearby Bluetooth devices.",
         "NSBluetoothPeripheralUsageDescription": "Used in the Experiments screen to scan nearby Bluetooth devices.",
-        "NSHealthShareUsageDescription": "Used in the Experiments screen to display heart rate, steps, and other Apple Watch health data.",
-        "NSHealthUpdateUsageDescription": "Used in the Experiments screen for writing test health data (currently unused).",
-        "NFCReaderUsageDescription": "Used in the Experiments screen to read nearby NFC tags.",
         "UIBackgroundModes": ["location"],
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -76,21 +73,6 @@
           "isBackgroundEnabled": false,
           "modes": [],
           "bluetoothAlwaysPermission": "Used in the Experiments screen to scan nearby Bluetooth devices."
-        }
-      ],
-      [
-        "@kingstinct/react-native-healthkit",
-        {
-          "NSHealthShareUsageDescription": "Used in the Experiments screen to display heart rate, steps, and other Apple Watch health data.",
-          "NSHealthUpdateUsageDescription": "Used in the Experiments screen for writing test health data (currently unused).",
-          "background": true
-        }
-      ],
-      [
-        "react-native-nfc-manager",
-        {
-          "nfcPermission": "Used in the Experiments screen to read nearby NFC tags.",
-          "selectIdentifiers": []
         }
       ]
     ],

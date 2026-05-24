@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v56",
+    title: "Defer HealthKit + NFC for now",
+    pr: 50,
+    notes: [
+      "Pulled the two packages so the next TestFlight build succeeds",
+      "Coming back once the EAS provisioning profile is sorted",
+    ],
+  },
+  {
     version: "v55",
     title: "Settings: dedicated Usage tab with full dashboard",
     pr: 49,
