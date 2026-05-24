@@ -17,9 +17,14 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         tabBarActiveTintColor: "#3D7F94",
+        tabBarInactiveTintColor: "#1F5961",
+        tabBarStyle: { backgroundColor: "#EDE3D1", borderTopColor: "#d6c9b3" },
+        headerStyle: { backgroundColor: "#1F5961" },
+        headerTintColor: "#EDE3D1",
+        headerTitleStyle: { color: "#EDE3D1", fontWeight: "600" },
         headerShown: true,
         headerRight: () => (
-          <Text style={{ fontSize: 10, color: "#ccc", marginRight: 12 }}>{APP_VERSION}</Text>
+          <Text style={{ fontSize: 10, color: "#EDE3D1", opacity: 0.7, marginRight: 12 }}>{APP_VERSION}</Text>
         ),
       }}
     >

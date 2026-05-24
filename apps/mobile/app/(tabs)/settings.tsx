@@ -312,7 +312,7 @@ function PreferencesList() {
       {prefs.map((p) => (
         <View key={p.id} style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
           <View style={{ flex: 1, marginRight: 12 }}>
-            <Text style={{ fontSize: 15, color: "#222", fontWeight: "500" }}>{p.label}</Text>
+            <Text style={{ fontSize: 15, color: "#1F2024", fontWeight: "500" }}>{p.label}</Text>
             {p.detail && (
               <Text style={{ fontSize: 13, color: "#666", marginTop: 2 }}>{p.detail}</Text>
             )}
@@ -785,7 +785,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f2f2f7" },
+  container: { flex: 1, backgroundColor: "#EDE3D1" },
   content: { padding: 16, paddingBottom: 40 },
   tabBar: {
     flexDirection: "row",
@@ -804,7 +804,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   tabText: { fontSize: 13, fontWeight: "600", color: "#666" },
-  tabTextActive: { color: "#111" },
+  tabTextActive: { color: "#1F2024" },
   sectionTitle: {
     fontSize: 13,
     fontWeight: "600",
@@ -836,7 +836,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   calInfo: { flex: 1, marginRight: 12 },
-  calName: { fontSize: 15, color: "#222" },
+  calName: { fontSize: 15, color: "#1F2024" },
   calOriginal: { fontSize: 11, color: "#aaa", marginTop: 1 },
   calPrimary: { fontSize: 12, color: "#999", marginTop: 1 },
   addRow: {
@@ -850,7 +850,7 @@ const styles = StyleSheet.create({
   addInput: {
     flex: 1,
     fontSize: 14,
-    color: "#222",
+    color: "#1F2024",
     backgroundColor: "#f5f5f5",
     borderRadius: 8,
     paddingHorizontal: 12,

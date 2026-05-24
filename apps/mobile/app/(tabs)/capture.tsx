@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 40,
   },
-  heading: { fontSize: 28, fontWeight: "700", color: "#111", marginBottom: 8 },
+  heading: { fontSize: 28, fontWeight: "700", color: "#1F2024", marginBottom: 8 },
   subtext: { fontSize: 15, color: "#888", lineHeight: 22, marginBottom: 32 },
   grid: {
     flexDirection: "row",
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   recentTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#111",
+    color: "#1F2024",
   },
   emptyText: {
     fontSize: 14,

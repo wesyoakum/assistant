@@ -172,7 +172,7 @@ function EmailContent({ sourceJson }: { sourceJson: string }) {
         </Text>
         {emails.map((email, i) => (
           <View key={i} style={{ backgroundColor: "#f8f8f8", borderRadius: 10, padding: 14, marginBottom: i < emails.length - 1 ? 8 : 0 }}>
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#222", marginBottom: 4 }}>{email.subject || "(no subject)"}</Text>
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#1F2024", marginBottom: 4 }}>{email.subject || "(no subject)"}</Text>
             <Text style={{ fontSize: 13, color: "#666", marginBottom: 2 }}>From: {email.from || "unknown"}</Text>
             <Text style={{ fontSize: 12, color: "#999", marginBottom: 10 }}>{email.date ? new Date(email.date).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</Text>
             <View style={{ height: 1, backgroundColor: "#e0e0e0", marginBottom: 10 }} />
@@ -206,7 +206,7 @@ function CalendarContent({ item }: { item: TriageItem }) {
     <View style={{ marginBottom: 20 }}>
       <Text style={{ fontSize: 13, fontWeight: "700", color: "#888", textTransform: "uppercase", marginBottom: 6 }}>Calendar Event</Text>
       <View style={{ backgroundColor: "#f8f8f8", borderRadius: 10, padding: 14 }}>
-        <Text style={{ fontSize: 16, fontWeight: "600", color: "#222", marginBottom: 8 }}>{title}</Text>
+        <Text style={{ fontSize: 16, fontWeight: "600", color: "#1F2024", marginBottom: 8 }}>{title}</Text>
         {start && <DetailRow label="Start" value={fmtD(start)!} />}
         {end && <DetailRow label="End" value={fmtD(end)!} />}
         {calendar && <DetailRow label="Calendar" value={calendar} />}
@@ -679,7 +679,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   badgeText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  summary: { fontSize: 20, color: "#111", lineHeight: 28, marginBottom: 20 },
+  summary: { fontSize: 20, color: "#1F2024", lineHeight: 28, marginBottom: 20 },
   compoundBadge: { fontSize: 12, color: "#666", backgroundColor: "#f0f0f0", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginBottom: 12, alignSelf: "flex-start" as const, overflow: "hidden" as const },
   headerBadges: { flexDirection: "row", alignItems: "center", gap: 6 },
   puBadge: {

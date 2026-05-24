@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 15,
-    color: "#222",
+    color: "#1F2024",
     backgroundColor: "#f2f2f2",
     borderRadius: 20,
     paddingHorizontal: 16,
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
 });
 
 const mdStyles = {
-  body: { fontSize: 15, lineHeight: 21, color: "#222" },
+  body: { fontSize: 15, lineHeight: 21, color: "#1F2024" },
   strong: { fontWeight: "700" as const },
   em: { fontStyle: "italic" as const },
   paragraph: { marginTop: 0, marginBottom: 0 },

@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   content: { flex: 1, marginRight: 10 },
-  summary: { fontSize: 15, color: "#222", marginBottom: 3 },
+  summary: { fontSize: 15, color: "#1F2024", marginBottom: 3 },
   metaRow: { flexDirection: "row", alignItems: "center" },
   sourceLabel: { fontSize: 12, color: "#3D7F94", fontWeight: "600" },
   dot: { fontSize: 12, color: "#ccc", marginHorizontal: 5 },
@@ -499,7 +499,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 6,
   },
-  controlTitle: { fontSize: 16, fontWeight: "700", color: "#222" },
+  controlTitle: { fontSize: 16, fontWeight: "700", color: "#1F2024" },
   controlBadge: {
     fontSize: 11,
     fontWeight: "600",

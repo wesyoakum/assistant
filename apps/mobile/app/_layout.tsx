@@ -59,7 +59,14 @@ function AuthGate() {
   }
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        headerStyle: { backgroundColor: "#1F5961" },
+        headerTintColor: "#EDE3D1",
+        headerTitleStyle: { fontWeight: "600" },
+      }}
+    >
       <Stack.Screen name="(tabs)" />
       <Stack.Screen
         name="notifications"
@@ -81,7 +88,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthGate />
       </QueryClientProvider>
-      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v23</Text>
+      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v24</Text>
     </GestureHandlerRootView>
   );
 }

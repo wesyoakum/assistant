@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
   time: { fontSize: 14, fontWeight: "600", color: "#333" },
   timeEnd: { fontSize: 12, color: "#999" },
   content: { flex: 1, marginRight: 8 },
-  summary: { fontSize: 15, color: "#222" },
+  summary: { fontSize: 15, color: "#1F2024" },
   calName: { fontSize: 12, color: "#3D7F94", fontWeight: "600", marginTop: 2 },
   location: { fontSize: 13, color: "#888", marginTop: 2 },
   datesMeta: { flexDirection: "row", gap: 10, marginTop: 3 },
