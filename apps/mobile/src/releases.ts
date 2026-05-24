@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v60",
+    title: "Audio spectrum: sliders instead of steppers",
+    pr: 54,
+    notes: [
+      "Drag the four range controls instead of tapping × / ÷ / ± buttons",
+      "Frequency sliders use a log scale so movement is musical, not linear",
+    ],
+  },
+  {
     version: "v59",
     title: "BLE: sort by signal/name, inline detail view",
     pr: 53,
