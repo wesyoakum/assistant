@@ -237,6 +237,15 @@ function Sparkline({ samples, color, height = 56 }: { samples: number[]; color: 
 }
 
 export default function ExperimentsScreen() {
+  const styles = useStyles(makeStyles);
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+      <ExperimentsContent />
+    </ScrollView>
+  );
+}
+
+export function ExperimentsContent() {
   const { token } = useAuth();
   const styles = useStyles(makeStyles);
   const theme = useTheme();
@@ -537,7 +546,7 @@ export default function ExperimentsScreen() {
   const c = Constants;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+    <>
       <Text style={[styles.rowLabel, { fontSize: 13, marginBottom: 16, flex: 0 }]}>
         Sandbox of iPhone APIs reachable through Expo modules. Motion sensors update live; location is on-demand.
       </Text>
@@ -951,7 +960,7 @@ export default function ExperimentsScreen() {
           ))}
         </View>
       </View>
-    </ScrollView>
+    </>
   );
 }
 
