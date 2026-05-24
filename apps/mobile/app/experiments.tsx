@@ -16,13 +16,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Audio } from "expo-av";
 import { BleManager, type Device as BleDevice, type State as BleState } from "react-native-ble-plx";
 import LiveAudioStream from "react-native-live-audio-stream";
-import {
-  isHealthDataAvailable,
-  requestAuthorization as hkRequestAuthorization,
-  getMostRecentQuantitySample,
-  queryStatisticsForQuantity,
-} from "@kingstinct/react-native-healthkit";
-import NfcManager, { NfcTech, Ndef } from "react-native-nfc-manager";
+// HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
 import { useMe } from "../src/hooks/useMe";
@@ -573,128 +567,6 @@ export function ExperimentsContent() {
       locSubRef.current?.remove();
     };
   }, []);
-
-  // HealthKit — on-demand snapshot of the most recent values.
-  const [hkAvailable, setHkAvailable] = useState<boolean | null>(null);
-  const [hkStatus, setHkStatus] = useState<string>("not requested");
-  const [hk, setHk] = useState<{
-    heartRate?: number;
-    heartRateAt?: string;
-    stepsToday?: number;
-    activeEnergy?: number;
-    restingHR?: number;
-    hrv?: number;
-    spo2?: number;
-  }>({});
-
-  useEffect(() => {
-    try {
-      setHkAvailable(isHealthDataAvailable());
-    } catch {
-      setHkAvailable(false);
-    }
-  }, []);
-
-  const refreshHealthkit = async () => {
-    try {
-      setHkStatus("requesting…");
-      const toRead = [
-        "HKQuantityTypeIdentifierHeartRate",
-        "HKQuantityTypeIdentifierStepCount",
-        "HKQuantityTypeIdentifierActiveEnergyBurned",
-        "HKQuantityTypeIdentifierRestingHeartRate",
-        "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
-        "HKQuantityTypeIdentifierOxygenSaturation",
-      ] as const;
-      await hkRequestAuthorization({ toRead: toRead as unknown as readonly never[] });
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      const opts = { filter: { startDate: startOfDay, endDate: new Date() } };
-      const out: typeof hk = {};
-      try {
-        const hr = await getMostRecentQuantitySample("HKQuantityTypeIdentifierHeartRate" as never);
-        if (hr) {
-          out.heartRate = (hr as { quantity: number }).quantity;
-          out.heartRateAt = new Date((hr as { endDate: string | Date }).endDate).toLocaleTimeString();
-        }
-      } catch {}
-      try {
-        const steps = await queryStatisticsForQuantity(
-          "HKQuantityTypeIdentifierStepCount" as never,
-          ["cumulativeSum"] as never,
-          opts as never
-        );
-        out.stepsToday = (steps as { sumQuantity?: { quantity: number } } | undefined)?.sumQuantity?.quantity;
-      } catch {}
-      try {
-        const energy = await queryStatisticsForQuantity(
-          "HKQuantityTypeIdentifierActiveEnergyBurned" as never,
-          ["cumulativeSum"] as never,
-          opts as never
-        );
-        out.activeEnergy = (energy as { sumQuantity?: { quantity: number } } | undefined)?.sumQuantity?.quantity;
-      } catch {}
-      try {
-        const rhr = await getMostRecentQuantitySample("HKQuantityTypeIdentifierRestingHeartRate" as never);
-        if (rhr) out.restingHR = (rhr as { quantity: number }).quantity;
-      } catch {}
-      try {
-        const hrv = await getMostRecentQuantitySample("HKQuantityTypeIdentifierHeartRateVariabilitySDNN" as never);
-        if (hrv) out.hrv = (hrv as { quantity: number }).quantity;
-      } catch {}
-      try {
-        const spo2 = await getMostRecentQuantitySample("HKQuantityTypeIdentifierOxygenSaturation" as never);
-        if (spo2) out.spo2 = (spo2 as { quantity: number }).quantity * 100;
-      } catch {}
-      setHk(out);
-      setHkStatus("ok");
-    } catch (err) {
-      setHkStatus(`error: ${(err as Error).message}`);
-    }
-  };
-
-  // NFC — read NDEF tag on demand.
-  const [nfcStatus, setNfcStatus] = useState<string>("idle");
-  const [nfcTag, setNfcTag] = useState<{ id?: string; type?: string; payload?: string } | null>(null);
-  const nfcInitRef = useRef(false);
-
-  const startNfc = async () => {
-    try {
-      if (!nfcInitRef.current) {
-        await NfcManager.start();
-        nfcInitRef.current = true;
-      }
-      setNfcStatus("scanning — hold a tag near the top of the phone");
-      setNfcTag(null);
-      await NfcManager.requestTechnology(NfcTech.Ndef, {
-        alertMessage: "Hold a tag near your phone",
-      });
-      const tag = await NfcManager.getTag();
-      let payloadText: string | undefined;
-      if (tag?.ndefMessage?.[0]?.payload) {
-        try {
-          payloadText = Ndef.text.decodePayload(new Uint8Array(tag.ndefMessage[0].payload));
-        } catch {
-          payloadText = undefined;
-        }
-      }
-      setNfcTag({
-        id: tag?.id,
-        type: tag?.type,
-        payload: payloadText,
-      });
-      setNfcStatus("read");
-    } catch (err) {
-      setNfcStatus(`error: ${(err as Error).message}`);
-    } finally {
-      try { await NfcManager.cancelTechnologyRequest(); } catch { /* */ }
-    }
-  };
-
-  const stopNfc = async () => {
-    try { await NfcManager.cancelTechnologyRequest(); } catch { /* */ }
-    setNfcStatus("idle");
-  };
 
   const fireHaptic = (kind: "light" | "medium" | "heavy" | "success" | "warning" | "error") => {
     if (kind === "light") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1579,65 +1451,20 @@ export function ExperimentsContent() {
       </>)}
 
       {labTab === "health" && (<>
-      <Text style={styles.sectionTitle}>HealthKit (Apple Watch + Health app)</Text>
+      <Text style={styles.sectionTitle}>HealthKit</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
-          {hkAvailable === false
-            ? "HealthKit not available on this device."
-            : `Status: ${hkStatus}`}
+        <Text style={{ fontSize: 13, color: theme.textMuted }}>
+          Apple Watch + HealthKit data deferred until the EAS provisioning profile is sorted. Re-enable in a follow-up.
         </Text>
-        <Section
-          title=""
-          rows={[
-            { label: "Heart rate (bpm)", value: hk.heartRate != null ? `${hk.heartRate.toFixed(0)}${hk.heartRateAt ? ` @ ${hk.heartRateAt}` : ""}` : null },
-            { label: "Resting HR (bpm)", value: hk.restingHR != null ? hk.restingHR.toFixed(0) : null },
-            { label: "HRV SDNN (ms)", value: hk.hrv != null ? hk.hrv.toFixed(0) : null },
-            { label: "SpO₂ (%)", value: hk.spo2 != null ? hk.spo2.toFixed(0) : null },
-            { label: "Steps today", value: hk.stepsToday != null ? Math.round(hk.stepsToday).toLocaleString() : null },
-            { label: "Active energy today (kcal)", value: hk.activeEnergy != null ? hk.activeEnergy.toFixed(0) : null },
-          ]}
-        />
-        <Pressable
-          onPress={refreshHealthkit}
-          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: theme.primary, marginTop: 4 }}
-        >
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-            {hkStatus === "ok" ? "Refresh" : "Request access + read"}
-          </Text>
-        </Pressable>
       </View>
       </>)}
 
       {labTab === "env" && (<>
       <Text style={styles.sectionTitle}>NFC</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
-          Status: {nfcStatus}
+        <Text style={{ fontSize: 13, color: theme.textMuted }}>
+          NFC tag reading deferred until the EAS provisioning profile is sorted. Re-enable in a follow-up.
         </Text>
-        {nfcTag && (
-          <Section
-            title=""
-            rows={[
-              { label: "Tag ID", value: nfcTag.id },
-              { label: "Tag type", value: nfcTag.type },
-              { label: "NDEF payload", value: nfcTag.payload },
-            ]}
-          />
-        )}
-        <Pressable
-          onPress={nfcStatus.startsWith("scanning") ? stopNfc : startNfc}
-          style={{
-            paddingVertical: 10,
-            borderRadius: 8,
-            alignItems: "center",
-            backgroundColor: nfcStatus.startsWith("scanning") ? theme.destructive : theme.primary,
-            marginTop: 4,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-            {nfcStatus.startsWith("scanning") ? "Cancel" : "Scan NFC tag"}
-          </Text>
-        </Pressable>
       </View>
       </>)}
 
