@@ -542,12 +542,10 @@ function PreferencesList() {
 }
 
 
-type SettingsTab = "general" | "calendars" | "groupme" | "context" | "usage" | "experiments";
+type SettingsTab = "general" | "context" | "usage" | "experiments";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "general", label: "General" },
-  { key: "calendars", label: "Calendars" },
-  { key: "groupme", label: "GroupMe" },
   { key: "context", label: "Context" },
   { key: "usage", label: "Usage" },
   { key: "experiments", label: "Lab" },
@@ -748,7 +746,7 @@ export default function SettingsScreen() {
       </View>
 
       {/* GroupMe section */}
-      {tab === "groupme" && (
+      {tab === "context" && (
         <>
           <Text style={styles.sectionTitle}>GroupMe</Text>
           <View style={styles.card}>
@@ -863,7 +861,7 @@ export default function SettingsScreen() {
       {tab === "experiments" && <ExperimentsContent />}
 
       {/* Calendars section */}
-      {tab === "calendars" && (
+      {tab === "context" && (
       <>
       <Text style={styles.sectionTitle}>Calendars</Text>
       <View style={styles.card}>
@@ -930,7 +928,7 @@ export default function SettingsScreen() {
 
 
       {/* iCal Feeds section */}
-      {tab === "calendars" && (
+      {tab === "context" && (
       <>
       <Text style={styles.sectionTitle}>iCal Feeds</Text>
       <View style={styles.card}>
