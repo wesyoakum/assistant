@@ -213,7 +213,40 @@ function CompassArrow({ headingDeg, color, size = 70 }: { headingDeg: number; co
   );
 }
 
-function Sparkline({ samples, color, height = 56 }: { samples: number[]; color: string; height?: number }) {
+function MultiSparkline({ lines, height = 70 }: { lines: { samples: number[]; color: string; label?: string }[]; height?: number }) {
+  if (lines.every((l) => l.samples.length < 2)) {
+    return <View style={{ height, backgroundColor: "transparent" }} />;
+  }
+  // Shared y-axis range across all lines so they're comparable.
+  let min = Infinity;
+  let max = -Infinity;
+  for (const l of lines) {
+    for (const v of l.samples) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  if (!isFinite(min)) { min = 0; max = 1; }
+  return (
+    <View style={{ height, position: "relative" }}>
+      {lines.map((l, i) => (
+        <View key={i} style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: 0 }}>
+          <Sparkline samples={l.samples} color={l.color} height={height} yMin={min} yMax={max} />
+        </View>
+      ))}
+      {/* legend in the top-right corner */}
+      <View style={{ position: "absolute", top: 4, right: 8, flexDirection: "row", gap: 8 }}>
+        {lines.map((l) => (
+          <Text key={l.label} style={{ fontSize: 10, fontWeight: "700", color: l.color }}>
+            {l.label}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function Sparkline({ samples, color, height = 56, yMin, yMax }: { samples: number[]; color: string; height?: number; yMin?: number; yMax?: number }) {
   const [width, setWidth] = useState(0);
 
   if (samples.length < 2) {
@@ -225,9 +258,9 @@ function Sparkline({ samples, color, height = 56 }: { samples: number[]; color: 
     );
   }
 
-  // Auto-scale to the visible window.
-  const min = Math.min(...samples);
-  const max = Math.max(...samples);
+  // Use shared scale if provided, otherwise auto-scale.
+  const min = yMin ?? Math.min(...samples);
+  const max = yMax ?? Math.max(...samples);
   const range = max - min || 1;
 
   // Pad on the left so "now" is always the right edge.
@@ -311,21 +344,23 @@ export function ExperimentsContent() {
   const [accel, setAccel] = useState<{ x: number; y: number; z: number } | null>(null);
   const [gyro, setGyro] = useState<{ x: number; y: number; z: number } | null>(null);
   const [mag, setMag] = useState<{ x: number; y: number; z: number } | null>(null);
-  const [accelHist, setAccelHist] = useState<number[]>([]);
-  const [gyroHist, setGyroHist] = useState<number[]>([]);
-  const [magHist, setMagHist] = useState<number[]>([]);
+  type XyzHist = { x: number[]; y: number[]; z: number[] };
+  const emptyXyzHist = (): XyzHist => ({ x: [], y: [], z: [] });
+  const [accelHist, setAccelHist] = useState<XyzHist>(emptyXyzHist());
+  const [gyroHist, setGyroHist] = useState<XyzHist>(emptyXyzHist());
+  const [magHist, setMagHist] = useState<XyzHist>(emptyXyzHist());
 
   useEffect(() => {
     Accelerometer.setUpdateInterval(200);
     Gyroscope.setUpdateInterval(200);
     Magnetometer.setUpdateInterval(200);
-    const pushTo = (set: React.Dispatch<React.SetStateAction<number[]>>) =>
+    const grow = (arr: number[], v: number) => {
+      const next = arr.length >= HIST_LEN ? arr.slice(arr.length - HIST_LEN + 1) : arr;
+      return [...next, v];
+    };
+    const pushTo = (set: React.Dispatch<React.SetStateAction<XyzHist>>) =>
       (v: { x: number; y: number; z: number }) => {
-        const m = magnitude(v);
-        set((prev) => {
-          const next = prev.length >= HIST_LEN ? prev.slice(prev.length - HIST_LEN + 1) : prev;
-          return [...next, m];
-        });
+        set((prev) => ({ x: grow(prev.x, v.x), y: grow(prev.y, v.y), z: grow(prev.z, v.z) }));
       };
     const subs = [
       Accelerometer.addListener((v) => { setAccel(v); pushTo(setAccelHist)(v); }),
@@ -338,9 +373,25 @@ export function ExperimentsContent() {
   // DeviceMotion — fused orientation, gravity vector, user-acceleration (gravity removed)
   const [motion, setMotion] = useState<DeviceMotionMeasurement | null>(null);
   const [motionZero, setMotionZero] = useState<{ alpha: number; beta: number; gamma: number } | null>(null);
+  const [gravityHist, setGravityHist] = useState<XyzHist>(emptyXyzHist());
+  const [userAccelHist, setUserAccelHist] = useState<XyzHist>(emptyXyzHist());
   useEffect(() => {
     DeviceMotion.setUpdateInterval(200);
-    const sub = DeviceMotion.addListener(setMotion);
+    const grow = (arr: number[], v: number) => {
+      const next = arr.length >= HIST_LEN ? arr.slice(arr.length - HIST_LEN + 1) : arr;
+      return [...next, v];
+    };
+    const sub = DeviceMotion.addListener((m) => {
+      setMotion(m);
+      const g = m.accelerationIncludingGravity;
+      if (g) {
+        setGravityHist((prev) => ({ x: grow(prev.x, g.x), y: grow(prev.y, g.y), z: grow(prev.z, g.z) }));
+      }
+      const ua = m.acceleration;
+      if (ua) {
+        setUserAccelHist((prev) => ({ x: grow(prev.x, ua.x), y: grow(prev.y, ua.y), z: grow(prev.z, ua.z) }));
+      }
+    });
     return () => sub.remove();
   }, []);
 
@@ -1055,7 +1106,13 @@ export function ExperimentsContent() {
       {labTab === "motion" && (<>
       <Text style={styles.sectionTitle}>Accelerometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
-        <Sparkline samples={accelHist} color={theme.primary} />
+        <MultiSparkline
+          lines={[
+            { samples: accelHist.x, color: "#E25448", label: "x" },
+            { samples: accelHist.y, color: "#3D7F94", label: "y" },
+            { samples: accelHist.z, color: "#E6B441", label: "z" },
+          ]}
+        />
       </View>
       <XyzRow
         values={[["x", accel?.x ?? null], ["y", accel?.y ?? null], ["z", accel?.z ?? null]]}
@@ -1065,7 +1122,13 @@ export function ExperimentsContent() {
 
       <Text style={styles.sectionTitle}>Gyroscope</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
-        <Sparkline samples={gyroHist} color={theme.warning} />
+        <MultiSparkline
+          lines={[
+            { samples: gyroHist.x, color: "#E25448", label: "x" },
+            { samples: gyroHist.y, color: "#3D7F94", label: "y" },
+            { samples: gyroHist.z, color: "#E6B441", label: "z" },
+          ]}
+        />
       </View>
       <XyzRow
         values={[["x", gyro?.x ?? null], ["y", gyro?.y ?? null], ["z", gyro?.z ?? null]]}
@@ -1075,7 +1138,13 @@ export function ExperimentsContent() {
 
       <Text style={styles.sectionTitle}>Magnetometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
-        <Sparkline samples={magHist} color={theme.destructive} />
+        <MultiSparkline
+          lines={[
+            { samples: magHist.x, color: "#E25448", label: "x" },
+            { samples: magHist.y, color: "#3D7F94", label: "y" },
+            { samples: magHist.z, color: "#E6B441", label: "z" },
+          ]}
+        />
       </View>
       <XyzRow
         values={[["x", mag?.x ?? null], ["y", mag?.y ?? null], ["z", mag?.z ?? null]]}
@@ -1106,6 +1175,15 @@ export function ExperimentsContent() {
         theme={theme}
       />
       <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginLeft: 4, marginBottom: 4 }}>Gravity</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <MultiSparkline
+          lines={[
+            { samples: gravityHist.x, color: "#E25448", label: "x" },
+            { samples: gravityHist.y, color: "#3D7F94", label: "y" },
+            { samples: gravityHist.z, color: "#E6B441", label: "z" },
+          ]}
+        />
+      </View>
       <XyzRow
         values={[
           ["x", motion?.accelerationIncludingGravity?.x ?? null],
@@ -1116,6 +1194,15 @@ export function ExperimentsContent() {
         theme={theme}
       />
       <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginLeft: 4, marginBottom: 4 }}>User acceleration</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <MultiSparkline
+          lines={[
+            { samples: userAccelHist.x, color: "#E25448", label: "x" },
+            { samples: userAccelHist.y, color: "#3D7F94", label: "y" },
+            { samples: userAccelHist.z, color: "#E6B441", label: "z" },
+          ]}
+        />
+      </View>
       <XyzRow
         values={[
           ["x", motion?.acceleration?.x ?? null],

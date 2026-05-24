@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v63",
+    title: "Motion charts: 3 overlaid x/y/z lines",
+    pr: 57,
+    notes: [
+      "Accel / gyro / mag plots now show x (red), y (teal), z (yellow) on a shared scale",
+      "Device Motion gets new Gravity and User-acceleration charts (also tri-color)",
+    ],
+  },
+  {
     version: "v62",
     title: "Motion: compact x/y/z rows under each chart",
     pr: 56,
