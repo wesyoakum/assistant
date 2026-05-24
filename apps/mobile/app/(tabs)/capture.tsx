@@ -55,8 +55,8 @@ function statusColor(status: string): string {
   switch (status) {
     case "done": return "#38a169";
     case "processing":
-    case "pending": return "#ed8936";
-    case "error": return "#e53e3e";
+    case "pending": return "#CB7D34";
+    case "error": return "#BA2D2D";
     default: return "#a0aec0";
   }
 }
@@ -131,7 +131,7 @@ function FileThumbnail({ file, token }: { file: IngestedFile; token: string }) {
 
   return (
     <View style={styles.fileIconWrap}>
-      <Ionicons name={fileIcon(file.kind)} size={24} color="#4285F4" />
+      <Ionicons name={fileIcon(file.kind)} size={24} color="#3D7F94" />
     </View>
   );
 }
@@ -332,17 +332,17 @@ export default function CaptureScreen() {
 
           <View style={styles.grid}>
             <Pressable style={styles.card} onPress={pickPhoto}>
-              <Ionicons name="camera-outline" size={32} color="#4285F4" />
+              <Ionicons name="camera-outline" size={32} color="#3D7F94" />
               <Text style={styles.cardLabel}>Camera</Text>
             </Pressable>
 
             <Pressable style={styles.card} onPress={pickImage}>
-              <Ionicons name="images-outline" size={32} color="#4285F4" />
+              <Ionicons name="images-outline" size={32} color="#3D7F94" />
               <Text style={styles.cardLabel}>Photo Library</Text>
             </Pressable>
 
             <Pressable style={styles.card} onPress={pickDocument}>
-              <Ionicons name="document-outline" size={32} color="#4285F4" />
+              <Ionicons name="document-outline" size={32} color="#3D7F94" />
               <Text style={styles.cardLabel}>Document</Text>
             </Pressable>
 
@@ -350,7 +350,7 @@ export default function CaptureScreen() {
               style={[styles.card, isRecording && styles.cardRecording]}
               onPress={isRecording ? stopRecording : startRecording}
             >
-              <Ionicons name={isRecording ? "stop-circle-outline" : "mic-outline"} size={32} color={isRecording ? "#e53e3e" : "#4285F4"} />
+              <Ionicons name={isRecording ? "stop-circle-outline" : "mic-outline"} size={32} color={isRecording ? "#BA2D2D" : "#3D7F94"} />
               <Text style={styles.cardLabel}>
                 {isRecording ? "Stop Recording" : "Voice Memo"}
               </Text>

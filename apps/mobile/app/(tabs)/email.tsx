@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
   list: { paddingBottom: 20 },
   emptyText: { fontSize: 16, color: "#999" },
   syncBtn: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     paddingVertical: 10,
     alignItems: "center",
     marginHorizontal: 16,
@@ -171,13 +171,13 @@ const styles = StyleSheet.create({
   rowNew: {
     backgroundColor: "#f0f7ff",
     borderLeftWidth: 3,
-    borderLeftColor: "#4285F4",
+    borderLeftColor: "#3D7F94",
   },
   newDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     marginRight: 8,
   },
   rowContent: { flex: 1, marginRight: 10 },
@@ -188,5 +188,5 @@ const styles = StyleSheet.create({
   snippet: { fontSize: 13, color: "#666", marginTop: 3, lineHeight: 18 },
   timeCol: { alignItems: "flex-end" },
   time: { fontSize: 12, color: "#999" },
-  newLabel: { fontSize: 10, fontWeight: "700", color: "#4285F4", marginTop: 2 },
+  newLabel: { fontSize: 10, fontWeight: "700", color: "#3D7F94", marginTop: 2 },
 });

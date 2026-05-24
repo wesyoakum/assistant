@@ -58,9 +58,9 @@ function categoryIcon(category: string | null): string {
 
 function categoryColor(category: string | null): string {
   switch (category) {
-    case "triage-high": return "#e53e3e";
-    case "triage-normal": return "#ed8936";
-    case "reminder": return "#4285F4";
+    case "triage-high": return "#BA2D2D";
+    case "triage-normal": return "#CB7D34";
+    case "reminder": return "#3D7F94";
     default: return "#a0aec0";
   }
 }

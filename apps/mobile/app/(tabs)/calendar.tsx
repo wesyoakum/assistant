@@ -138,7 +138,7 @@ export default function CalendarScreen() {
       }
       ListHeaderComponent={
         <Pressable
-          style={{ backgroundColor: "#4285F4", paddingVertical: 10, alignItems: "center", marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 10, opacity: isSyncing ? 0.6 : 1 }}
+          style={{ backgroundColor: "#3D7F94", paddingVertical: 10, alignItems: "center", marginHorizontal: 16, marginTop: 12, marginBottom: 8, borderRadius: 10, opacity: isSyncing ? 0.6 : 1 }}
           onPress={() => syncMutation.mutate()}
           disabled={isSyncing}
         >
@@ -236,14 +236,14 @@ const styles = StyleSheet.create({
   timeEnd: { fontSize: 12, color: "#999" },
   content: { flex: 1, marginRight: 8 },
   summary: { fontSize: 15, color: "#222" },
-  calName: { fontSize: 12, color: "#4285F4", fontWeight: "600", marginTop: 2 },
+  calName: { fontSize: 12, color: "#3D7F94", fontWeight: "600", marginTop: 2 },
   location: { fontSize: 13, color: "#888", marginTop: 2 },
   datesMeta: { flexDirection: "row", gap: 10, marginTop: 3 },
   metaText: { fontSize: 11, color: "#bbb" },
   soon: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#ed8936",
+    color: "#CB7D34",
     paddingTop: 1,
   },
 });

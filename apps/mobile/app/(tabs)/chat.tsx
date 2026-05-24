@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: "flex-end",
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
   },
   assistantBubble: {
     alignSelf: "flex-start",
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   sendBtn: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 20,
