@@ -43,7 +43,7 @@ export interface Theme {
 
 export const lightTheme: Theme = {
   scheme: "light",
-  primary: palette.teal,
+  primary: palette.tealDark,
   primaryDark: palette.tealDark,
   primaryLight: palette.tealLight,
   accent: palette.yellow,

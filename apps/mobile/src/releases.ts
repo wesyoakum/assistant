@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v64",
+    title: "Darker teal primary in light mode",
+    pr: 58,
+    notes: ["Buttons and accent text use the darker palette teal — better contrast on cream backgrounds"],
+  },
+  {
     version: "v63",
     title: "Motion charts: 3 overlaid x/y/z lines",
     pr: 57,
