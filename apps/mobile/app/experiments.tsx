@@ -10,7 +10,7 @@ import * as Haptics from "expo-haptics";
 import * as Battery from "expo-battery";
 import { useAuth } from "../src/state/auth";
 import { useMe } from "../src/hooks/useMe";
-import { type Theme } from "../src/theme";
+import { type Theme, useTheme } from "../src/theme";
 import { useStyles } from "../src/hooks/useStyles";
 
 interface Row {
@@ -22,7 +22,7 @@ function Section({ title, rows }: { title: string; rows: Row[] }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={{ marginBottom: 20 }}>
-      <Text style={styles.sectionTitle}>{title}</Text>
+      {title ? <Text style={styles.sectionTitle}>{title}</Text> : null}
       <View style={styles.card}>
         {rows.map((r, i) => (
           <View key={r.label} style={[styles.row, i === rows.length - 1 && { borderBottomWidth: 0 }]}>
@@ -47,9 +47,55 @@ function fmt(n: number, digits = 2) {
   return n.toFixed(digits);
 }
 
+function magnitude(v: { x: number; y: number; z: number }) {
+  return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+}
+
+const HIST_LEN = 80;
+
+function Sparkline({ samples, color, height = 56 }: { samples: number[]; color: string; height?: number }) {
+  if (samples.length < 2) {
+    return <View style={{ height, backgroundColor: "transparent" }} />;
+  }
+  // Auto-scale: take a windowed min/max so the line uses the full height.
+  const min = Math.min(...samples);
+  const max = Math.max(...samples);
+  const range = max - min || 1;
+
+  // Pad the buffer to HIST_LEN so the right edge is always "now".
+  const pad = Array<number | null>(HIST_LEN - samples.length).fill(null);
+  const padded: (number | null)[] = [...pad, ...samples];
+
+  return (
+    <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
+      {padded.map((v, i) => {
+        if (v == null) {
+          return <View key={i} style={{ flex: 1 }} />;
+        }
+        const norm = (v - min) / range;
+        const h = Math.max(1, norm * (height - 4));
+        return (
+          <View
+            key={i}
+            style={{
+              flex: 1,
+              height: h,
+              backgroundColor: color,
+              marginRight: 1,
+              borderRadius: 0.5,
+              opacity: 0.85,
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 export default function ExperimentsScreen() {
   const { token } = useAuth();
   const styles = useStyles(makeStyles);
+  const theme = useTheme();
   const { data: me } = useMe();
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [pushPerm, setPushPerm] = useState<string>("?");
@@ -59,15 +105,26 @@ export default function ExperimentsScreen() {
   const [accel, setAccel] = useState<{ x: number; y: number; z: number } | null>(null);
   const [gyro, setGyro] = useState<{ x: number; y: number; z: number } | null>(null);
   const [mag, setMag] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [accelHist, setAccelHist] = useState<number[]>([]);
+  const [gyroHist, setGyroHist] = useState<number[]>([]);
+  const [magHist, setMagHist] = useState<number[]>([]);
 
   useEffect(() => {
     Accelerometer.setUpdateInterval(200);
     Gyroscope.setUpdateInterval(200);
     Magnetometer.setUpdateInterval(200);
+    const pushTo = (set: React.Dispatch<React.SetStateAction<number[]>>) =>
+      (v: { x: number; y: number; z: number }) => {
+        const m = magnitude(v);
+        set((prev) => {
+          const next = prev.length >= HIST_LEN ? prev.slice(prev.length - HIST_LEN + 1) : prev;
+          return [...next, m];
+        });
+      };
     const subs = [
-      Accelerometer.addListener(setAccel),
-      Gyroscope.addListener(setGyro),
-      Magnetometer.addListener(setMag),
+      Accelerometer.addListener((v) => { setAccel(v); pushTo(setAccelHist)(v); }),
+      Gyroscope.addListener((v) => { setGyro(v); pushTo(setGyroHist)(v); }),
+      Magnetometer.addListener((v) => { setMag(v); pushTo(setMagHist)(v); }),
     ];
     return () => subs.forEach((s) => s.remove());
   }, []);
@@ -235,18 +292,42 @@ export default function ExperimentsScreen() {
         <Text style={styles.btnText}>Read clipboard</Text>
       </Pressable>
 
+      <Text style={styles.sectionTitle}>Accelerometer</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <Sparkline samples={accelHist} color={theme.primary} />
+      </View>
       <Section
-        title="Motion (expo-sensors)"
+        title=""
         rows={[
-          { label: "Accelerometer x", value: accel ? fmt(accel.x, 3) : null },
-          { label: "Accelerometer y", value: accel ? fmt(accel.y, 3) : null },
-          { label: "Accelerometer z", value: accel ? fmt(accel.z, 3) : null },
-          { label: "Gyroscope x", value: gyro ? fmt(gyro.x, 3) : null },
-          { label: "Gyroscope y", value: gyro ? fmt(gyro.y, 3) : null },
-          { label: "Gyroscope z", value: gyro ? fmt(gyro.z, 3) : null },
-          { label: "Magnetometer x", value: mag ? fmt(mag.x, 1) : null },
-          { label: "Magnetometer y", value: mag ? fmt(mag.y, 1) : null },
-          { label: "Magnetometer z", value: mag ? fmt(mag.z, 1) : null },
+          { label: "x", value: accel ? fmt(accel.x, 3) : null },
+          { label: "y", value: accel ? fmt(accel.y, 3) : null },
+          { label: "z", value: accel ? fmt(accel.z, 3) : null },
+        ]}
+      />
+
+      <Text style={styles.sectionTitle}>Gyroscope</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <Sparkline samples={gyroHist} color={theme.warning} />
+      </View>
+      <Section
+        title=""
+        rows={[
+          { label: "x", value: gyro ? fmt(gyro.x, 3) : null },
+          { label: "y", value: gyro ? fmt(gyro.y, 3) : null },
+          { label: "z", value: gyro ? fmt(gyro.z, 3) : null },
+        ]}
+      />
+
+      <Text style={styles.sectionTitle}>Magnetometer</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <Sparkline samples={magHist} color={theme.destructive} />
+      </View>
+      <Section
+        title=""
+        rows={[
+          { label: "x", value: mag ? fmt(mag.x, 1) : null },
+          { label: "y", value: mag ? fmt(mag.y, 1) : null },
+          { label: "z", value: mag ? fmt(mag.z, 1) : null },
         ]}
       />
 
