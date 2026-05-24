@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v54",
+    title: "Lab grouped into tabs",
+    pr: 48,
+    notes: [
+      "Six sub-tabs: Motion · Audio · Env · Device · Health · Info",
+      "Clipboard moved to Device",
+    ],
+  },
+  {
     version: "v53",
     title: "HealthKit + NFC + background location (needs rebuild)",
     pr: 47,
