@@ -9,6 +9,7 @@ import type { DeviceMotionMeasurement } from "expo-sensors";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import * as Battery from "expo-battery";
+import { Audio } from "expo-av";
 import { useAuth } from "../src/state/auth";
 import { useMe } from "../src/hooks/useMe";
 import { type Theme, useTheme } from "../src/theme";
@@ -274,6 +275,76 @@ export default function ExperimentsScreen() {
     );
     return () => sub.remove();
   }, []);
+
+  // Microphone — metering-only recording (audio is discarded on stop).
+  const [micRecording, setMicRecording] = useState<Audio.Recording | null>(null);
+  const [micLevel, setMicLevel] = useState<number | null>(null);
+  const [micPeak, setMicPeak] = useState<number>(0);
+  const [micHist, setMicHist] = useState<number[]>([]);
+  const [micStatus, setMicStatus] = useState<string>("idle");
+
+  const startMic = async () => {
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) {
+        setMicStatus(`denied: ${perm.status}`);
+        return;
+      }
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+      setMicHist([]);
+      setMicPeak(0);
+      setMicStatus("listening");
+      const preset = Audio.RecordingOptionsPresets.HIGH_QUALITY;
+      const options = {
+        ...preset,
+        isMeteringEnabled: true,
+        ios: { ...preset.ios, isMeteringEnabled: true },
+      };
+      const { recording } = await Audio.Recording.createAsync(
+        options,
+        (status) => {
+          if (status.isRecording && typeof status.metering === "number") {
+            // Metering is in dBFS, typically -160..0. Map -60..0 -> 0..1.
+            const level = Math.max(0, Math.min(1, (status.metering + 60) / 60));
+            setMicLevel(level);
+            setMicPeak((p) => (level > p ? level : p));
+            setMicHist((prev) => {
+              const next = prev.length >= HIST_LEN ? prev.slice(prev.length - HIST_LEN + 1) : prev;
+              return [...next, level];
+            });
+          }
+        },
+        100
+      );
+      setMicRecording(recording);
+    } catch (err) {
+      setMicStatus(`error: ${(err as Error).message}`);
+    }
+  };
+
+  const stopMic = async () => {
+    if (!micRecording) return;
+    try {
+      await micRecording.stopAndUnloadAsync();
+    } catch {
+      // ignore
+    }
+    setMicRecording(null);
+    setMicLevel(null);
+    setMicStatus("idle");
+  };
+
+  // Stop the mic if the user navigates away while it's recording.
+  useEffect(() => {
+    return () => {
+      if (micRecording) {
+        micRecording.stopAndUnloadAsync().catch(() => {});
+      }
+    };
+  }, [micRecording]);
 
   // Location — on demand, not always-on
   const [loc, setLoc] = useState<Location.LocationObject | null>(null);
@@ -543,6 +614,25 @@ export default function ExperimentsScreen() {
           { label: "Low power mode", value: battery?.lowPower },
         ]}
       />
+
+      <Text style={styles.sectionTitle}>Microphone</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <Sparkline samples={micHist} color={theme.highlight} height={56} />
+      </View>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <BarGauge value={micLevel ?? 0} max={1} color={theme.highlight} height={14} />
+        <Text style={{ marginTop: 6, fontSize: 12, color: theme.textMuted, textAlign: "right" }}>
+          {micRecording
+            ? `${Math.round((micLevel ?? 0) * 100)}% · peak ${Math.round(micPeak * 100)}%`
+            : micStatus}
+        </Text>
+        <Pressable
+          style={[styles.btn, { marginTop: 10, marginBottom: 0 }]}
+          onPress={micRecording ? stopMic : startMic}
+        >
+          <Text style={styles.btnText}>{micRecording ? "Stop listening" : "Start listening"}</Text>
+        </Pressable>
+      </View>
 
       <Section
         title="Location (expo-location)"
