@@ -57,7 +57,7 @@ function UsageSummary() {
         style={{ paddingVertical: 12, alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#eee" }}
         onPress={() => Linking.openURL("https://whyapp.us/usage#token=" + (token || ""))}
       >
-        <Text style={{ fontSize: 14, fontWeight: "600", color: "#4285F4" }}>View Full Dashboard</Text>
+        <Text style={{ fontSize: 14, fontWeight: "600", color: "#3D7F94" }}>View Full Dashboard</Text>
       </Pressable>
     </View>
   );
@@ -190,7 +190,7 @@ function GroupMeSection() {
       <View style={{ padding: 16 }}>
         <Text style={{ fontSize: 14, color: "#666", marginBottom: 12 }}>
           Paste an access token from{" "}
-          <Text style={{ color: "#4285F4" }} onPress={() => Linking.openURL("https://dev.groupme.com")}>
+          <Text style={{ color: "#3D7F94" }} onPress={() => Linking.openURL("https://dev.groupme.com")}>
             dev.groupme.com
           </Text>
           {" "}(sign in, then tap "Access Token" in the top right).
@@ -237,13 +237,13 @@ function GroupMeSection() {
           }
           style={{ paddingVertical: 4, paddingHorizontal: 8 }}
         >
-          <Text style={{ fontSize: 13, color: "#e53e3e" }}>Disconnect</Text>
+          <Text style={{ fontSize: 13, color: "#BA2D2D" }}>Disconnect</Text>
         </Pressable>
       </View>
       {groupsLoading ? (
         <ActivityIndicator style={{ padding: 16 }} />
       ) : groupsError ? (
-        <Text style={{ padding: 16, color: "#e53e3e" }}>
+        <Text style={{ padding: 16, color: "#BA2D2D" }}>
           {(groupsError as Error).message}
         </Text>
       ) : groups.length === 0 ? (
@@ -263,7 +263,7 @@ function GroupMeSection() {
             <Switch
               value={g.enabled}
               onValueChange={(enabled) => toggleMutation.mutate({ id: g.id, enabled })}
-              trackColor={{ false: "#ddd", true: "#4285F4" }}
+              trackColor={{ false: "#ddd", true: "#3D7F94" }}
             />
           </View>
         ))
@@ -318,7 +318,7 @@ function PreferencesList() {
             )}
           </View>
           <Pressable onPress={() => handleDelete(p)} style={{ paddingVertical: 4, paddingHorizontal: 8 }}>
-            <Text style={{ fontSize: 13, color: "#e53e3e" }}>Remove</Text>
+            <Text style={{ fontSize: 13, color: "#BA2D2D" }}>Remove</Text>
           </Pressable>
         </View>
       ))}
@@ -581,7 +581,7 @@ export default function SettingsScreen() {
                 onValueChange={(enabled) =>
                   toggleMutation.mutate({ id: cal.id, enabled })
                 }
-                trackColor={{ false: "#ddd", true: "#4285F4" }}
+                trackColor={{ false: "#ddd", true: "#3D7F94" }}
               />
             </View>
           ))
@@ -661,7 +661,7 @@ export default function SettingsScreen() {
           disabled={addFeedMutation.isPending}
         >
           {addFeedMutation.isPending ? (
-            <ActivityIndicator size="small" color="#4285F4" />
+            <ActivityIndicator size="small" color="#3D7F94" />
           ) : (
             <Text style={styles.addFeedBtnText}>+ Add iCal Feed</Text>
           )}
@@ -679,7 +679,7 @@ export default function SettingsScreen() {
           style={styles.clearChatBtn}
           onPress={() => router.push("/notifications")}
         >
-          <Text style={[styles.clearChatText, { color: "#4285F4" }]}>View Notification History</Text>
+          <Text style={[styles.clearChatText, { color: "#3D7F94" }]}>View Notification History</Text>
         </Pressable>
       </View>
 
@@ -691,7 +691,7 @@ export default function SettingsScreen() {
               style={styles.clearChatBtn}
               onPress={() => router.push("/experiments")}
             >
-              <Text style={[styles.clearChatText, { color: "#4285F4" }]}>Experiments</Text>
+              <Text style={[styles.clearChatText, { color: "#3D7F94" }]}>Experiments</Text>
             </Pressable>
           </View>
         </>
@@ -858,7 +858,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   addBtn: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
@@ -868,25 +868,25 @@ const styles = StyleSheet.create({
   addBtnDisabled: { opacity: 0.4 },
   addBtnText: { color: "#fff", fontSize: 14, fontWeight: "600" },
   ctxDelete: { paddingVertical: 4, paddingHorizontal: 8 },
-  ctxDeleteText: { fontSize: 13, color: "#e53e3e" },
+  ctxDeleteText: { fontSize: 13, color: "#BA2D2D" },
   clearChatBtn: {
     paddingVertical: 14,
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#eee",
   },
-  clearChatText: { fontSize: 16, fontWeight: "600", color: "#ed8936" },
+  clearChatText: { fontSize: 16, fontWeight: "600", color: "#CB7D34" },
   signOutBtn: {
     paddingVertical: 14,
     alignItems: "center",
   },
-  signOutText: { fontSize: 16, fontWeight: "600", color: "#e53e3e" },
-  feedError: { fontSize: 11, color: "#e53e3e", marginTop: 1 },
+  signOutText: { fontSize: 16, fontWeight: "600", color: "#BA2D2D" },
+  feedError: { fontSize: 11, color: "#BA2D2D", marginTop: 1 },
   addFeedBtn: {
     paddingVertical: 12,
     alignItems: "center",
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "#eee",
   },
-  addFeedBtnText: { fontSize: 15, fontWeight: "600", color: "#4285F4" },
+  addFeedBtnText: { fontSize: 15, fontWeight: "600", color: "#3D7F94" },
 });

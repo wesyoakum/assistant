@@ -5,7 +5,7 @@ export default function TriageLayout() {
     <Stack
       screenOptions={{
         headerBackTitle: "Back",
-        headerTintColor: "#4285F4",
+        headerTintColor: "#3D7F94",
       }}
     >
       <Stack.Screen

@@ -59,8 +59,8 @@ function getQuadrant(importance: Level, urgency: Level): Quadrant {
 }
 
 const QUADRANT_META: Record<Quadrant, { label: string; color: string }> = {
-  hot:     { label: "Hot",     color: "#e53e3e" },
-  action:  { label: "Action",  color: "#ed8936" },
+  hot:     { label: "Hot",     color: "#BA2D2D" },
+  action:  { label: "Action",  color: "#CB7D34" },
   plan:    { label: "Plan",    color: "#38a169" },
   monitor: { label: "Monitor", color: "#4a90a4" },
   noop:    { label: "Noop",    color: "#a0aec0" },
@@ -287,7 +287,7 @@ function FilePreview({ sourceType, sourceRef }: { sourceType: string; sourceRef:
           <Ionicons
             name={sourceType === "document" ? "document-text-outline" : "musical-notes-outline"}
             size={20}
-            color="#4285F4"
+            color="#3D7F94"
           />
           <Text style={styles.viewFileBtnText}>View Original File</Text>
         </Pressable>
@@ -644,7 +644,7 @@ export default function TriageDetail() {
               }
             }}
           >
-            <Text style={[styles.openBtnText, { color: "#4285F4" }]}>Re-evaluate</Text>
+            <Text style={[styles.openBtnText, { color: "#3D7F94" }]}>Re-evaluate</Text>
           </Pressable>
         )}
 
@@ -672,7 +672,7 @@ const styles = StyleSheet.create({
   },
   headerLeft: { flex: 1, marginRight: 12 },
   sourceLabel: { fontSize: 13, fontWeight: "600", color: "#666", marginBottom: 2 },
-  category: { fontSize: 13, fontWeight: "700", color: "#4285F4", textTransform: "uppercase" },
+  category: { fontSize: 13, fontWeight: "700", color: "#3D7F94", textTransform: "uppercase" },
   quadrantBadge: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -712,7 +712,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   pickerBtnActive: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
   },
   pickerBtnText: { fontSize: 15, fontWeight: "600", color: "#666" },
   pickerBtnTextActive: { color: "#fff" },
@@ -730,7 +730,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   categoryChipActive: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
   },
   categoryChipText: {
     fontSize: 13,
@@ -741,7 +741,7 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   saveScoresBtn: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: "center",
@@ -762,8 +762,8 @@ const styles = StyleSheet.create({
   },
   timeLabel: { fontSize: 13, color: "#888" },
   timeValue: { fontSize: 13, color: "#444", fontWeight: "500" },
-  deadlineValue: { color: "#ed8936", fontWeight: "700" },
-  deadlineOverdue: { color: "#e53e3e" },
+  deadlineValue: { color: "#CB7D34", fontWeight: "700" },
+  deadlineOverdue: { color: "#BA2D2D" },
   section: { marginBottom: 20 },
   sectionTitle: {
     fontSize: 13,
@@ -775,7 +775,7 @@ const styles = StyleSheet.create({
   sectionBody: { fontSize: 15, color: "#333", lineHeight: 22 },
   actions: { marginTop: 12, gap: 12 },
   chatBtn: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
@@ -825,6 +825,6 @@ const styles = StyleSheet.create({
   viewFileBtnText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#4285F4",
+    color: "#3D7F94",
   },
 });

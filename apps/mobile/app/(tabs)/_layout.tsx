@@ -16,7 +16,7 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: "#4285F4",
+        tabBarActiveTintColor: "#3D7F94",
         headerShown: true,
         headerRight: () => (
           <Text style={{ fontSize: 10, color: "#ccc", marginRight: 12 }}>{APP_VERSION}</Text>

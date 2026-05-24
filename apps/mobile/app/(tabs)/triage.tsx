@@ -92,8 +92,8 @@ function getQuadrant(importance: Level, urgency: Level): Quadrant {
 }
 
 const QUADRANTS: { key: Quadrant; label: string; color: string }[] = [
-  { key: "hot",     label: "Hot",     color: "#e53e3e" },
-  { key: "action",  label: "Action",  color: "#ed8936" },
+  { key: "hot",     label: "Hot",     color: "#BA2D2D" },
+  { key: "action",  label: "Action",  color: "#CB7D34" },
   { key: "plan",    label: "Plan",    color: "#38a169" },
   { key: "monitor", label: "Monitor", color: "#4a90a4" },
   { key: "noop",    label: "Noop",    color: "#a0aec0" },
@@ -324,7 +324,7 @@ export default function TriageScreen() {
                 disabled={collectMutation.isPending}
               >
                 {collectMutation.isPending ? (
-                  <ActivityIndicator size="small" color="#4285F4" />
+                  <ActivityIndicator size="small" color="#3D7F94" />
                 ) : (
                   <Text style={styles.controlBtnSecondaryText}>
                     Collect new context
@@ -461,7 +461,7 @@ const styles = StyleSheet.create({
   recentRow: {
     backgroundColor: "#f0f7ff",
     borderLeftWidth: 3,
-    borderLeftColor: "#4285F4",
+    borderLeftColor: "#3D7F94",
   },
   priorityBar: {
     width: 4,
@@ -472,14 +472,14 @@ const styles = StyleSheet.create({
   content: { flex: 1, marginRight: 10 },
   summary: { fontSize: 15, color: "#222", marginBottom: 3 },
   metaRow: { flexDirection: "row", alignItems: "center" },
-  sourceLabel: { fontSize: 12, color: "#4285F4", fontWeight: "600" },
+  sourceLabel: { fontSize: 12, color: "#3D7F94", fontWeight: "600" },
   dot: { fontSize: 12, color: "#ccc", marginHorizontal: 5 },
   origin: { fontSize: 12, color: "#999" },
-  urgencyRef: { fontSize: 12, color: "#ed8936", fontWeight: "600" },
-  urgencyOverdue: { color: "#e53e3e" },
+  urgencyRef: { fontSize: 12, color: "#CB7D34", fontWeight: "600" },
+  urgencyOverdue: { color: "#BA2D2D" },
   priorityNum: { fontSize: 13, fontWeight: "700" },
   swipeDismiss: {
-    backgroundColor: "#e53e3e",
+    backgroundColor: "#BA2D2D",
     justifyContent: "center",
     alignItems: "center",
     width: 90,
@@ -528,13 +528,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  controlBtnPrimary: { backgroundColor: "#4285F4" },
+  controlBtnPrimary: { backgroundColor: "#3D7F94" },
   controlBtnPrimaryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   controlBtnSecondary: {
     backgroundColor: "#fff",
     borderWidth: 1,
-    borderColor: "#4285F4",
+    borderColor: "#3D7F94",
   },
-  controlBtnSecondaryText: { color: "#4285F4", fontSize: 14, fontWeight: "700" },
+  controlBtnSecondaryText: { color: "#3D7F94", fontSize: 14, fontWeight: "700" },
   controlBtnDisabled: { opacity: 0.4 },
 });

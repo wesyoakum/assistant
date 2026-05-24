@@ -310,7 +310,7 @@ const styles = StyleSheet.create({
   rowLabel: { flex: 1, fontSize: 13, color: "#666" },
   rowValue: { flex: 1, fontSize: 13, color: "#222", textAlign: "right" },
   btn: {
-    backgroundColor: "#4285F4",
+    backgroundColor: "#3D7F94",
     paddingVertical: 12,
     alignItems: "center",
     borderRadius: 10,
@@ -320,11 +320,11 @@ const styles = StyleSheet.create({
   btnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   hapBtn: {
     backgroundColor: "#eef3fb",
-    borderColor: "#4285F4",
+    borderColor: "#3D7F94",
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 16,
   },
-  hapBtnText: { color: "#4285F4", fontWeight: "600", fontSize: 13 },
+  hapBtnText: { color: "#3D7F94", fontWeight: "600", fontSize: 13 },
 });
