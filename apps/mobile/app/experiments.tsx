@@ -173,40 +173,65 @@ function CompassArrow({ headingDeg, color, size = 70 }: { headingDeg: number; co
 }
 
 function Sparkline({ samples, color, height = 56 }: { samples: number[]; color: string; height?: number }) {
+  const [width, setWidth] = useState(0);
+
   if (samples.length < 2) {
-    return <View style={{ height, backgroundColor: "transparent" }} />;
+    return (
+      <View
+        style={{ height, backgroundColor: "transparent" }}
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      />
+    );
   }
-  // Auto-scale: take a windowed min/max so the line uses the full height.
+
+  // Auto-scale to the visible window.
   const min = Math.min(...samples);
   const max = Math.max(...samples);
   const range = max - min || 1;
 
-  // Pad the buffer to HIST_LEN so the right edge is always "now".
-  const pad = Array<number | null>(HIST_LEN - samples.length).fill(null);
-  const padded: (number | null)[] = [...pad, ...samples];
+  // Pad on the left so "now" is always the right edge.
+  const padded: (number | null)[] = Array<number | null>(HIST_LEN - samples.length).fill(null).concat(samples);
+  const drawableHeight = height - 6; // 3px padding top + bottom
+  const stroke = 2;
+
+  // y goes from top (low value) to bottom (high value) wait — usually we want
+  // higher value = higher on screen. In RN, y=0 is top, so invert: y = (1 - norm) * drawable + 3.
+  const yFor = (v: number) => (1 - (v - min) / range) * drawableHeight + 3 - stroke / 2;
 
   return (
-    <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
-      {padded.map((v, i) => {
-        if (v == null) {
-          return <View key={i} style={{ flex: 1 }} />;
-        }
-        const norm = (v - min) / range;
-        const h = Math.max(1, norm * (height - 4));
-        return (
-          <View
-            key={i}
-            style={{
-              flex: 1,
-              height: h,
-              backgroundColor: color,
-              marginRight: 1,
-              borderRadius: 0.5,
-              opacity: 0.85,
-            }}
-          />
-        );
-      })}
+    <View
+      style={{ height, position: "relative" }}
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+    >
+      {width > 0 &&
+        padded.map((v, i) => {
+          if (i === 0 || v == null) return null;
+          const prev = padded[i - 1];
+          if (prev == null) return null;
+          const step = width / (padded.length - 1);
+          const x1 = (i - 1) * step;
+          const y1 = yFor(prev);
+          const y2 = yFor(v);
+          const dy = y2 - y1;
+          const length = Math.sqrt(step * step + dy * dy);
+          const angle = Math.atan2(dy, step); // radians
+          return (
+            <View
+              key={i}
+              style={{
+                position: "absolute",
+                left: x1,
+                top: y1,
+                width: length,
+                height: stroke,
+                backgroundColor: color,
+                borderRadius: stroke / 2,
+                transformOrigin: "left center",
+                transform: [{ rotate: `${angle}rad` }],
+              }}
+            />
+          );
+        })}
     </View>
   );
 }

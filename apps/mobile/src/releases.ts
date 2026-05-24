@@ -10,6 +10,11 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v35",
+    title: "Line charts instead of bars",
+    notes: ["Sensor sparklines now draw as smooth lines"],
+  },
+  {
     version: "v34",
     title: "What's new banner",
     notes: [
