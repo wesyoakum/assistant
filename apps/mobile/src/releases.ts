@@ -10,6 +10,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v39",
+    title: "What's new lives in chat now",
+    notes: [
+      "Release notes post as an assistant message in chat instead of a banner",
+      "Chat reliably scrolls to the bottom on open",
+    ],
+  },
+  {
     version: "v38",
     title: "Position by integration (experimental)",
     notes: ["Tap 'Start tracking' to integrate accelerometer into position", "Drifts heavily — that's the physics demo"],
