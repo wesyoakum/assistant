@@ -49,6 +49,45 @@ function fmt(n: number, digits = 2) {
   return n.toFixed(digits);
 }
 
+// --- Altitude unit formatting -------------------------------------------------
+type AltUnit = "mm" | "m" | "in" | "ftin";
+const ALT_UNITS: { value: AltUnit; label: string }[] = [
+  { value: "mm", label: "mm" },
+  { value: "m", label: "m" },
+  { value: "in", label: "in" },
+  { value: "ftin", label: "ft+in" },
+];
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+function formatAltitude(meters: number, unit: AltUnit): string {
+  const sign = meters < 0 ? "-" : "";
+  const m = Math.abs(meters);
+  switch (unit) {
+    case "mm":
+      return `${sign}${(m * 1000).toFixed(1)} mm`;
+    case "m":
+      return `${sign}${m.toFixed(3)} m`;
+    case "in":
+      return `${sign}${(m * 39.3701).toFixed(3)} in`;
+    case "ftin": {
+      const totalIn = m * 39.3701;
+      const ft = Math.floor(totalIn / 12);
+      const restIn = totalIn - ft * 12;
+      const wholeIn = Math.floor(restIn);
+      const fracIn = restIn - wholeIn;
+      let n = Math.round(fracIn * 16);
+      const d = 16;
+      if (n === 16) return `${sign}${ft}'${wholeIn + 1}"`;
+      if (n === 0) return `${sign}${ft}'${wholeIn}"`;
+      const g = gcd(n, d);
+      return `${sign}${ft}'${wholeIn} ${n / g}/${d / g}"`;
+    }
+  }
+}
+
 function magnitude(v: { x: number; y: number; z: number }) {
   return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
@@ -221,6 +260,8 @@ export default function ExperimentsScreen() {
   const [pressure, setPressure] = useState<{ pressure: number; relativeAltitude?: number | null } | null>(null);
   const [pressureHist, setPressureHist] = useState<number[]>([]);
   const [baroAvailable, setBaroAvailable] = useState<boolean | null>(null);
+  const [altUnit, setAltUnit] = useState<AltUnit>("ftin");
+  const [altZero, setAltZero] = useState<number>(0);
   useEffect(() => {
     Barometer.isAvailableAsync().then(setBaroAvailable).catch(() => setBaroAvailable(false));
     Barometer.setUpdateInterval(500);
@@ -562,12 +603,59 @@ export default function ExperimentsScreen() {
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={pressureHist} color={theme.accent} height={48} />
       </View>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+          Relative altitude
+        </Text>
+        <Text style={{ fontSize: 28, fontWeight: "700", color: theme.text, marginBottom: 10 }}>
+          {pressure?.relativeAltitude != null
+            ? formatAltitude(pressure.relativeAltitude - altZero, altUnit)
+            : "—"}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+          {ALT_UNITS.map((u) => {
+            const active = altUnit === u.value;
+            return (
+              <Pressable
+                key={u.value}
+                onPress={() => setAltUnit(u.value)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                  borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.text }}>{u.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+        <Pressable
+          onPress={() => setAltZero(pressure?.relativeAltitude ?? 0)}
+          style={{
+            paddingVertical: 10,
+            borderRadius: 8,
+            alignItems: "center",
+            backgroundColor: theme.surfaceAlt,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: theme.border,
+          }}
+        >
+          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>
+            Zero here
+          </Text>
+        </Pressable>
+      </View>
       <Section
         title=""
         rows={[
           { label: "Available", value: baroAvailable },
           { label: "Pressure (hPa)", value: pressure ? fmt(pressure.pressure, 2) : null },
-          { label: "Relative altitude (m)", value: pressure?.relativeAltitude != null ? fmt(pressure.relativeAltitude, 2) : null },
+          { label: "Raw rel. alt. (m)", value: pressure?.relativeAltitude != null ? fmt(pressure.relativeAltitude, 4) : null },
         ]}
       />
 
