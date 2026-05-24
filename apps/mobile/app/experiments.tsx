@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal, useWindowDimensions } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import * as Clipboard from "expo-clipboard";
@@ -688,6 +688,17 @@ export function ExperimentsContent() {
   const [dbFloor, setDbFloor] = useState<number>(-80);
   const [dbCeil, setDbCeil] = useState<number>(0);
   const [spectrumFullscreen, setSpectrumFullscreen] = useState(false);
+  const { width: winW, height: winH } = useWindowDimensions();
+
+  // Unlock orientation while the fullscreen spectrum is open; relock to portrait on close.
+  useEffect(() => {
+    if (spectrumFullscreen) {
+      ScreenOrientation.unlockAsync().catch(() => {});
+      return () => {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      };
+    }
+  }, [spectrumFullscreen]);
 
   const fftRef = useRef<FFT | null>(null);
   const fftOutRef = useRef<number[] | null>(null);
@@ -1496,15 +1507,21 @@ export function ExperimentsContent() {
         visible={spectrumFullscreen}
         animationType="fade"
         onRequestClose={() => setSpectrumFullscreen(false)}
+        supportedOrientations={["portrait", "landscape", "landscape-left", "landscape-right"]}
       >
         <View style={{ flex: 1, backgroundColor: theme.background, justifyContent: "center", padding: 12 }}>
-          <SpectrumBars samples={spectrum} peaks={peaks} height={400} />
+          <SpectrumBars
+            samples={spectrum}
+            peaks={peaks}
+            height={Math.max(200, winH - 110)}
+          />
           <Text style={{ marginTop: 12, fontSize: 12, color: theme.textSubtle, textAlign: "center" }}>
             {fmtHz(freqMin)} – {fmtHz(freqMax)} · dBFS {dbFloor}…{dbCeil} · {spectrumScale}
+            {winW > winH ? " · landscape" : ""}
           </Text>
           <Pressable
             onPress={() => setSpectrumFullscreen(false)}
-            style={{ marginTop: 16, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: theme.primary }}
+            style={{ marginTop: 12, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: theme.primary }}
           >
             <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Close</Text>
           </Pressable>
