@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v51",
+    title: "Spectrum: adjustable axes + tap to fullscreen",
+    pr: 45,
+    notes: [
+      "Adjust min/max frequency and dB floor/ceiling via stepper buttons",
+      "Tap the spectrum chart to expand it fullscreen",
+    ],
+  },
+  {
     version: "v50",
     title: "Spectrum: notes vs linear",
     pr: 44,
