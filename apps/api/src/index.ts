@@ -28,6 +28,7 @@ export type Env = {
   ANTHROPIC_API_KEY: string;
   ENVIRONMENT: string;
   BRAVE_SEARCH_API_KEY: string;
+  OWNER_EMAILS?: string;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -206,12 +207,19 @@ app.get("/me", authMiddleware, async (c) => {
     "SELECT id, email, name, picture_url, created_at FROM users WHERE id = ?"
   )
     .bind(userId)
-    .first();
+    .first<{ id: string; email: string; name: string; picture_url: string; created_at: string }>();
 
   if (!user) {
     return c.json({ error: "User not found" }, 404);
   }
-  return c.json(user);
+
+  const owners = (c.env.OWNER_EMAILS || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const isOwner = owners.includes(user.email.toLowerCase());
+
+  return c.json({ ...user, isOwner });
 });
 
 export default {
