@@ -7,6 +7,7 @@ import * as Updates from "expo-updates";
 import { useAuth } from "../src/state/auth";
 import { useNotifications } from "../src/hooks/useNotifications";
 import { useOnOpenSync } from "../src/hooks/useOnOpenSync";
+import { useWhatsNewAnnounce } from "../src/hooks/useWhatsNewAnnounce";
 import { useTheme, useHydrateAppearance } from "../src/theme";
 
 const queryClient = new QueryClient();
@@ -42,6 +43,7 @@ function AuthGate() {
 
   useNotifications();
   useOnOpenSync();
+  useWhatsNewAnnounce();
 
   if (isLoading) {
     return (
@@ -99,7 +101,7 @@ function VersionBadge() {
         fontWeight: "600",
       }}
     >
-      v38
+      v39
     </Text>
   );
 }

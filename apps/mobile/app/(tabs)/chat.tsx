@@ -20,7 +20,6 @@ import Markdown from "react-native-markdown-display";
 import { apiFetch } from "../../src/api/client";
 import { useTheme, type Theme } from "../../src/theme";
 import { useStyles } from "../../src/hooks/useStyles";
-import { WhatsNewBanner } from "../../src/components/WhatsNewBanner";
 
 interface Message {
   id: string;
@@ -41,7 +40,6 @@ export default function ChatScreen() {
   const [pending, setPending] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
-  const didInitialScroll = useRef(false);
   const theme = useTheme();
   const styles = useStyles(makeStyles);
   const mdStyles = useStyles(makeMdStyles);
@@ -128,6 +126,17 @@ export default function ChatScreen() {
     return () => sub.remove();
   }, []);
 
+  // Belt-and-suspenders: scroll to bottom whenever the message list grows
+  // (history load, announce post). onContentSizeChange covers most cases,
+  // but on slow layouts it sometimes fires before items mount.
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const t = setTimeout(() => {
+      flatListRef.current?.scrollToEnd({ animated: false });
+    }, 50);
+    return () => clearTimeout(t);
+  }, [messages.length]);
+
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <KeyboardAvoidingView
@@ -143,14 +152,11 @@ export default function ChatScreen() {
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.messageList}
           onContentSizeChange={() => {
-            // First time content lays out (chat opening): jump instantly so
-            // we appear at the bottom. After that, animate so new messages
-            // scroll in smoothly.
-            const animated = didInitialScroll.current;
-            didInitialScroll.current = true;
-            flatListRef.current?.scrollToEnd({ animated });
+            // Snap to bottom on every content change (history load, new
+            // message, announce post). No animation — feels like the chat
+            // was always there.
+            flatListRef.current?.scrollToEnd({ animated: false });
           }}
-          ListHeaderComponent={<WhatsNewBanner />}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="small" color="#999" />

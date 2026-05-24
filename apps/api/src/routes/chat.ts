@@ -350,6 +350,21 @@ chat.get("/history", async (c) => {
   return c.json({ messages: results.reverse() });
 });
 
+// Insert an assistant message (used for client-driven announcements like
+// release notes). Dedup is the client's responsibility.
+chat.post("/announce", async (c) => {
+  const userId = c.get("userId");
+  const body = (await c.req.json().catch(() => null)) as { text?: string } | null;
+  const text = body?.text?.trim();
+  if (!text) return c.json({ error: "text required" }, 400);
+
+  await c.env.DB.prepare(
+    "INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, 'assistant', ?)"
+  ).bind(crypto.randomUUID(), userId, text).run();
+
+  return c.json({ ok: true });
+});
+
 // Clear chat history
 chat.delete("/history", async (c) => {
   const userId = c.get("userId");
