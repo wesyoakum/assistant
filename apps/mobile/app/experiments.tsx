@@ -1652,42 +1652,35 @@ export function ExperimentsContent() {
           })}
         </View>
 
-        <Slider
-          label="Min Hz"
-          value={freqMin}
-          onChange={(v) => setFreqMin(Math.max(10, Math.min(freqMax / 1.1, v)))}
+        <RangeSlider
+          label="Frequency"
+          minValue={freqMin}
+          maxValue={freqMax}
+          onChange={(lo, hi) => {
+            const newLo = Math.max(10, Math.min(hi / 1.05, lo));
+            const newHi = Math.max(newLo * 1.05, Math.min(22000, hi));
+            setFreqMin(newLo);
+            setFreqMax(newHi);
+          }}
           min={10}
           max={22000}
           log
-          format={(v) => `${v < 100 ? v.toFixed(1) : v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : v.toFixed(0)}${v < 1000 ? " Hz" : ""}`}
+          format={(v) => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v.toFixed(v < 100 ? 1 : 0)}`}
           theme={theme}
         />
-        <Slider
-          label="Max Hz"
-          value={freqMax}
-          onChange={(v) => setFreqMax(Math.max(freqMin * 1.1, Math.min(22000, v)))}
-          min={10}
-          max={22000}
-          log
-          format={(v) => v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${v.toFixed(0)} Hz`}
-          theme={theme}
-        />
-        <Slider
-          label="dB floor"
-          value={dbFloor}
-          onChange={(v) => setDbFloor(Math.max(-160, Math.min(dbCeil - 10, Math.round(v))))}
+        <RangeSlider
+          label="dB range"
+          minValue={dbFloor}
+          maxValue={dbCeil}
+          onChange={(lo, hi) => {
+            const newLo = Math.round(Math.max(-160, Math.min(hi - 10, lo)));
+            const newHi = Math.round(Math.max(newLo + 10, Math.min(20, hi)));
+            setDbFloor(newLo);
+            setDbCeil(newHi);
+          }}
           min={-160}
-          max={0}
-          format={(v) => `${Math.round(v)} dB`}
-          theme={theme}
-        />
-        <Slider
-          label="dB ceiling"
-          value={dbCeil}
-          onChange={(v) => setDbCeil(Math.max(dbFloor + 10, Math.min(20, Math.round(v))))}
-          min={-40}
           max={20}
-          format={(v) => `${Math.round(v)} dB`}
+          format={(v) => `${Math.round(v)}`}
           theme={theme}
         />
 
@@ -1736,6 +1729,130 @@ export function ExperimentsContent() {
 function fmtHz(hz: number): string {
   if (hz >= 1000) return `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)} kHz`;
   return `${hz < 100 ? hz.toFixed(1) : hz.toFixed(0)} Hz`;
+}
+
+function RangeSlider({
+  label,
+  minValue,
+  maxValue,
+  onChange,
+  min,
+  max,
+  log = false,
+  format,
+  theme,
+}: {
+  label: string;
+  minValue: number;
+  maxValue: number;
+  onChange: (lo: number, hi: number) => void;
+  min: number;
+  max: number;
+  log?: boolean;
+  format: (v: number) => string;
+  theme: Theme;
+}) {
+  const [width, setWidth] = useState(0);
+  const activeRef = useRef<"min" | "max" | null>(null);
+
+  const valueToRatio = (v: number) => {
+    if (log) return Math.log(v / min) / Math.log(max / min);
+    return (v - min) / (max - min);
+  };
+  const ratioToValue = (r: number) => {
+    const c = Math.max(0, Math.min(1, r));
+    if (log) return min * Math.pow(max / min, c);
+    return min + (max - min) * c;
+  };
+
+  const minR = Math.max(0, Math.min(1, valueToRatio(minValue)));
+  const maxR = Math.max(0, Math.min(1, valueToRatio(maxValue)));
+
+  const onStart = (e: { nativeEvent: { locationX: number } }) => {
+    if (width <= 0) return;
+    const x = e.nativeEvent.locationX;
+    const minX = minR * width;
+    const maxX = maxR * width;
+    activeRef.current = Math.abs(x - minX) < Math.abs(x - maxX) - 0.5 ? "min" : "max";
+    onMove(e);
+  };
+
+  const onMove = (e: { nativeEvent: { locationX: number } }) => {
+    if (!activeRef.current || width <= 0) return;
+    const r = Math.max(0, Math.min(1, e.nativeEvent.locationX / width));
+    const v = ratioToValue(r);
+    if (activeRef.current === "min") {
+      onChange(Math.min(v, maxValue), maxValue);
+    } else {
+      onChange(minValue, Math.max(v, minValue));
+    }
+  };
+
+  const trackHeight = 32;
+  const thumbSize = 22;
+
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+        <Text style={{ fontSize: 12, color: theme.textMuted }}>{label}</Text>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>
+          {format(minValue)} → {format(maxValue)}
+        </Text>
+      </View>
+      <View
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={onStart}
+        onResponderMove={onMove}
+        onResponderRelease={() => { activeRef.current = null; }}
+        style={{ height: trackHeight, justifyContent: "center" }}
+      >
+        <View style={{ height: 4, borderRadius: 2, backgroundColor: "rgba(127,127,127,0.25)" }} />
+        <View
+          style={{
+            position: "absolute",
+            left: minR * width,
+            top: trackHeight / 2 - 2,
+            width: Math.max(0, (maxR - minR) * width),
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: theme.primary,
+          }}
+        />
+        {width > 0 && (
+          <>
+            <View
+              style={{
+                position: "absolute",
+                left: Math.max(0, Math.min(width - thumbSize, minR * width - thumbSize / 2)),
+                top: trackHeight / 2 - thumbSize / 2,
+                width: thumbSize,
+                height: thumbSize,
+                borderRadius: thumbSize / 2,
+                backgroundColor: theme.primary,
+                borderWidth: 2,
+                borderColor: theme.surface,
+              }}
+            />
+            <View
+              style={{
+                position: "absolute",
+                left: Math.max(0, Math.min(width - thumbSize, maxR * width - thumbSize / 2)),
+                top: trackHeight / 2 - thumbSize / 2,
+                width: thumbSize,
+                height: thumbSize,
+                borderRadius: thumbSize / 2,
+                backgroundColor: theme.primary,
+                borderWidth: 2,
+                borderColor: theme.surface,
+              }}
+            />
+          </>
+        )}
+      </View>
+    </View>
+  );
 }
 
 function Slider({
