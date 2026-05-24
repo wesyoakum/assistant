@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v46",
+    title: "Color spectrum + peak holds",
+    pr: 40,
+    notes: [
+      "Mic spectrum bars now colorized red → blue across frequency",
+      "Classic equalizer peak markers that slowly fall back",
+      "Picker to switch between 4096 and 8192 FFT size",
+    ],
+  },
+  {
     version: "v45",
     title: "Hi-res mic spectrum",
     pr: 39,
