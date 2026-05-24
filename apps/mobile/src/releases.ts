@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v61",
+    title: "Spectrum: dual-thumb range sliders",
+    pr: 55,
+    notes: [
+      "One slider for frequency range (both min and max thumbs)",
+      "One slider for dB range",
+      "Touching grabs the closer thumb; can't cross past the other",
+    ],
+  },
+  {
     version: "v60",
     title: "Audio spectrum: sliders instead of steppers",
     pr: 54,
