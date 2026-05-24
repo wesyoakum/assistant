@@ -12,6 +12,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v65",
+    title: "Camera preview + LiDAR depth (needs rebuild)",
+    pr: 59,
+    notes: [
+      "New Lab → Vision sub-tab",
+      "Live camera preview (back/front, flip button)",
+      "LiDAR depth map rendered as a 32×24 color grid (red near, blue far)",
+      "Requires the new TestFlight build to actually work",
+    ],
+  },
+  {
     version: "v64",
     title: "Darker teal primary in light mode",
     pr: 58,

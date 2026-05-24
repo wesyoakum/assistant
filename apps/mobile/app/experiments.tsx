@@ -16,6 +16,8 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Audio } from "expo-av";
 import { BleManager, type Device as BleDevice, type State as BleState } from "react-native-ble-plx";
 import LiveAudioStream from "react-native-live-audio-stream";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { Lidar, type DepthFrame } from "expo-lidar";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
@@ -55,6 +57,28 @@ function format(v: unknown): string {
 
 function fmt(n: number, digits = 2) {
   return n.toFixed(digits);
+}
+
+function DepthGrid({ frame, maxMeters = 5 }: { frame: { width: number; height: number; depth: number[] }; maxMeters?: number }) {
+  const { width: cols, height: rows, depth } = frame;
+  return (
+    <View style={{ aspectRatio: cols / rows, borderRadius: 8, overflow: "hidden" }}>
+      {Array.from({ length: rows }).map((_, r) => (
+        <View key={r} style={{ flex: 1, flexDirection: "row" }}>
+          {Array.from({ length: cols }).map((__, c) => {
+            const d = depth[r * cols + c] || 0;
+            // 0 = invalid (no return). Show as black.
+            // Otherwise normalize 0..maxMeters → hue 0 (red, close) … 260 (violet, far).
+            const color =
+              d <= 0
+                ? "rgb(0,0,0)"
+                : `hsl(${Math.min(260, (d / maxMeters) * 260).toFixed(0)}, 80%, 50%)`;
+            return <View key={c} style={{ flex: 1, backgroundColor: color }} />;
+          })}
+        </View>
+      ))}
+    </View>
+  );
 }
 
 function XyzRow({
@@ -319,11 +343,12 @@ export default function ExperimentsScreen() {
   );
 }
 
-export type LabTab = "motion" | "audio" | "env" | "device" | "health" | "info";
+export type LabTab = "motion" | "audio" | "vision" | "env" | "device" | "health" | "info";
 
 const LAB_TABS: { key: LabTab; label: string }[] = [
   { key: "motion", label: "Motion" },
   { key: "audio", label: "Audio" },
+  { key: "vision", label: "Vision" },
   { key: "env", label: "Env" },
   { key: "device", label: "Device" },
   { key: "health", label: "Health" },
@@ -720,6 +745,37 @@ export function ExperimentsContent() {
       setOrientation(evt.orientationInfo.orientation);
     });
     return () => ScreenOrientation.removeOrientationChangeListener(sub);
+  }, []);
+
+  // Camera permissions + on/off toggle for the live preview.
+  const [cameraPerm, requestCameraPerm] = useCameraPermissions();
+  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<"back" | "front">("back");
+
+  // LiDAR depth stream.
+  const lidarSupported = Lidar.isSupported();
+  const [lidarOn, setLidarOn] = useState(false);
+  const [lidarFrame, setLidarFrame] = useState<DepthFrame | null>(null);
+  const startLidar = async () => {
+    try {
+      await Lidar.startSession({ width: 32, height: 24, throttleMs: 100 });
+      setLidarOn(true);
+    } catch (err) {
+      Alert.alert("LiDAR error", (err as Error).message);
+    }
+  };
+  const stopLidar = async () => {
+    try { await Lidar.stopSession(); } catch {}
+    setLidarOn(false);
+    setLidarFrame(null);
+  };
+  useEffect(() => {
+    if (!lidarOn) return;
+    const sub = Lidar.addDepthListener(setLidarFrame);
+    return () => sub.remove();
+  }, [lidarOn]);
+  useEffect(() => {
+    return () => { Lidar.stopSession().catch(() => {}); };
   }, []);
 
   // Bluetooth LE scanner — on-demand because scanning is power-hungry.
@@ -1446,6 +1502,84 @@ export function ExperimentsContent() {
           { label: "Low power mode", value: battery?.lowPower },
         ]}
       />
+      </>)}
+
+      {labTab === "vision" && (<>
+      <Text style={styles.sectionTitle}>Camera</Text>
+      <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
+        {cameraOn && cameraPerm?.granted ? (
+          <CameraView
+            style={{ width: "100%", aspectRatio: 4 / 3 }}
+            facing={cameraFacing}
+            mute
+          />
+        ) : (
+          <View style={{ width: "100%", aspectRatio: 4 / 3, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
+            <Text style={{ color: theme.textSubtle, fontSize: 14 }}>
+              {cameraPerm?.granted ? "Camera off" : "Camera permission not granted"}
+            </Text>
+          </View>
+        )}
+      </View>
+      <View style={[styles.card, { padding: 14, marginBottom: 16 }]}>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable
+            onPress={async () => {
+              if (!cameraPerm?.granted) {
+                const res = await requestCameraPerm();
+                if (!res.granted) return;
+              }
+              setCameraOn((on) => !on);
+            }}
+            style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.destructive : theme.primary }}
+          >
+            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+              {cameraOn ? "Stop" : "Start"} camera
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setCameraFacing((f) => (f === "back" ? "front" : "back"))}
+            disabled={!cameraOn}
+            style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: cameraOn ? 1 : 0.4 }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>
+              Flip
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <Text style={styles.sectionTitle}>LiDAR depth map</Text>
+      <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+        {lidarFrame ? (
+          <DepthGrid frame={lidarFrame} />
+        ) : (
+          <View style={{ aspectRatio: 4 / 3, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center", borderRadius: 8 }}>
+            <Text style={{ color: theme.textSubtle, fontSize: 13 }}>
+              {lidarSupported ? "Tap Start to begin" : "No LiDAR sensor on this device"}
+            </Text>
+          </View>
+        )}
+        {lidarFrame && (
+          <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 6, textAlign: "right" }}>
+            min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m · {lidarFrame.width}×{lidarFrame.height}
+          </Text>
+        )}
+      </View>
+      <View style={[styles.card, { padding: 14, marginBottom: 16 }]}>
+        <Pressable
+          onPress={lidarOn ? stopLidar : startLidar}
+          disabled={!lidarSupported}
+          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: lidarSupported ? (lidarOn ? theme.destructive : theme.primary) : theme.surfaceAlt }}
+        >
+          <Text style={{ color: lidarSupported ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+            {!lidarSupported ? "Unsupported" : lidarOn ? "Stop LiDAR" : "Start LiDAR"}
+          </Text>
+        </Pressable>
+        <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+          Color: red (near) → blue (far). Capped at 5 m.
+        </Text>
+      </View>
       </>)}
 
       {labTab === "audio" && (<>
