@@ -4,7 +4,8 @@ import * as Device from "expo-device";
 import Constants from "expo-constants";
 import * as Clipboard from "expo-clipboard";
 import * as Notifications from "expo-notifications";
-import { Accelerometer, Gyroscope, Magnetometer } from "expo-sensors";
+import { Accelerometer, Gyroscope, Magnetometer, DeviceMotion, Barometer, Pedometer } from "expo-sensors";
+import type { DeviceMotionMeasurement } from "expo-sensors";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import * as Battery from "expo-battery";
@@ -127,6 +128,49 @@ export default function ExperimentsScreen() {
       Magnetometer.addListener((v) => { setMag(v); pushTo(setMagHist)(v); }),
     ];
     return () => subs.forEach((s) => s.remove());
+  }, []);
+
+  // DeviceMotion — fused orientation, gravity vector, user-acceleration (gravity removed)
+  const [motion, setMotion] = useState<DeviceMotionMeasurement | null>(null);
+  useEffect(() => {
+    DeviceMotion.setUpdateInterval(200);
+    const sub = DeviceMotion.addListener(setMotion);
+    return () => sub.remove();
+  }, []);
+
+  // Barometer — air pressure in hPa (iPhone 6+ only)
+  const [pressure, setPressure] = useState<{ pressure: number; relativeAltitude?: number | null } | null>(null);
+  const [baroAvailable, setBaroAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    Barometer.isAvailableAsync().then(setBaroAvailable).catch(() => setBaroAvailable(false));
+    Barometer.setUpdateInterval(500);
+    const sub = Barometer.addListener(setPressure);
+    return () => sub.remove();
+  }, []);
+
+  // Pedometer — step count over a window
+  const [pedAvailable, setPedAvailable] = useState<boolean | null>(null);
+  const [stepsToday, setStepsToday] = useState<number | null>(null);
+  const [liveSteps, setLiveSteps] = useState<number | null>(null);
+  useEffect(() => {
+    (async () => {
+      const ok = await Pedometer.isAvailableAsync();
+      setPedAvailable(ok);
+      if (!ok) return;
+
+      // Steps since midnight
+      try {
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const res = await Pedometer.getStepCountAsync(start, new Date());
+        setStepsToday(res.steps);
+      } catch {
+        // permission likely not granted yet
+      }
+    })();
+
+    const sub = Pedometer.watchStepCount((res) => setLiveSteps(res.steps));
+    return () => sub.remove();
   }, []);
 
   // Battery (one-shot + subscribe)
@@ -328,6 +372,39 @@ export default function ExperimentsScreen() {
           { label: "x", value: mag ? fmt(mag.x, 1) : null },
           { label: "y", value: mag ? fmt(mag.y, 1) : null },
           { label: "z", value: mag ? fmt(mag.z, 1) : null },
+        ]}
+      />
+
+      <Section
+        title="Device Motion (fused)"
+        rows={[
+          { label: "Pitch (°)", value: motion?.rotation ? fmt((motion.rotation.beta * 180) / Math.PI, 1) : null },
+          { label: "Roll (°)", value: motion?.rotation ? fmt((motion.rotation.gamma * 180) / Math.PI, 1) : null },
+          { label: "Yaw (°)", value: motion?.rotation ? fmt((motion.rotation.alpha * 180) / Math.PI, 1) : null },
+          { label: "Gravity x", value: motion?.accelerationIncludingGravity ? fmt(motion.accelerationIncludingGravity.x, 3) : null },
+          { label: "Gravity y", value: motion?.accelerationIncludingGravity ? fmt(motion.accelerationIncludingGravity.y, 3) : null },
+          { label: "Gravity z", value: motion?.accelerationIncludingGravity ? fmt(motion.accelerationIncludingGravity.z, 3) : null },
+          { label: "User accel x", value: motion?.acceleration ? fmt(motion.acceleration.x, 3) : null },
+          { label: "User accel y", value: motion?.acceleration ? fmt(motion.acceleration.y, 3) : null },
+          { label: "User accel z", value: motion?.acceleration ? fmt(motion.acceleration.z, 3) : null },
+        ]}
+      />
+
+      <Section
+        title="Barometer"
+        rows={[
+          { label: "Available", value: baroAvailable },
+          { label: "Pressure (hPa)", value: pressure ? fmt(pressure.pressure, 2) : null },
+          { label: "Relative altitude (m)", value: pressure?.relativeAltitude != null ? fmt(pressure.relativeAltitude, 2) : null },
+        ]}
+      />
+
+      <Section
+        title="Pedometer"
+        rows={[
+          { label: "Available", value: pedAvailable },
+          { label: "Steps today", value: stepsToday },
+          { label: "Steps since open", value: liveSteps },
         ]}
       />
 
