@@ -14,6 +14,15 @@ async function runSyncs() {
   ]);
 }
 
+async function runBriefing(): Promise<boolean> {
+  try {
+    const res = await apiFetch<{ skipped: boolean }>("/chat/briefing", { method: "POST" });
+    return !res.skipped;
+  } catch {
+    return false;
+  }
+}
+
 export function useOnOpenSync() {
   const queryClient = useQueryClient();
   const { isAuthenticated } = useAuth();
@@ -30,6 +39,12 @@ export function useOnOpenSync() {
       queryClient.invalidateQueries({ queryKey: ["emails"] });
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
       queryClient.invalidateQueries({ queryKey: ["ical-feeds"] });
+
+      // Generate a fresh briefing message (server enforces a 3h throttle).
+      const wrote = await runBriefing();
+      if (wrote) {
+        queryClient.invalidateQueries({ queryKey: ["chat-history"] });
+      }
     };
 
     // Initial sync on mount (app launch)

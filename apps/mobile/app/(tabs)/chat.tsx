@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import {
   Alert,
 } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-native-markdown-display";
 import { apiFetch } from "../../src/api/client";
 
@@ -34,35 +34,26 @@ interface HistoryResponse {
 }
 
 export default function ChatScreen() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const queryClient = useQueryClient();
+  const [pending, setPending] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
-  const didInit = useRef(false);
 
-  // Load history on mount
-  useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
+  // Server-backed history. Refetches when the briefing endpoint inserts
+  // a new assistant message (cache invalidated from useOnOpenSync).
+  const { data: history } = useQuery({
+    queryKey: ["chat-history"],
+    queryFn: () => apiFetch<HistoryResponse>("/chat/history?limit=50"),
+    staleTime: 0,
+  });
 
-    (async () => {
-      try {
-        const history = await apiFetch<HistoryResponse>("/chat/history?limit=50");
-        if (history.messages.length > 0) {
-          setMessages(history.messages);
-          return;
-        }
-      } catch {
-        // Continue
-      }
-
-      // Static greeting for empty chat
-      setMessages([{
-        id: "greeting-0",
-        role: "assistant",
-        content: "How can I help?",
-      }]);
-    })();
-  }, []);
+  const serverMessages: Message[] = history?.messages ?? [];
+  const messages: Message[] =
+    serverMessages.length > 0
+      ? [...serverMessages, ...pending]
+      : pending.length > 0
+        ? pending
+        : [{ id: "greeting-0", role: "assistant", content: "How can I help?" }];
 
   const sendMutation = useMutation({
     mutationFn: async (text: string) => {
@@ -71,18 +62,14 @@ export default function ChatScreen() {
         body: JSON.stringify({ message: text }),
       });
     },
-    onSuccess: (data) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: data.reply,
-        },
-      ]);
+    onSuccess: async () => {
+      // Server persisted both the user message and the assistant reply.
+      // Refetch history, then clear local pending state.
+      await queryClient.invalidateQueries({ queryKey: ["chat-history"] });
+      setPending([]);
     },
     onError: (err: Error) => {
-      setMessages((prev) => [
+      setPending((prev) => [
         ...prev,
         {
           id: `error-${Date.now()}`,
@@ -111,7 +98,7 @@ export default function ChatScreen() {
     const text = input.trim();
     if (!text || sendMutation.isPending) return;
 
-    setMessages((prev) => [
+    setPending((prev) => [
       ...prev,
       {
         id: `user-${Date.now()}`,
