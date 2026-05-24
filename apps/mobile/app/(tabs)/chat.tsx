@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -109,6 +109,17 @@ export default function ChatScreen() {
     setInput("");
     sendMutation.mutate(text);
   }, [input, sendMutation]);
+
+  // Scroll to the last message when the keyboard opens — otherwise it covers
+  // the bottom of the conversation.
+  useEffect(() => {
+    const sub = Keyboard.addListener("keyboardDidShow", () => {
+      requestAnimationFrame(() =>
+        flatListRef.current?.scrollToEnd({ animated: true })
+      );
+    });
+    return () => sub.remove();
+  }, []);
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
