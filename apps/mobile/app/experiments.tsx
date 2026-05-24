@@ -54,6 +54,84 @@ function magnitude(v: { x: number; y: number; z: number }) {
 
 const HIST_LEN = 80;
 
+function BarGauge({ value, max, color, height = 14 }: { value: number; max: number; color: string; height?: number }) {
+  const pct = Math.max(0, Math.min(1, value / Math.max(0.0001, max))) * 100;
+  return (
+    <View style={{ height, backgroundColor: "rgba(127,127,127,0.18)", borderRadius: height / 2, overflow: "hidden" }}>
+      <View style={{ width: `${pct}%`, height: "100%", backgroundColor: color, borderRadius: height / 2 }} />
+    </View>
+  );
+}
+
+function TiltIndicator({ pitchDeg, rollDeg, color, size = 90 }: { pitchDeg: number; rollDeg: number; color: string; size?: number }) {
+  // Map -90..90 to 0..size; clamp so the dot stays inside the circle
+  const clamp = (v: number) => Math.max(-90, Math.min(90, v));
+  const x = ((clamp(rollDeg) + 90) / 180) * size;
+  const y = ((clamp(pitchDeg) + 90) / 180) * size;
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        alignSelf: "center",
+        backgroundColor: "rgba(127,127,127,0.15)",
+        borderRadius: size / 2,
+        position: "relative",
+      }}
+    >
+      {/* crosshairs */}
+      <View style={{ position: "absolute", left: 0, right: 0, top: size / 2, height: StyleSheet.hairlineWidth, backgroundColor: "rgba(127,127,127,0.35)" }} />
+      <View style={{ position: "absolute", top: 0, bottom: 0, left: size / 2, width: StyleSheet.hairlineWidth, backgroundColor: "rgba(127,127,127,0.35)" }} />
+      {/* dot */}
+      <View
+        style={{
+          position: "absolute",
+          left: x - 7,
+          top: y - 7,
+          width: 14,
+          height: 14,
+          borderRadius: 7,
+          backgroundColor: color,
+        }}
+      />
+    </View>
+  );
+}
+
+function CompassArrow({ headingDeg, color, size = 70 }: { headingDeg: number; color: string; size?: number }) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        alignSelf: "center",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: size / 2,
+        backgroundColor: "rgba(127,127,127,0.15)",
+        position: "relative",
+      }}
+    >
+      <Text style={{ position: "absolute", top: 4, fontSize: 10, fontWeight: "700", color: "rgba(127,127,127,0.7)" }}>N</Text>
+      <View style={{ transform: [{ rotate: `${headingDeg}deg` }] }}>
+        <View
+          style={{
+            width: 0,
+            height: 0,
+            borderLeftWidth: 8,
+            borderRightWidth: 8,
+            borderBottomWidth: 22,
+            borderStyle: "solid",
+            borderLeftColor: "transparent",
+            borderRightColor: "transparent",
+            borderBottomColor: color,
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
 function Sparkline({ samples, color, height = 56 }: { samples: number[]; color: string; height?: number }) {
   if (samples.length < 2) {
     return <View style={{ height, backgroundColor: "transparent" }} />;
@@ -140,11 +218,18 @@ export default function ExperimentsScreen() {
 
   // Barometer — air pressure in hPa (iPhone 6+ only)
   const [pressure, setPressure] = useState<{ pressure: number; relativeAltitude?: number | null } | null>(null);
+  const [pressureHist, setPressureHist] = useState<number[]>([]);
   const [baroAvailable, setBaroAvailable] = useState<boolean | null>(null);
   useEffect(() => {
     Barometer.isAvailableAsync().then(setBaroAvailable).catch(() => setBaroAvailable(false));
     Barometer.setUpdateInterval(500);
-    const sub = Barometer.addListener(setPressure);
+    const sub = Barometer.addListener((v) => {
+      setPressure(v);
+      setPressureHist((prev) => {
+        const next = prev.length >= HIST_LEN ? prev.slice(prev.length - HIST_LEN + 1) : prev;
+        return [...next, v.pressure];
+      });
+    });
     return () => sub.remove();
   }, []);
 
@@ -375,8 +460,20 @@ export default function ExperimentsScreen() {
         ]}
       />
 
+      <Text style={styles.sectionTitle}>Device Motion (fused)</Text>
+      <View style={[styles.card, { padding: 12, marginBottom: 4, flexDirection: "row", justifyContent: "space-around", alignItems: "center" }]}>
+        <TiltIndicator
+          pitchDeg={motion?.rotation ? (motion.rotation.beta * 180) / Math.PI : 0}
+          rollDeg={motion?.rotation ? (motion.rotation.gamma * 180) / Math.PI : 0}
+          color={theme.primary}
+        />
+        <CompassArrow
+          headingDeg={motion?.rotation ? (motion.rotation.alpha * 180) / Math.PI : 0}
+          color={theme.primary}
+        />
+      </View>
       <Section
-        title="Device Motion (fused)"
+        title=""
         rows={[
           { label: "Pitch (°)", value: motion?.rotation ? fmt((motion.rotation.beta * 180) / Math.PI, 1) : null },
           { label: "Roll (°)", value: motion?.rotation ? fmt((motion.rotation.gamma * 180) / Math.PI, 1) : null },
@@ -390,8 +487,12 @@ export default function ExperimentsScreen() {
         ]}
       />
 
+      <Text style={styles.sectionTitle}>Barometer</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <Sparkline samples={pressureHist} color={theme.accent} height={48} />
+      </View>
       <Section
-        title="Barometer"
+        title=""
         rows={[
           { label: "Available", value: baroAvailable },
           { label: "Pressure (hPa)", value: pressure ? fmt(pressure.pressure, 2) : null },
@@ -399,8 +500,15 @@ export default function ExperimentsScreen() {
         ]}
       />
 
+      <Text style={styles.sectionTitle}>Pedometer</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <BarGauge value={stepsToday ?? 0} max={10000} color={theme.primary} />
+        <Text style={{ marginTop: 6, fontSize: 12, color: theme.textMuted, textAlign: "right" }}>
+          {(stepsToday ?? 0).toLocaleString()} / 10,000 steps
+        </Text>
+      </View>
       <Section
-        title="Pedometer"
+        title=""
         rows={[
           { label: "Available", value: pedAvailable },
           { label: "Steps today", value: stepsToday },
@@ -408,10 +516,29 @@ export default function ExperimentsScreen() {
         ]}
       />
 
+      <Text style={styles.sectionTitle}>Battery</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <BarGauge
+          value={battery?.level ?? 0}
+          max={1}
+          color={
+            battery == null
+              ? theme.textSubtle
+              : battery.level < 0.2
+                ? theme.destructive
+                : battery.level < 0.4
+                  ? theme.warning
+                  : theme.primary
+          }
+          height={18}
+        />
+        <Text style={{ marginTop: 6, fontSize: 12, color: theme.textMuted, textAlign: "right" }}>
+          {battery ? `${Math.round(battery.level * 100)}%${battery.state === Battery.BatteryState.CHARGING ? " · charging" : battery.lowPower ? " · low power" : ""}` : "—"}
+        </Text>
+      </View>
       <Section
-        title="Battery (expo-battery)"
+        title=""
         rows={[
-          { label: "Level", value: battery ? `${Math.round(battery.level * 100)}%` : null },
           { label: "State", value: battery ? batteryStateLabel(battery.state) : null },
           { label: "Low power mode", value: battery?.lowPower },
         ]}
