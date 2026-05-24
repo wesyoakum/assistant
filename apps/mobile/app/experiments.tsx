@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import * as Clipboard from "expo-clipboard";
@@ -679,15 +679,16 @@ export function ExperimentsContent() {
   const SAMPLE_RATE = 44100;
   const N_BANDS = 96;
   const PEAK_DECAY = 0.92;
-  // Frequency range for the spectrum. Used in linear mode and as fallback.
-  const MIN_FREQ = 20;
-  const MAX_FREQ = 20000;
-  // Notes mode: A0 .. A8 = 8 octaves × 12 semitones = 96 bands.
-  const NOTES_START_FREQ = 27.5; // A0
-  const NOTES_SEMITONES = 96;
 
   const [fftSize, setFftSize] = useState<4096 | 8192>(4096);
   const [spectrumScale, setSpectrumScale] = useState<"notes" | "linear">("notes");
+  // Adjustable axes
+  const [freqMin, setFreqMin] = useState<number>(27.5);     // A0
+  const [freqMax, setFreqMax] = useState<number>(7040);     // A8
+  const [dbFloor, setDbFloor] = useState<number>(-80);
+  const [dbCeil, setDbCeil] = useState<number>(0);
+  const [spectrumFullscreen, setSpectrumFullscreen] = useState(false);
+
   const fftRef = useRef<FFT | null>(null);
   const fftOutRef = useRef<number[] | null>(null);
   const windowRef = useRef<Float32Array | null>(null);
@@ -695,7 +696,7 @@ export function ExperimentsContent() {
   const accumRef = useRef<Float32Array>(new Float32Array(0));
   const peaksRef = useRef<Float32Array>(new Float32Array(N_BANDS));
 
-  // Rebuild FFT, window, and band edges whenever fftSize or scale changes.
+  // Rebuild FFT, window, and band edges whenever fftSize, scale, or range changes.
   useEffect(() => {
     fftRef.current = new FFT(fftSize);
     fftOutRef.current = fftRef.current.createComplexArray();
@@ -709,11 +710,12 @@ export function ExperimentsContent() {
     for (let i = 0; i <= N_BANDS; i++) {
       let f: number;
       if (spectrumScale === "notes") {
-        // Each band edge = one semitone above the last.
-        f = NOTES_START_FREQ * Math.pow(2, i / 12);
+        // Log/exp spacing — equivalent to semitones when the range is one
+        // octave per 12 bands. Lets the user freely pick freqMin/freqMax.
+        const ratio = Math.log(freqMax / freqMin);
+        f = freqMin * Math.exp((ratio * i) / N_BANDS);
       } else {
-        // Linear Hz spacing across MIN_FREQ..MAX_FREQ.
-        f = MIN_FREQ + ((MAX_FREQ - MIN_FREQ) * i) / N_BANDS;
+        f = freqMin + ((freqMax - freqMin) * i) / N_BANDS;
       }
       const bin = Math.round((f * fftSize) / SAMPLE_RATE);
       edges[i] = Math.min(maxBin, Math.max(0, bin));
@@ -721,7 +723,7 @@ export function ExperimentsContent() {
     bandEdgesRef.current = edges;
     accumRef.current = new Float32Array(0);
     peaksRef.current = new Float32Array(N_BANDS);
-  }, [fftSize, spectrumScale]);
+  }, [fftSize, spectrumScale, freqMin, freqMax]);
 
   const [spectrum, setSpectrum] = useState<number[]>([]);
   const [peaks, setPeaks] = useState<number[]>([]);
@@ -777,9 +779,7 @@ export function ExperimentsContent() {
           // Reference for dBFS normalization: peak possible magnitude per bin
           // after the Hanning window is ~ fs * 0.5 (window gain 0.5).
           const refLevel = fs * 0.5;
-          const MIN_DB = -80;
-          const MAX_DB = 0;
-          const range = MAX_DB - MIN_DB;
+          const range = dbCeil - dbFloor;
           for (let band = 0; band < N_BANDS; band++) {
             const lo = edges[band];
             const hi = Math.max(edges[band + 1], lo + 1);
@@ -792,7 +792,7 @@ export function ExperimentsContent() {
             const avg = mag / (hi - lo);
             // To dBFS, then normalize to [0..1] across MIN_DB..MAX_DB.
             const db = 20 * Math.log10(avg / refLevel + 1e-10);
-            const norm = (db - MIN_DB) / range;
+            const norm = (db - dbFloor) / range;
             bands[band] = Math.max(0, Math.min(1, norm));
           }
           lastBands = bands;
@@ -1383,9 +1383,15 @@ export function ExperimentsContent() {
       </View>
 
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>
-      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+      <Pressable
+        onPress={() => setSpectrumFullscreen(true)}
+        style={[styles.card, { padding: 6, marginBottom: 4 }]}
+      >
         <SpectrumBars samples={spectrum} peaks={peaks} height={90} />
-      </View>
+        <Text style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: "600", color: theme.textSubtle, opacity: 0.7 }}>
+          TAP TO FULLSCREEN
+        </Text>
+      </Pressable>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
           {(["notes", "linear"] as const).map((s) => {
@@ -1437,19 +1443,126 @@ export function ExperimentsContent() {
             );
           })}
         </View>
+
+        <RangeStepper
+          label="Min Hz"
+          value={freqMin}
+          onChange={(v) => setFreqMin(Math.max(10, Math.min(freqMax / 1.1, v)))}
+          steps={[0.5, 0.8, 1.25, 2]}
+          format={(v) => `${v.toFixed(v < 100 ? 1 : 0)} Hz`}
+          theme={theme}
+        />
+        <RangeStepper
+          label="Max Hz"
+          value={freqMax}
+          onChange={(v) => setFreqMax(Math.max(freqMin * 1.1, Math.min(22000, v)))}
+          steps={[0.5, 0.8, 1.25, 2]}
+          format={(v) => v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${v.toFixed(0)} Hz`}
+          theme={theme}
+        />
+        <RangeStepper
+          label="dB floor"
+          value={dbFloor}
+          onChange={(v) => setDbFloor(Math.max(-160, Math.min(dbCeil - 10, v)))}
+          steps={[-20, -5, 5, 20]}
+          additive
+          format={(v) => `${v} dB`}
+          theme={theme}
+        />
+        <RangeStepper
+          label="dB ceiling"
+          value={dbCeil}
+          onChange={(v) => setDbCeil(Math.max(dbFloor + 10, Math.min(20, v)))}
+          steps={[-20, -5, 5, 20]}
+          additive
+          format={(v) => `${v} dB`}
+          theme={theme}
+        />
+
         <Pressable
           onPress={spectrumOn ? stopSpectrum : startSpectrum}
-          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: spectrumOn ? theme.destructive : theme.primary }}
+          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: spectrumOn ? theme.destructive : theme.primary, marginTop: 8 }}
         >
           <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
             {spectrumOn ? "Stop" : "Start"} spectrum
           </Text>
         </Pressable>
         <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
-          96 bands · {spectrumScale === "notes" ? "A0 – A8, one semitone per band" : "20 Hz – 20 kHz, linear"} · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS -80…0
+          96 bands · {spectrumScale === "notes" ? "log" : "linear"} {fmtHz(freqMin)} – {fmtHz(freqMax)} · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS {dbFloor}…{dbCeil}
         </Text>
       </View>
+
+      <Modal
+        visible={spectrumFullscreen}
+        animationType="fade"
+        onRequestClose={() => setSpectrumFullscreen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.background, justifyContent: "center", padding: 12 }}>
+          <SpectrumBars samples={spectrum} peaks={peaks} height={400} />
+          <Text style={{ marginTop: 12, fontSize: 12, color: theme.textSubtle, textAlign: "center" }}>
+            {fmtHz(freqMin)} – {fmtHz(freqMax)} · dBFS {dbFloor}…{dbCeil} · {spectrumScale}
+          </Text>
+          <Pressable
+            onPress={() => setSpectrumFullscreen(false)}
+            style={{ marginTop: 16, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: theme.primary }}
+          >
+            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Close</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </>
+  );
+}
+
+function fmtHz(hz: number): string {
+  if (hz >= 1000) return `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)} kHz`;
+  return `${hz < 100 ? hz.toFixed(1) : hz.toFixed(0)} Hz`;
+}
+
+function RangeStepper({
+  label,
+  value,
+  onChange,
+  steps,
+  additive = false,
+  format,
+  theme,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  steps: number[];
+  additive?: boolean;
+  format: (v: number) => string;
+  theme: Theme;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+      <Text style={{ width: 80, fontSize: 12, color: theme.textMuted }}>{label}</Text>
+      <Text style={{ flex: 1, fontSize: 13, fontWeight: "600", color: theme.text }}>
+        {format(value)}
+      </Text>
+      <View style={{ flexDirection: "row", gap: 4 }}>
+        {steps.map((s) => (
+          <Pressable
+            key={s}
+            onPress={() => onChange(additive ? value + s : value * s)}
+            style={{
+              paddingHorizontal: 8,
+              paddingVertical: 5,
+              borderRadius: 6,
+              backgroundColor: theme.surfaceAlt,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: theme.border,
+            }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: "600", color: theme.text }}>
+              {additive ? (s > 0 ? `+${s}` : `${s}`) : s < 1 ? `÷${(1 / s).toFixed(s < 0.6 ? 0 : 2)}` : `×${s}`}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
