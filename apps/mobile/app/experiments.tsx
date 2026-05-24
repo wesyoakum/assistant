@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
@@ -281,6 +281,55 @@ export default function ExperimentsScreen() {
     const sub = DeviceMotion.addListener(setMotion);
     return () => sub.remove();
   }, []);
+
+  // Position-by-double-integration. Drifts heavily — meant as a physics demo.
+  const [posTracking, setPosTracking] = useState(false);
+  const [posDisplay, setPosDisplay] = useState({ x: 0, y: 0, z: 0, vmag: 0 });
+  const posState = useRef({ vx: 0, vy: 0, vz: 0, px: 0, py: 0, pz: 0, lastT: 0 });
+  useEffect(() => {
+    if (!posTracking) return;
+    posState.current = { vx: 0, vy: 0, vz: 0, px: 0, py: 0, pz: 0, lastT: Date.now() };
+    setPosDisplay({ x: 0, y: 0, z: 0, vmag: 0 });
+    const sub = DeviceMotion.addListener((m) => {
+      if (!m.acceleration) return;
+      const now = Date.now();
+      const dt = (now - posState.current.lastT) / 1000;
+      posState.current.lastT = now;
+      if (dt <= 0 || dt > 0.5) return;
+
+      // High-pass: anything below 0.02 m/s² treated as noise.
+      const noise = 0.02;
+      const ax = Math.abs(m.acceleration.x) < noise ? 0 : m.acceleration.x;
+      const ay = Math.abs(m.acceleration.y) < noise ? 0 : m.acceleration.y;
+      const az = Math.abs(m.acceleration.z) < noise ? 0 : m.acceleration.z;
+
+      const s = posState.current;
+      s.vx += ax * dt;
+      s.vy += ay * dt;
+      s.vz += az * dt;
+      // ZUPT-ish: bleed velocity when accel is essentially zero.
+      if (ax === 0 && ay === 0 && az === 0) {
+        s.vx *= 0.9;
+        s.vy *= 0.9;
+        s.vz *= 0.9;
+      }
+      s.px += s.vx * dt;
+      s.py += s.vy * dt;
+      s.pz += s.vz * dt;
+      setPosDisplay({
+        x: s.px,
+        y: s.py,
+        z: s.pz,
+        vmag: Math.sqrt(s.vx * s.vx + s.vy * s.vy + s.vz * s.vz),
+      });
+    });
+    return () => sub.remove();
+  }, [posTracking]);
+
+  const resetPosition = () => {
+    posState.current = { vx: 0, vy: 0, vz: 0, px: 0, py: 0, pz: 0, lastT: Date.now() };
+    setPosDisplay({ x: 0, y: 0, z: 0, vmag: 0 });
+  };
 
   // Barometer — air pressure in hPa (iPhone 6+ only)
   const [pressure, setPressure] = useState<{ pressure: number; relativeAltitude?: number | null } | null>(null);
@@ -676,6 +725,64 @@ export default function ExperimentsScreen() {
           </View>
         );
       })()}
+
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+          Position (double-integrated)
+        </Text>
+        <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 10, fontStyle: "italic" }}>
+          Drifts fast — sensor noise compounds. Tap reset often.
+        </Text>
+        <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 12 }}>
+          {[
+            { label: "Δ x", value: posDisplay.x },
+            { label: "Δ y", value: posDisplay.y },
+            { label: "Δ z", value: posDisplay.z },
+          ].map((d) => (
+            <View key={d.label} style={{ alignItems: "center" }}>
+              <Text style={{ fontSize: 11, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>{d.label}</Text>
+              <Text style={{ fontSize: 18, fontWeight: "700", color: posTracking ? theme.text : theme.textSubtle, marginTop: 2 }}>
+                {posTracking ? `${(d.value * 100).toFixed(1)} cm` : "—"}
+              </Text>
+            </View>
+          ))}
+        </View>
+        <Text style={{ fontSize: 12, color: theme.textMuted, textAlign: "center", marginBottom: 10 }}>
+          velocity magnitude: {posTracking ? `${posDisplay.vmag.toFixed(3)} m/s` : "—"}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Pressable
+            onPress={() => setPosTracking((p) => !p)}
+            style={{
+              flex: 1,
+              paddingVertical: 10,
+              borderRadius: 8,
+              alignItems: "center",
+              backgroundColor: posTracking ? theme.destructive : theme.primary,
+            }}
+          >
+            <Text style={{ fontSize: 13, fontWeight: "600", color: "#fff" }}>
+              {posTracking ? "Stop" : "Start tracking"}
+            </Text>
+          </Pressable>
+          {posTracking && (
+            <Pressable
+              onPress={resetPosition}
+              style={{
+                flex: 1,
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: "center",
+                backgroundColor: theme.surfaceAlt,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.border,
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>Reset</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
 
       <Text style={styles.sectionTitle}>Barometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4, position: "relative" }]}>

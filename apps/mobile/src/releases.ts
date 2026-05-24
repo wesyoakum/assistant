@@ -10,6 +10,11 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v38",
+    title: "Position by integration (experimental)",
+    notes: ["Tap 'Start tracking' to integrate accelerometer into position", "Drifts heavily — that's the physics demo"],
+  },
+  {
     version: "v37",
     title: "Relative orientation",
     notes: ["New card under Device Motion: tap 'Zero here' to start tracking how far you've rotated"],
