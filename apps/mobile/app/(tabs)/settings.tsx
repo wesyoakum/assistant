@@ -18,6 +18,7 @@ import { useMe } from "../../src/hooks/useMe";
 import { apiFetch } from "../../src/api/client";
 import { useTheme, useAppearance, type Theme, type AppearanceMode } from "../../src/theme";
 import { useStyles } from "../../src/hooks/useStyles";
+import { ExperimentsContent } from "../experiments";
 
 interface UsageSummaryData {
   today: { calls: number; costCents: number };
@@ -231,7 +232,7 @@ function GroupMeSection() {
     <>
       <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, flexDirection: "row", alignItems: "center" }}>
         <View style={{ flex: 1 }}>
-          <Text style={{ fontSize: 15, fontWeight: "500" }}>Connected as {status.groupme_name || "GroupMe user"}</Text>
+          <Text style={{ fontSize: 15, fontWeight: "500", color: theme.text }}>Connected as {status.groupme_name || "GroupMe user"}</Text>
         </View>
         <Pressable
           onPress={() =>
@@ -242,13 +243,13 @@ function GroupMeSection() {
           }
           style={{ paddingVertical: 4, paddingHorizontal: 8 }}
         >
-          <Text style={{ fontSize: 13, color: "#BA2D2D" }}>Disconnect</Text>
+          <Text style={{ fontSize: 13, color: theme.destructive }}>Disconnect</Text>
         </Pressable>
       </View>
       {groupsLoading ? (
         <ActivityIndicator style={{ padding: 16 }} />
       ) : groupsError ? (
-        <Text style={{ padding: 16, color: "#BA2D2D" }}>
+        <Text style={{ padding: 16, color: theme.destructive }}>
           {(groupsError as Error).message}
         </Text>
       ) : groups.length === 0 ? (
@@ -257,7 +258,7 @@ function GroupMeSection() {
         groups.map((g) => (
           <View key={g.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}>
             <View style={{ flex: 1, marginRight: 12 }}>
-              <Text style={{ fontSize: 15, fontWeight: "500" }}>{g.name}</Text>
+              <Text style={{ fontSize: 15, fontWeight: "500", color: theme.text }}>{g.name}</Text>
               {g.member_count != null && (
                 <Text style={{ fontSize: 12, color: theme.textSubtle, marginTop: 2 }}>
                   {g.member_count} members
@@ -379,12 +380,14 @@ function PreferencesList() {
 }
 
 
-type SettingsTab = "general" | "calendars" | "groupme";
+type SettingsTab = "general" | "calendars" | "groupme" | "context" | "experiments";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "general", label: "General" },
   { key: "calendars", label: "Calendars" },
   { key: "groupme", label: "GroupMe" },
+  { key: "context", label: "Context" },
+  { key: "experiments", label: "Lab" },
 ];
 
 export default function SettingsScreen() {
@@ -596,13 +599,21 @@ export default function SettingsScreen() {
         <>
           <Text style={styles.sectionTitle}>API Usage</Text>
           <UsageSummary />
+        </>
+      )}
 
+      {/* Context tab — user_context entries grouped here */}
+      {tab === "context" && (
+        <>
           <Text style={styles.sectionTitle}>Preferences</Text>
           <View style={styles.card}>
             <PreferencesList />
           </View>
         </>
       )}
+
+      {/* Experiments tab — sensor sandbox */}
+      {tab === "experiments" && <ExperimentsContent />}
 
       {/* Calendars section */}
       {tab === "calendars" && (
@@ -742,19 +753,6 @@ export default function SettingsScreen() {
         </Pressable>
       </View>
 
-      {me?.isOwner && (
-        <>
-          <Text style={styles.sectionTitle}>Owner</Text>
-          <View style={styles.card}>
-            <Pressable
-              style={styles.clearChatBtn}
-              onPress={() => router.push("/experiments")}
-            >
-              <Text style={[styles.clearChatText, { color: theme.primary }]}>Experiments</Text>
-            </Pressable>
-          </View>
-        </>
-      )}
 
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>

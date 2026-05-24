@@ -10,6 +10,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v40",
+    title: "Settings reorganized",
+    notes: [
+      "New 'Context' tab — your preferences live here",
+      "New 'Lab' tab — sensor sandbox moved in from a separate screen",
+      "GroupMe text colors fixed in dark mode",
+    ],
+  },
+  {
     version: "v39",
     title: "What's new lives in chat now",
     notes: [
