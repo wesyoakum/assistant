@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v50",
+    title: "Spectrum: notes vs linear",
+    pr: 44,
+    notes: [
+      "Spectrum bands default to one semitone each (A0 → A8, 8 octaves)",
+      "Toggle to 'Linear' for equal-Hz spacing instead",
+    ],
+  },
+  {
     version: "v49",
     title: "Spectrum: full hearing range",
     pr: 43,
