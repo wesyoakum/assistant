@@ -57,6 +57,39 @@ function fmt(n: number, digits = 2) {
   return n.toFixed(digits);
 }
 
+function XyzRow({
+  values,
+  digits = 3,
+  theme,
+}: {
+  values: Array<[string, number | null | undefined]>;
+  digits?: number;
+  theme: Theme;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-around",
+        backgroundColor: theme.surface,
+        borderRadius: 12,
+        paddingVertical: 10,
+        paddingHorizontal: 8,
+        marginBottom: 20,
+      }}
+    >
+      {values.map(([label, v]) => (
+        <View key={label} style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase" }}>{label}</Text>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text, fontVariant: ["tabular-nums"] }}>
+            {v == null ? "—" : v.toFixed(digits)}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // --- Altitude unit formatting -------------------------------------------------
 type AltUnit = "mm" | "m" | "in" | "ftin";
 const ALT_UNITS: { value: AltUnit; label: string }[] = [
@@ -1024,39 +1057,30 @@ export function ExperimentsContent() {
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={accelHist} color={theme.primary} />
       </View>
-      <Section
-        title=""
-        rows={[
-          { label: "x", value: accel ? fmt(accel.x, 3) : null },
-          { label: "y", value: accel ? fmt(accel.y, 3) : null },
-          { label: "z", value: accel ? fmt(accel.z, 3) : null },
-        ]}
+      <XyzRow
+        values={[["x", accel?.x ?? null], ["y", accel?.y ?? null], ["z", accel?.z ?? null]]}
+        digits={3}
+        theme={theme}
       />
 
       <Text style={styles.sectionTitle}>Gyroscope</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={gyroHist} color={theme.warning} />
       </View>
-      <Section
-        title=""
-        rows={[
-          { label: "x", value: gyro ? fmt(gyro.x, 3) : null },
-          { label: "y", value: gyro ? fmt(gyro.y, 3) : null },
-          { label: "z", value: gyro ? fmt(gyro.z, 3) : null },
-        ]}
+      <XyzRow
+        values={[["x", gyro?.x ?? null], ["y", gyro?.y ?? null], ["z", gyro?.z ?? null]]}
+        digits={3}
+        theme={theme}
       />
 
       <Text style={styles.sectionTitle}>Magnetometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={magHist} color={theme.destructive} />
       </View>
-      <Section
-        title=""
-        rows={[
-          { label: "x", value: mag ? fmt(mag.x, 1) : null },
-          { label: "y", value: mag ? fmt(mag.y, 1) : null },
-          { label: "z", value: mag ? fmt(mag.z, 1) : null },
-        ]}
+      <XyzRow
+        values={[["x", mag?.x ?? null], ["y", mag?.y ?? null], ["z", mag?.z ?? null]]}
+        digits={1}
+        theme={theme}
       />
 
       <Text style={styles.sectionTitle}>Device Motion (fused)</Text>
@@ -1071,19 +1095,35 @@ export function ExperimentsContent() {
           color={theme.primary}
         />
       </View>
-      <Section
-        title=""
-        rows={[
-          { label: "Pitch (°)", value: motion?.rotation ? fmt((motion.rotation.beta * 180) / Math.PI, 1) : null },
-          { label: "Roll (°)", value: motion?.rotation ? fmt((motion.rotation.gamma * 180) / Math.PI, 1) : null },
-          { label: "Yaw (°)", value: motion?.rotation ? fmt((motion.rotation.alpha * 180) / Math.PI, 1) : null },
-          { label: "Gravity x", value: motion?.accelerationIncludingGravity ? fmt(motion.accelerationIncludingGravity.x, 3) : null },
-          { label: "Gravity y", value: motion?.accelerationIncludingGravity ? fmt(motion.accelerationIncludingGravity.y, 3) : null },
-          { label: "Gravity z", value: motion?.accelerationIncludingGravity ? fmt(motion.accelerationIncludingGravity.z, 3) : null },
-          { label: "User accel x", value: motion?.acceleration ? fmt(motion.acceleration.x, 3) : null },
-          { label: "User accel y", value: motion?.acceleration ? fmt(motion.acceleration.y, 3) : null },
-          { label: "User accel z", value: motion?.acceleration ? fmt(motion.acceleration.z, 3) : null },
+      <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginLeft: 4, marginBottom: 4 }}>Rotation (°)</Text>
+      <XyzRow
+        values={[
+          ["pitch", motion?.rotation ? (motion.rotation.beta * 180) / Math.PI : null],
+          ["roll", motion?.rotation ? (motion.rotation.gamma * 180) / Math.PI : null],
+          ["yaw", motion?.rotation ? (motion.rotation.alpha * 180) / Math.PI : null],
         ]}
+        digits={1}
+        theme={theme}
+      />
+      <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginLeft: 4, marginBottom: 4 }}>Gravity</Text>
+      <XyzRow
+        values={[
+          ["x", motion?.accelerationIncludingGravity?.x ?? null],
+          ["y", motion?.accelerationIncludingGravity?.y ?? null],
+          ["z", motion?.accelerationIncludingGravity?.z ?? null],
+        ]}
+        digits={3}
+        theme={theme}
+      />
+      <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginLeft: 4, marginBottom: 4 }}>User acceleration</Text>
+      <XyzRow
+        values={[
+          ["x", motion?.acceleration?.x ?? null],
+          ["y", motion?.acceleration?.y ?? null],
+          ["z", motion?.acceleration?.z ?? null],
+        ]}
+        digits={3}
+        theme={theme}
       />
 
       {(() => {

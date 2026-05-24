@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v62",
+    title: "Motion: compact x/y/z rows under each chart",
+    pr: 56,
+    notes: [
+      "Accel / gyro / mag readouts collapse to one row each (x, y, z side by side)",
+      "Device Motion split into Rotation / Gravity / User-acceleration single-line rows",
+    ],
+  },
+  {
     version: "v61",
     title: "Spectrum: dual-thumb range sliders",
     pr: 55,
