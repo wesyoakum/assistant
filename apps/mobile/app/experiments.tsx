@@ -678,11 +678,16 @@ export function ExperimentsContent() {
   // Mutually exclusive with the metering recording above (don't run both).
   const SAMPLE_RATE = 44100;
   const N_BANDS = 96;
+  const PEAK_DECAY = 0.92;
+  // Frequency range for the spectrum. Used in linear mode and as fallback.
   const MIN_FREQ = 20;
   const MAX_FREQ = 20000;
-  const PEAK_DECAY = 0.92;
+  // Notes mode: A0 .. A8 = 8 octaves × 12 semitones = 96 bands.
+  const NOTES_START_FREQ = 27.5; // A0
+  const NOTES_SEMITONES = 96;
 
   const [fftSize, setFftSize] = useState<4096 | 8192>(4096);
+  const [spectrumScale, setSpectrumScale] = useState<"notes" | "linear">("notes");
   const fftRef = useRef<FFT | null>(null);
   const fftOutRef = useRef<number[] | null>(null);
   const windowRef = useRef<Float32Array | null>(null);
@@ -690,7 +695,7 @@ export function ExperimentsContent() {
   const accumRef = useRef<Float32Array>(new Float32Array(0));
   const peaksRef = useRef<Float32Array>(new Float32Array(N_BANDS));
 
-  // Rebuild FFT, window, and band edges whenever fftSize changes.
+  // Rebuild FFT, window, and band edges whenever fftSize or scale changes.
   useEffect(() => {
     fftRef.current = new FFT(fftSize);
     fftOutRef.current = fftRef.current.createComplexArray();
@@ -700,16 +705,23 @@ export function ExperimentsContent() {
     }
     windowRef.current = w;
     const edges = new Int32Array(N_BANDS + 1);
-    const ratio = Math.log(MAX_FREQ / MIN_FREQ);
+    const maxBin = fftSize / 2 - 1;
     for (let i = 0; i <= N_BANDS; i++) {
-      const f = MIN_FREQ * Math.exp((ratio * i) / N_BANDS);
+      let f: number;
+      if (spectrumScale === "notes") {
+        // Each band edge = one semitone above the last.
+        f = NOTES_START_FREQ * Math.pow(2, i / 12);
+      } else {
+        // Linear Hz spacing across MIN_FREQ..MAX_FREQ.
+        f = MIN_FREQ + ((MAX_FREQ - MIN_FREQ) * i) / N_BANDS;
+      }
       const bin = Math.round((f * fftSize) / SAMPLE_RATE);
-      edges[i] = Math.min(fftSize / 2 - 1, Math.max(0, bin));
+      edges[i] = Math.min(maxBin, Math.max(0, bin));
     }
     bandEdgesRef.current = edges;
     accumRef.current = new Float32Array(0);
     peaksRef.current = new Float32Array(N_BANDS);
-  }, [fftSize]);
+  }, [fftSize, spectrumScale]);
 
   const [spectrum, setSpectrum] = useState<number[]>([]);
   const [peaks, setPeaks] = useState<number[]>([]);
@@ -1375,6 +1387,30 @@ export function ExperimentsContent() {
         <SpectrumBars samples={spectrum} peaks={peaks} height={90} />
       </View>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+          {(["notes", "linear"] as const).map((s) => {
+            const active = spectrumScale === s;
+            return (
+              <Pressable
+                key={s}
+                onPress={() => setSpectrumScale(s)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                  borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.text }}>
+                  {s === "notes" ? "Notes" : "Linear"}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
           {([4096, 8192] as const).map((sz) => {
             const active = fftSize === sz;
@@ -1410,7 +1446,7 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
         <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
-          96 log-spaced bands · 20 Hz – 20 kHz · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS -80…0
+          96 bands · {spectrumScale === "notes" ? "A0 – A8, one semitone per band" : "20 Hz – 20 kHz, linear"} · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS -80…0
         </Text>
       </View>
     </>
