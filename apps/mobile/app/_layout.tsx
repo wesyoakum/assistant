@@ -11,6 +11,7 @@ import { useWhatsNewAnnounce } from "../src/hooks/useWhatsNewAnnounce";
 import { useTheme, useHydrateAppearance } from "../src/theme";
 import { currentRelease } from "../src/releases";
 import Constants from "expo-constants";
+import * as ScreenOrientation from "expo-screen-orientation";
 
 const queryClient = new QueryClient();
 
@@ -36,6 +37,13 @@ function AuthGate() {
   const segments = useSegments();
   const theme = useTheme();
   useHydrateAppearance();
+
+  // Lock to portrait on app start. The Lab fullscreen-spectrum modal
+  // unlocks temporarily then re-locks here on close. No-op on builds
+  // whose Info.plist only allows portrait anyway.
+  useEffect(() => {
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+  }, []);
 
   useOTAUpdates();
 

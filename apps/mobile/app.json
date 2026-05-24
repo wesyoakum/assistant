@@ -4,7 +4,7 @@
     "slug": "whyapp",
     "version": "1.0.2",
     "scheme": "whyapp",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,

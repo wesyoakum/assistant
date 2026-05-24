@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v52",
+    title: "Fullscreen spectrum supports landscape",
+    pr: 46,
+    notes: [
+      "Rotate the phone in the fullscreen spectrum view — chart fills the wider screen",
+      "Rest of the app stays portrait",
+      "Requires the next native rebuild to actually rotate (app.json change)",
+    ],
+  },
+  {
     version: "v51",
     title: "Spectrum: adjustable axes + tap to fullscreen",
     pr: 45,
