@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v58",
+    title: "Settings: Calendars + GroupMe move into Context",
+    pr: 52,
+    notes: [
+      "Settings tabs slimmed to General | Context | Usage | Lab",
+      "Calendar config, iCal feeds, and GroupMe all live under Context now",
+    ],
+  },
+  {
     version: "v57",
     title: "Tap a BLE device to monitor it",
     pr: 51,
