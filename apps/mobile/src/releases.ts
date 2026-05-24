@@ -12,6 +12,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v55",
+    title: "Settings: dedicated Usage tab with full dashboard",
+    pr: 49,
+    notes: [
+      "API usage moved out of General into its own Settings tab",
+      "Daily spend bar chart (last 30 days)",
+      "Cumulative spend chart (all time)",
+      "Recent call list (model, purpose, cost, tokens)",
+    ],
+  },
+  {
     version: "v54",
     title: "Lab grouped into tabs",
     pr: 48,
