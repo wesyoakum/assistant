@@ -16,7 +16,12 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Audio } from "expo-av";
 import { BleManager, type Device as BleDevice, type State as BleState } from "react-native-ble-plx";
 import LiveAudioStream from "react-native-live-audio-stream";
-import Healthkit, { HKQuantityTypeIdentifier } from "@kingstinct/react-native-healthkit";
+import {
+  isHealthDataAvailable,
+  requestAuthorization as hkRequestAuthorization,
+  getMostRecentQuantitySample,
+  queryStatisticsForQuantity,
+} from "@kingstinct/react-native-healthkit";
 import NfcManager, { NfcTech, Ndef } from "react-native-nfc-manager";
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
@@ -254,11 +259,23 @@ export default function ExperimentsScreen() {
   );
 }
 
+export type LabTab = "motion" | "audio" | "env" | "device" | "health" | "info";
+
+const LAB_TABS: { key: LabTab; label: string }[] = [
+  { key: "motion", label: "Motion" },
+  { key: "audio", label: "Audio" },
+  { key: "env", label: "Env" },
+  { key: "device", label: "Device" },
+  { key: "health", label: "Health" },
+  { key: "info", label: "Info" },
+];
+
 export function ExperimentsContent() {
   const { token } = useAuth();
   const styles = useStyles(makeStyles);
   const theme = useTheme();
   const { data: me } = useMe();
+  const [labTab, setLabTab] = useState<LabTab>("motion");
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [pushPerm, setPushPerm] = useState<string>("?");
   const [clipboardSnap, setClipboardSnap] = useState<string>("");
@@ -571,62 +588,63 @@ export function ExperimentsContent() {
   }>({});
 
   useEffect(() => {
-    Healthkit.isHealthDataAvailable()
-      .then(setHkAvailable)
-      .catch(() => setHkAvailable(false));
+    try {
+      setHkAvailable(isHealthDataAvailable());
+    } catch {
+      setHkAvailable(false);
+    }
   }, []);
 
   const refreshHealthkit = async () => {
     try {
       setHkStatus("requesting…");
-      const reads = [
-        HKQuantityTypeIdentifier.heartRate,
-        HKQuantityTypeIdentifier.stepCount,
-        HKQuantityTypeIdentifier.activeEnergyBurned,
-        HKQuantityTypeIdentifier.restingHeartRate,
-        HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
-        HKQuantityTypeIdentifier.oxygenSaturation,
-      ];
-      await Healthkit.requestAuthorization(reads, []);
+      const toRead = [
+        "HKQuantityTypeIdentifierHeartRate",
+        "HKQuantityTypeIdentifierStepCount",
+        "HKQuantityTypeIdentifierActiveEnergyBurned",
+        "HKQuantityTypeIdentifierRestingHeartRate",
+        "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
+        "HKQuantityTypeIdentifierOxygenSaturation",
+      ] as const;
+      await hkRequestAuthorization({ toRead: toRead as unknown as readonly never[] });
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
+      const opts = { filter: { startDate: startOfDay, endDate: new Date() } };
       const out: typeof hk = {};
       try {
-        const hr = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.heartRate);
+        const hr = await getMostRecentQuantitySample("HKQuantityTypeIdentifierHeartRate" as never);
         if (hr) {
-          out.heartRate = hr.quantity;
-          out.heartRateAt = new Date(hr.endDate).toLocaleTimeString();
+          out.heartRate = (hr as { quantity: number }).quantity;
+          out.heartRateAt = new Date((hr as { endDate: string | Date }).endDate).toLocaleTimeString();
         }
       } catch {}
       try {
-        const steps = await Healthkit.queryStatisticsForQuantity(
-          HKQuantityTypeIdentifier.stepCount,
-          ["cumulativeSum"],
-          startOfDay,
-          new Date()
+        const steps = await queryStatisticsForQuantity(
+          "HKQuantityTypeIdentifierStepCount" as never,
+          ["cumulativeSum"] as never,
+          opts as never
         );
-        out.stepsToday = steps?.sumQuantity?.quantity;
+        out.stepsToday = (steps as { sumQuantity?: { quantity: number } } | undefined)?.sumQuantity?.quantity;
       } catch {}
       try {
-        const energy = await Healthkit.queryStatisticsForQuantity(
-          HKQuantityTypeIdentifier.activeEnergyBurned,
-          ["cumulativeSum"],
-          startOfDay,
-          new Date()
+        const energy = await queryStatisticsForQuantity(
+          "HKQuantityTypeIdentifierActiveEnergyBurned" as never,
+          ["cumulativeSum"] as never,
+          opts as never
         );
-        out.activeEnergy = energy?.sumQuantity?.quantity;
+        out.activeEnergy = (energy as { sumQuantity?: { quantity: number } } | undefined)?.sumQuantity?.quantity;
       } catch {}
       try {
-        const rhr = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.restingHeartRate);
-        if (rhr) out.restingHR = rhr.quantity;
+        const rhr = await getMostRecentQuantitySample("HKQuantityTypeIdentifierRestingHeartRate" as never);
+        if (rhr) out.restingHR = (rhr as { quantity: number }).quantity;
       } catch {}
       try {
-        const hrv = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.heartRateVariabilitySDNN);
-        if (hrv) out.hrv = hrv.quantity;
+        const hrv = await getMostRecentQuantitySample("HKQuantityTypeIdentifierHeartRateVariabilitySDNN" as never);
+        if (hrv) out.hrv = (hrv as { quantity: number }).quantity;
       } catch {}
       try {
-        const spo2 = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.oxygenSaturation);
-        if (spo2) out.spo2 = spo2.quantity * 100;
+        const spo2 = await getMostRecentQuantitySample("HKQuantityTypeIdentifierOxygenSaturation" as never);
+        if (spo2) out.spo2 = (spo2 as { quantity: number }).quantity * 100;
       } catch {}
       setHk(out);
       setHkStatus("ok");
@@ -1003,10 +1021,31 @@ export function ExperimentsContent() {
 
   return (
     <>
-      <Text style={[styles.rowLabel, { fontSize: 13, marginBottom: 16, flex: 0 }]}>
-        Sandbox of iPhone APIs reachable through Expo modules. Motion sensors update live; location is on-demand.
-      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", backgroundColor: theme.surfaceAlt, borderRadius: 9, padding: 3, marginBottom: 12 }}>
+        {LAB_TABS.map((t) => {
+          const active = labTab === t.key;
+          return (
+            <Pressable
+              key={t.key}
+              onPress={() => setLabTab(t.key)}
+              style={{
+                flex: 1,
+                minWidth: "16%",
+                paddingVertical: 7,
+                borderRadius: 7,
+                alignItems: "center",
+                backgroundColor: active ? theme.surface : "transparent",
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "600", color: active ? theme.text : theme.textMuted }}>
+                {t.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
+      {labTab === "info" && (<>
       <Section
         title="Identity"
         rows={[
@@ -1064,15 +1103,9 @@ export function ExperimentsContent() {
           <Text style={styles.btnText}>Copy full push token</Text>
         </Pressable>
       )}
+      </>)}
 
-      <Section
-        title="Clipboard (expo-clipboard)"
-        rows={[{ label: "Current clipboard", value: clipboardSnap || "(tap Read below)" }]}
-      />
-      <Pressable style={styles.btn} onPress={refreshClipboard}>
-        <Text style={styles.btnText}>Read clipboard</Text>
-      </Pressable>
-
+      {labTab === "motion" && (<>
       <Text style={styles.sectionTitle}>Accelerometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={accelHist} color={theme.primary} />
@@ -1248,7 +1281,9 @@ export function ExperimentsContent() {
           )}
         </View>
       </View>
+      </>)}
 
+      {labTab === "env" && (<>
       <Text style={styles.sectionTitle}>Barometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4, position: "relative" }]}>
         <Sparkline samples={pressureHist} color={theme.accent} height={48} />
@@ -1322,7 +1357,9 @@ export function ExperimentsContent() {
           { label: "Raw rel. alt. (m)", value: pressure?.relativeAltitude != null ? fmt(pressure.relativeAltitude, 4) : null },
         ]}
       />
+      </>)}
 
+      {labTab === "motion" && (<>
       <Text style={styles.sectionTitle}>Pedometer</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <BarGauge value={stepsToday ?? 0} max={10000} color={theme.primary} />
@@ -1338,7 +1375,9 @@ export function ExperimentsContent() {
           { label: "Steps since open", value: liveSteps },
         ]}
       />
+      </>)}
 
+      {labTab === "device" && (<>
       <Text style={styles.sectionTitle}>Battery</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <BarGauge
@@ -1366,7 +1405,9 @@ export function ExperimentsContent() {
           { label: "Low power mode", value: battery?.lowPower },
         ]}
       />
+      </>)}
 
+      {labTab === "audio" && (<>
       <Text style={styles.sectionTitle}>Microphone</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={micHist} color={theme.highlight} height={56} />
@@ -1385,7 +1426,9 @@ export function ExperimentsContent() {
           <Text style={styles.btnText}>{micRecording ? "Stop listening" : "Start listening"}</Text>
         </Pressable>
       </View>
+      </>)}
 
+      {labTab === "env" && (<>
       <Text style={styles.sectionTitle}>Location</Text>
       <View style={[styles.card, { padding: 12, marginBottom: 4, flexDirection: "row", justifyContent: "space-around", alignItems: "center" }]}>
         <CompassArrow
@@ -1426,7 +1469,9 @@ export function ExperimentsContent() {
           <Text style={[styles.btnText, { color: theme.primary }]}>One reading</Text>
         </Pressable>
       </View>
+      </>)}
 
+      {labTab === "device" && (<>
       <Text style={styles.sectionTitle}>Haptics (expo-haptics)</Text>
       <View style={[styles.card, { padding: 8 }]}>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
@@ -1441,7 +1486,9 @@ export function ExperimentsContent() {
           ))}
         </View>
       </View>
+      </>)}
 
+      {labTab === "env" && (<>
       <Section
         title="Network"
         rows={[
@@ -1462,7 +1509,9 @@ export function ExperimentsContent() {
           { label: "Allows VOIP", value: cellular?.allowsVoip },
         ]}
       />
+      </>)}
 
+      {labTab === "device" && (<>
       <Text style={styles.sectionTitle}>Brightness</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <BarGauge value={brightness ?? 0} max={1} color={theme.accent} height={16} />
@@ -1487,6 +1536,18 @@ export function ExperimentsContent() {
         rows={[{ label: "Current", value: orientation != null ? orientationLabel(orientation) : null }]}
       />
 
+      <Text style={styles.sectionTitle}>Clipboard (expo-clipboard)</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Text style={{ fontSize: 13, color: theme.text, marginBottom: 10 }}>
+          {clipboardSnap || "(tap Read to see current clipboard)"}
+        </Text>
+        <Pressable style={styles.btn} onPress={refreshClipboard}>
+          <Text style={styles.btnText}>Read clipboard</Text>
+        </Pressable>
+      </View>
+      </>)}
+
+      {labTab === "env" && (<>
       <Text style={styles.sectionTitle}>Bluetooth (BLE scan)</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>
@@ -1515,7 +1576,9 @@ export function ExperimentsContent() {
             </View>
           ))}
       </View>
+      </>)}
 
+      {labTab === "health" && (<>
       <Text style={styles.sectionTitle}>HealthKit (Apple Watch + Health app)</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
@@ -1543,7 +1606,9 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
       </View>
+      </>)}
 
+      {labTab === "env" && (<>
       <Text style={styles.sectionTitle}>NFC</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
@@ -1574,7 +1639,9 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
       </View>
+      </>)}
 
+      {labTab === "audio" && (<>
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>
       <Pressable
         onPress={() => setSpectrumFullscreen(true)}
@@ -1684,6 +1751,7 @@ export function ExperimentsContent() {
           96 bands · {spectrumScale === "notes" ? "log" : "linear"} {fmtHz(freqMin)} – {fmtHz(freqMax)} · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS {dbFloor}…{dbCeil}
         </Text>
       </View>
+      </>)}
 
       <Modal
         visible={spectrumFullscreen}
