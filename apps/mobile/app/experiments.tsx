@@ -762,6 +762,12 @@ export function ExperimentsContent() {
           fftRef.current!.realTransform(out, frame);
           fftRef.current!.completeSpectrum(out);
           const bands = new Array<number>(N_BANDS);
+          // Reference for dBFS normalization: peak possible magnitude per bin
+          // after the Hanning window is ~ fs * 0.5 (window gain 0.5).
+          const refLevel = fs * 0.5;
+          const MIN_DB = -80;
+          const MAX_DB = 0;
+          const range = MAX_DB - MIN_DB;
           for (let band = 0; band < N_BANDS; band++) {
             const lo = edges[band];
             const hi = Math.max(edges[band + 1], lo + 1);
@@ -771,7 +777,11 @@ export function ExperimentsContent() {
               const im = out[bin * 2 + 1];
               mag += Math.sqrt(re * re + im * im);
             }
-            bands[band] = mag / (hi - lo);
+            const avg = mag / (hi - lo);
+            // To dBFS, then normalize to [0..1] across MIN_DB..MAX_DB.
+            const db = 20 * Math.log10(avg / refLevel + 1e-10);
+            const norm = (db - MIN_DB) / range;
+            bands[band] = Math.max(0, Math.min(1, norm));
           }
           lastBands = bands;
           offset += fs / 2; // 50% overlap
@@ -1400,7 +1410,7 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
         <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
-          96 log-spaced bands · 30 Hz – 12 kHz · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin
+          96 log-spaced bands · 30 Hz – 12 kHz · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS -80…0
         </Text>
       </View>
     </>
@@ -1438,16 +1448,15 @@ function SpectrumBars({ samples, peaks, height = 90 }: { samples: number[]; peak
   if (samples.length === 0) {
     return <View style={{ height, backgroundColor: "transparent" }} />;
   }
+  // Samples are normalized [0..1] dBFS — no auto-scale.
   const peaksArr = peaks && peaks.length === samples.length ? peaks : samples;
-  const max = Math.max(0.001, ...samples, ...peaksArr);
   const usable = height - 4;
   const n = samples.length;
   return (
     <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
       {samples.map((v, i) => {
-        const barH = Math.max(1, (v / max) * usable);
-        const peakH = Math.max(1, (peaksArr[i] / max) * usable);
-        // Red (low freq, hue 0) -> blue (high freq, hue 260) across bands
+        const barH = Math.max(1, v * usable);
+        const peakH = Math.max(1, peaksArr[i] * usable);
         const hue = (i / (n - 1)) * 260;
         const barColor = `hsl(${hue.toFixed(0)}, 75%, 50%)`;
         const peakColor = `hsl(${hue.toFixed(0)}, 80%, 75%)`;
