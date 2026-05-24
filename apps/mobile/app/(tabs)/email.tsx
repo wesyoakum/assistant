@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
   rowContent: { flex: 1, marginRight: 10 },
   sender: { fontSize: 13, fontWeight: "600", color: "#333", marginBottom: 2 },
   senderNew: { color: "#1a56db" },
-  subject: { fontSize: 15, color: "#222", lineHeight: 20 },
+  subject: { fontSize: 15, color: "#1F2024", lineHeight: 20 },
   subjectNew: { fontWeight: "700" },
   snippet: { fontSize: 13, color: "#666", marginTop: 3, lineHeight: 18 },
   timeCol: { alignItems: "flex-end" },

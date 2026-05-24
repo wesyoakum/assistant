@@ -290,7 +290,7 @@ export default function ExperimentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f2f2f7" },
+  container: { flex: 1, backgroundColor: "#EDE3D1" },
   sectionTitle: {
     fontSize: 12,
     fontWeight: "600",
@@ -308,7 +308,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
   },
   rowLabel: { flex: 1, fontSize: 13, color: "#666" },
-  rowValue: { flex: 1, fontSize: 13, color: "#222", textAlign: "right" },
+  rowValue: { flex: 1, fontSize: 13, color: "#1F2024", textAlign: "right" },
   btn: {
     backgroundColor: "#3D7F94",
     paddingVertical: 12,
