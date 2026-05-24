@@ -1652,38 +1652,42 @@ export function ExperimentsContent() {
           })}
         </View>
 
-        <RangeStepper
+        <Slider
           label="Min Hz"
           value={freqMin}
           onChange={(v) => setFreqMin(Math.max(10, Math.min(freqMax / 1.1, v)))}
-          steps={[0.5, 0.8, 1.25, 2]}
-          format={(v) => `${v.toFixed(v < 100 ? 1 : 0)} Hz`}
+          min={10}
+          max={22000}
+          log
+          format={(v) => `${v < 100 ? v.toFixed(1) : v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : v.toFixed(0)}${v < 1000 ? " Hz" : ""}`}
           theme={theme}
         />
-        <RangeStepper
+        <Slider
           label="Max Hz"
           value={freqMax}
           onChange={(v) => setFreqMax(Math.max(freqMin * 1.1, Math.min(22000, v)))}
-          steps={[0.5, 0.8, 1.25, 2]}
+          min={10}
+          max={22000}
+          log
           format={(v) => v >= 1000 ? `${(v / 1000).toFixed(1)} kHz` : `${v.toFixed(0)} Hz`}
           theme={theme}
         />
-        <RangeStepper
+        <Slider
           label="dB floor"
           value={dbFloor}
-          onChange={(v) => setDbFloor(Math.max(-160, Math.min(dbCeil - 10, v)))}
-          steps={[-20, -5, 5, 20]}
-          additive
-          format={(v) => `${v} dB`}
+          onChange={(v) => setDbFloor(Math.max(-160, Math.min(dbCeil - 10, Math.round(v))))}
+          min={-160}
+          max={0}
+          format={(v) => `${Math.round(v)} dB`}
           theme={theme}
         />
-        <RangeStepper
+        <Slider
           label="dB ceiling"
           value={dbCeil}
-          onChange={(v) => setDbCeil(Math.max(dbFloor + 10, Math.min(20, v)))}
-          steps={[-20, -5, 5, 20]}
-          additive
-          format={(v) => `${v} dB`}
+          onChange={(v) => setDbCeil(Math.max(dbFloor + 10, Math.min(20, Math.round(v))))}
+          min={-40}
+          max={20}
+          format={(v) => `${Math.round(v)} dB`}
           theme={theme}
         />
 
@@ -1732,6 +1736,103 @@ export function ExperimentsContent() {
 function fmtHz(hz: number): string {
   if (hz >= 1000) return `${(hz / 1000).toFixed(hz < 10000 ? 1 : 0)} kHz`;
   return `${hz < 100 ? hz.toFixed(1) : hz.toFixed(0)} Hz`;
+}
+
+function Slider({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  log = false,
+  format,
+  theme,
+}: {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  log?: boolean;
+  format: (v: number) => string;
+  theme: Theme;
+}) {
+  const [width, setWidth] = useState(0);
+
+  const valueToRatio = (v: number) => {
+    if (log) return Math.log(v / min) / Math.log(max / min);
+    return (v - min) / (max - min);
+  };
+  const ratioToValue = (r: number) => {
+    const clamped = Math.max(0, Math.min(1, r));
+    if (log) return min * Math.pow(max / min, clamped);
+    return min + (max - min) * clamped;
+  };
+
+  const handleTouch = (e: { nativeEvent: { locationX: number } }) => {
+    if (width <= 0) return;
+    const r = e.nativeEvent.locationX / width;
+    onChange(ratioToValue(r));
+  };
+
+  const ratio = Math.max(0, Math.min(1, valueToRatio(value)));
+  const thumbX = ratio * width;
+  const trackHeight = 32;
+  const thumbSize = 22;
+
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+        <Text style={{ fontSize: 12, color: theme.textMuted }}>{label}</Text>
+        <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>{format(value)}</Text>
+      </View>
+      <View
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+        onStartShouldSetResponder={() => true}
+        onMoveShouldSetResponder={() => true}
+        onResponderGrant={handleTouch}
+        onResponderMove={handleTouch}
+        style={{ height: trackHeight, justifyContent: "center" }}
+      >
+        {/* track */}
+        <View
+          style={{
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: "rgba(127,127,127,0.25)",
+          }}
+        />
+        {/* filled portion */}
+        <View
+          style={{
+            position: "absolute",
+            left: 0,
+            top: trackHeight / 2 - 2,
+            width: thumbX,
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: theme.primary,
+          }}
+        />
+        {/* thumb */}
+        {width > 0 && (
+          <View
+            style={{
+              position: "absolute",
+              left: Math.max(0, Math.min(width - thumbSize, thumbX - thumbSize / 2)),
+              top: trackHeight / 2 - thumbSize / 2,
+              width: thumbSize,
+              height: thumbSize,
+              borderRadius: thumbSize / 2,
+              backgroundColor: theme.primary,
+              borderWidth: 2,
+              borderColor: theme.surface,
+            }}
+          />
+        )}
+      </View>
+    </View>
+  );
 }
 
 function RangeStepper({
