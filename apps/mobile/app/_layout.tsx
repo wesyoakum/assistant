@@ -9,6 +9,8 @@ import { useNotifications } from "../src/hooks/useNotifications";
 import { useOnOpenSync } from "../src/hooks/useOnOpenSync";
 import { useWhatsNewAnnounce } from "../src/hooks/useWhatsNewAnnounce";
 import { useTheme, useHydrateAppearance } from "../src/theme";
+import { currentRelease } from "../src/releases";
+import Constants from "expo-constants";
 
 const queryClient = new QueryClient();
 
@@ -98,18 +100,24 @@ function AuthGate() {
 
 function VersionBadge() {
   const theme = useTheme();
+  const r = currentRelease();
+  const build = Constants.nativeBuildVersion;
+  const parts: string[] = [];
+  if (r) parts.push(r.version);
+  if (r?.pr) parts.push(`PR #${r.pr}`);
+  if (build) parts.push(`build ${build}`);
   return (
     <Text
       style={{
         position: "absolute",
         bottom: 4,
         alignSelf: "center",
-        fontSize: 13,
+        fontSize: 11,
         color: theme.textSubtle,
         fontWeight: "600",
       }}
     >
-      v42
+      {parts.join(" · ")}
     </Text>
   );
 }
