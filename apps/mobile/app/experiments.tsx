@@ -9,7 +9,14 @@ import type { DeviceMotionMeasurement } from "expo-sensors";
 import * as Location from "expo-location";
 import * as Haptics from "expo-haptics";
 import * as Battery from "expo-battery";
+import * as Network from "expo-network";
+import * as Cellular from "expo-cellular";
+import * as Brightness from "expo-brightness";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { Audio } from "expo-av";
+import { BleManager, type Device as BleDevice, type State as BleState } from "react-native-ble-plx";
+import LiveAudioStream from "react-native-live-audio-stream";
+import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
 import { useMe } from "../src/hooks/useMe";
 import { type Theme, useTheme } from "../src/theme";
@@ -508,6 +515,183 @@ export function ExperimentsContent() {
     }
   };
 
+  // Network — connection type + Wi-Fi/cellular + online
+  const [network, setNetwork] = useState<Network.NetworkState | null>(null);
+  useEffect(() => {
+    Network.getNetworkStateAsync().then(setNetwork).catch(() => {});
+    const sub = Network.addNetworkStateListener(setNetwork);
+    return () => sub.remove();
+  }, []);
+
+  // Cellular — carrier + generation
+  const [cellular, setCellular] = useState<{ carrier: string | null; generation: number | null; isoCountryCode: string | null; mobileCountryCode: string | null; mobileNetworkCode: string | null; allowsVoip: boolean | null } | null>(null);
+  useEffect(() => {
+    (async () => {
+      try {
+        const [carrier, generation, iso, mcc, mnc, voip] = await Promise.all([
+          Cellular.getCarrierNameAsync(),
+          Cellular.getCellularGenerationAsync(),
+          Cellular.getIsoCountryCodeAsync(),
+          Cellular.getMobileCountryCodeAsync(),
+          Cellular.getMobileNetworkCodeAsync(),
+          Cellular.allowsVoipAsync(),
+        ]);
+        setCellular({ carrier, generation, isoCountryCode: iso, mobileCountryCode: mcc, mobileNetworkCode: mnc, allowsVoip: voip });
+      } catch { /* not available */ }
+    })();
+  }, []);
+
+  // Brightness — read + write
+  const [brightness, setBrightness] = useState<number | null>(null);
+  useEffect(() => {
+    Brightness.getBrightnessAsync().then(setBrightness).catch(() => {});
+  }, []);
+  const adjustBrightness = async (delta: number) => {
+    try {
+      const cur = brightness ?? (await Brightness.getBrightnessAsync());
+      const next = Math.max(0, Math.min(1, cur + delta));
+      await Brightness.setBrightnessAsync(next);
+      setBrightness(next);
+    } catch {
+      // permission denied — silently fail
+    }
+  };
+
+  // Screen orientation
+  const [orientation, setOrientation] = useState<ScreenOrientation.Orientation | null>(null);
+  useEffect(() => {
+    ScreenOrientation.getOrientationAsync().then(setOrientation).catch(() => {});
+    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
+      setOrientation(evt.orientationInfo.orientation);
+    });
+    return () => ScreenOrientation.removeOrientationChangeListener(sub);
+  }, []);
+
+  // Bluetooth LE scanner — on-demand because scanning is power-hungry.
+  const bleManagerRef = useRef<BleManager | null>(null);
+  const [bleState, setBleState] = useState<BleState | "Unknown">("Unknown");
+  const [bleScanning, setBleScanning] = useState(false);
+  const [bleDevices, setBleDevices] = useState<Map<string, { id: string; name: string | null; rssi: number | null; seenAt: number }>>(new Map());
+
+  useEffect(() => {
+    const m = new BleManager();
+    bleManagerRef.current = m;
+    const sub = m.onStateChange((s) => setBleState(s), true);
+    return () => {
+      sub.remove();
+      m.destroy();
+      bleManagerRef.current = null;
+    };
+  }, []);
+
+  const startBleScan = async () => {
+    const m = bleManagerRef.current;
+    if (!m) return;
+    setBleDevices(new Map());
+    setBleScanning(true);
+    m.startDeviceScan(null, { allowDuplicates: true }, (error, device) => {
+      if (error || !device) return;
+      setBleDevices((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(device.id);
+        next.set(device.id, {
+          id: device.id,
+          name: device.name ?? device.localName ?? existing?.name ?? null,
+          rssi: device.rssi ?? existing?.rssi ?? null,
+          seenAt: Date.now(),
+        });
+        return next;
+      });
+    });
+  };
+
+  const stopBleScan = () => {
+    bleManagerRef.current?.stopDeviceScan();
+    setBleScanning(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      bleManagerRef.current?.stopDeviceScan();
+    };
+  }, []);
+
+  // Microphone frequency spectrum — uses live-audio-stream + FFT.
+  // Mutually exclusive with the metering recording above (don't run both).
+  const FFT_SIZE = 1024;
+  const fftRef = useRef<FFT | null>(null);
+  const fftOutRef = useRef<number[] | null>(null);
+  if (!fftRef.current) {
+    fftRef.current = new FFT(FFT_SIZE);
+    fftOutRef.current = fftRef.current.createComplexArray();
+  }
+  const [spectrum, setSpectrum] = useState<number[]>([]);
+  const [spectrumOn, setSpectrumOn] = useState(false);
+
+  const startSpectrum = async () => {
+    try {
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) return;
+      LiveAudioStream.init({
+        sampleRate: 44100,
+        channels: 1,
+        bitsPerSample: 16,
+        audioSource: 6,
+        bufferSize: FFT_SIZE * 2,
+        // wavFile is required by the type but we never call stop() to flush,
+        // and the file is overwritten between runs — we only care about the
+        // 'data' callback stream.
+        wavFile: "spectrum.wav",
+      });
+      LiveAudioStream.on("data", (b64: string) => {
+        const buf =
+          typeof atob === "function"
+            ? atob(b64)
+            : Buffer.from(b64, "base64").toString("binary");
+        const samples = new Float32Array(FFT_SIZE);
+        const limit = Math.min(FFT_SIZE, Math.floor(buf.length / 2));
+        for (let i = 0; i < limit; i++) {
+          const lo = buf.charCodeAt(i * 2);
+          const hi = buf.charCodeAt(i * 2 + 1);
+          let v = (hi << 8) | lo;
+          if (v & 0x8000) v -= 0x10000;
+          samples[i] = v / 32768;
+        }
+        const out = fftOutRef.current!;
+        fftRef.current!.realTransform(out, samples);
+        fftRef.current!.completeSpectrum(out);
+        const N_BANDS = 32;
+        const binsPerBand = Math.floor(FFT_SIZE / 2 / N_BANDS);
+        const bands = new Array(N_BANDS);
+        for (let band = 0; band < N_BANDS; band++) {
+          let mag = 0;
+          for (let i = 0; i < binsPerBand; i++) {
+            const bin = band * binsPerBand + i;
+            const re = out[bin * 2];
+            const im = out[bin * 2 + 1];
+            mag += Math.sqrt(re * re + im * im);
+          }
+          bands[band] = mag / binsPerBand;
+        }
+        setSpectrum(bands);
+      });
+      LiveAudioStream.start();
+      setSpectrumOn(true);
+    } catch {
+      setSpectrumOn(false);
+    }
+  };
+
+  const stopSpectrum = () => {
+    try { LiveAudioStream.stop(); } catch { /* */ }
+    setSpectrumOn(false);
+    setSpectrum([]);
+  };
+
+  useEffect(() => {
+    return () => { try { LiveAudioStream.stop(); } catch { /* */ } };
+  }, []);
+
   // Push token + permission status
   useEffect(() => {
     (async () => {
@@ -960,7 +1144,152 @@ export function ExperimentsContent() {
           ))}
         </View>
       </View>
+
+      <Section
+        title="Network"
+        rows={[
+          { label: "Is connected", value: network?.isConnected },
+          { label: "Is internet reachable", value: network?.isInternetReachable },
+          { label: "Type", value: network?.type ?? null },
+        ]}
+      />
+
+      <Section
+        title="Cellular"
+        rows={[
+          { label: "Carrier", value: cellular?.carrier },
+          { label: "Generation", value: cellular?.generation != null ? generationLabel(cellular.generation) : null },
+          { label: "ISO country", value: cellular?.isoCountryCode },
+          { label: "MCC", value: cellular?.mobileCountryCode },
+          { label: "MNC", value: cellular?.mobileNetworkCode },
+          { label: "Allows VOIP", value: cellular?.allowsVoip },
+        ]}
+      />
+
+      <Text style={styles.sectionTitle}>Brightness</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <BarGauge value={brightness ?? 0} max={1} color={theme.accent} height={16} />
+        <Text style={{ marginTop: 6, fontSize: 12, color: theme.textMuted, textAlign: "right" }}>
+          {brightness != null ? `${Math.round(brightness * 100)}%` : "—"}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+          {[-0.2, -0.05, 0.05, 0.2].map((d) => (
+            <Pressable
+              key={d}
+              onPress={() => adjustBrightness(d)}
+              style={{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>{d > 0 ? `+${Math.round(d * 100)}%` : `${Math.round(d * 100)}%`}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <Section
+        title="Screen orientation"
+        rows={[{ label: "Current", value: orientation != null ? orientationLabel(orientation) : null }]}
+      />
+
+      <Text style={styles.sectionTitle}>Bluetooth (BLE scan)</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8 }}>
+          State: {bleState}{bleScanning ? " · scanning" : ""}
+        </Text>
+        <Pressable
+          onPress={bleScanning ? stopBleScan : startBleScan}
+          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: bleScanning ? theme.destructive : theme.primary, marginBottom: 10 }}
+        >
+          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+            {bleScanning ? "Stop scan" : "Start scan"}
+          </Text>
+        </Pressable>
+        {Array.from(bleDevices.values())
+          .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))
+          .slice(0, 20)
+          .map((d) => (
+            <View key={d.id} style={{ flexDirection: "row", paddingVertical: 6, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={{ color: theme.text, fontSize: 13 }} numberOfLines={1}>{d.name || "(no name)"}</Text>
+                <Text style={{ color: theme.textSubtle, fontSize: 10 }} numberOfLines={1}>{d.id}</Text>
+              </View>
+              <Text style={{ color: rssiColor(d.rssi, theme), fontSize: 13, fontWeight: "700" }}>
+                {d.rssi != null ? `${d.rssi} dBm` : "—"}
+              </Text>
+            </View>
+          ))}
+      </View>
+
+      <Text style={styles.sectionTitle}>Microphone spectrum</Text>
+      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+        <SpectrumBars samples={spectrum} color={theme.highlight} height={60} />
+      </View>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Pressable
+          onPress={spectrumOn ? stopSpectrum : startSpectrum}
+          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: spectrumOn ? theme.destructive : theme.primary }}
+        >
+          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+            {spectrumOn ? "Stop" : "Start"} spectrum
+          </Text>
+        </Pressable>
+        <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
+          32-band FFT of live mic, ~43 Hz per band. Don't run both this and the level meter above.
+        </Text>
+      </View>
     </>
+  );
+}
+
+function generationLabel(g: number): string {
+  switch (g) {
+    case Cellular.CellularGeneration.CELLULAR_2G: return "2G";
+    case Cellular.CellularGeneration.CELLULAR_3G: return "3G";
+    case Cellular.CellularGeneration.CELLULAR_4G: return "4G";
+    case Cellular.CellularGeneration.CELLULAR_5G: return "5G";
+    default: return "unknown";
+  }
+}
+
+function orientationLabel(o: ScreenOrientation.Orientation): string {
+  switch (o) {
+    case ScreenOrientation.Orientation.PORTRAIT_UP: return "portrait";
+    case ScreenOrientation.Orientation.PORTRAIT_DOWN: return "portrait upside-down";
+    case ScreenOrientation.Orientation.LANDSCAPE_LEFT: return "landscape left";
+    case ScreenOrientation.Orientation.LANDSCAPE_RIGHT: return "landscape right";
+    default: return "unknown";
+  }
+}
+
+function rssiColor(rssi: number | null, theme: Theme): string {
+  if (rssi == null) return theme.textSubtle;
+  if (rssi > -55) return theme.primary;
+  if (rssi > -75) return theme.warning;
+  return theme.destructive;
+}
+
+function SpectrumBars({ samples, color, height = 60 }: { samples: number[]; color: string; height?: number }) {
+  if (samples.length === 0) {
+    return <View style={{ height, backgroundColor: "transparent" }} />;
+  }
+  const max = Math.max(0.001, ...samples);
+  return (
+    <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
+      {samples.map((v, i) => {
+        const h = Math.max(1, (v / max) * (height - 4));
+        return (
+          <View
+            key={i}
+            style={{
+              flex: 1,
+              height: h,
+              backgroundColor: color,
+              marginRight: 1,
+              borderRadius: 1,
+            }}
+          />
+        );
+      })}
+    </View>
   );
 }
 

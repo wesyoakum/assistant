@@ -2,7 +2,7 @@
   "expo": {
     "name": "whyapp",
     "slug": "whyapp",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "scheme": "whyapp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -17,11 +17,13 @@
       "supportsTablet": false,
       "bundleIdentifier": "us.whyapp.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Needed for voice memos",
+        "NSMicrophoneUsageDescription": "Needed for voice memos and microphone visualizer",
         "NSCameraUsageDescription": "Needed to capture documents and images",
         "NSPhotoLibraryUsageDescription": "Needed to select photos for ingestion",
         "NSLocationWhenInUseUsageDescription": "Used in the Experiments screen to show your current location for testing.",
         "NSMotionUsageDescription": "Used in the Experiments screen to show accelerometer and gyroscope data for testing.",
+        "NSBluetoothAlwaysUsageDescription": "Used in the Experiments screen to scan nearby Bluetooth devices.",
+        "NSBluetoothPeripheralUsageDescription": "Used in the Experiments screen to scan nearby Bluetooth devices.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -60,6 +62,14 @@
         {
           "icon": "./assets/icon.png",
           "color": "#4285F4"
+        }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": [],
+          "bluetoothAlwaysPermission": "Used in the Experiments screen to scan nearby Bluetooth devices."
         }
       ]
     ],

@@ -12,6 +12,18 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v44",
+    title: "More sensors (needs a TestFlight build)",
+    notes: [
+      "Network: Wi-Fi vs cellular + reachability",
+      "Cellular: carrier name + 2G/3G/4G/5G",
+      "Brightness: read and adjust",
+      "Screen orientation",
+      "Bluetooth (BLE): scan nearby devices + RSSI",
+      "Microphone spectrum: live 32-band FFT",
+    ],
+  },
+  {
     version: "v43",
     title: "Version label shows PR + build",
     pr: 37,
