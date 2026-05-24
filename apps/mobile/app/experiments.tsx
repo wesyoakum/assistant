@@ -10,6 +10,8 @@ import * as Haptics from "expo-haptics";
 import * as Battery from "expo-battery";
 import { useAuth } from "../src/state/auth";
 import { useMe } from "../src/hooks/useMe";
+import { type Theme } from "../src/theme";
+import { useStyles } from "../src/hooks/useStyles";
 
 interface Row {
   label: string;
@@ -17,6 +19,7 @@ interface Row {
 }
 
 function Section({ title, rows }: { title: string; rows: Row[] }) {
+  const styles = useStyles(makeStyles);
   return (
     <View style={{ marginBottom: 20 }}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -46,6 +49,7 @@ function fmt(n: number, digits = 2) {
 
 export default function ExperimentsScreen() {
   const { token } = useAuth();
+  const styles = useStyles(makeStyles);
   const { data: me } = useMe();
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [pushPerm, setPushPerm] = useState<string>("?");
@@ -161,7 +165,7 @@ export default function ExperimentsScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-      <Text style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+      <Text style={[styles.rowLabel, { fontSize: 13, marginBottom: 16, flex: 0 }]}>
         Sandbox of iPhone APIs reachable through Expo modules. Motion sensors update live; location is on-demand.
       </Text>
 
@@ -289,42 +293,44 @@ export default function ExperimentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#EDE3D1" },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#888",
-    textTransform: "uppercase",
-    marginBottom: 6,
-    marginLeft: 4,
-  },
-  card: { backgroundColor: "#fff", borderRadius: 12, overflow: "hidden" },
-  row: {
-    flexDirection: "row",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  rowLabel: { flex: 1, fontSize: 13, color: "#666" },
-  rowValue: { flex: 1, fontSize: 13, color: "#1F2024", textAlign: "right" },
-  btn: {
-    backgroundColor: "#3D7F94",
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 10,
-    marginTop: -10,
-    marginBottom: 20,
-  },
-  btnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
-  hapBtn: {
-    backgroundColor: "#eef3fb",
-    borderColor: "#3D7F94",
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-  },
-  hapBtnText: { color: "#3D7F94", fontWeight: "600", fontSize: 13 },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    sectionTitle: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: theme.textSubtle,
+      textTransform: "uppercase",
+      marginBottom: 6,
+      marginLeft: 4,
+    },
+    card: { backgroundColor: theme.surface, borderRadius: 12, overflow: "hidden" },
+    row: {
+      flexDirection: "row",
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    rowLabel: { flex: 1, fontSize: 13, color: theme.textMuted },
+    rowValue: { flex: 1, fontSize: 13, color: theme.text, textAlign: "right" },
+    btn: {
+      backgroundColor: theme.primary,
+      paddingVertical: 12,
+      alignItems: "center",
+      borderRadius: 10,
+      marginTop: -10,
+      marginBottom: 20,
+    },
+    btnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+    hapBtn: {
+      backgroundColor: theme.surfaceAlt,
+      borderColor: theme.primary,
+      borderWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: 16,
+    },
+    hapBtnText: { color: theme.primary, fontWeight: "600", fontSize: 13 },
+  });
+}

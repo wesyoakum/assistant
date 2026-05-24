@@ -18,6 +18,8 @@ import * as Clipboard from "expo-clipboard";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-native-markdown-display";
 import { apiFetch } from "../../src/api/client";
+import { useTheme, type Theme } from "../../src/theme";
+import { useStyles } from "../../src/hooks/useStyles";
 
 interface Message {
   id: string;
@@ -38,6 +40,9 @@ export default function ChatScreen() {
   const [pending, setPending] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const theme = useTheme();
+  const styles = useStyles(makeStyles);
+  const mdStyles = useStyles(makeMdStyles);
 
   // Server-backed history. Refetches when the briefing endpoint inserts
   // a new assistant message (cache invalidated from useOnOpenSync).
@@ -177,7 +182,7 @@ export default function ChatScreen() {
           value={input}
           onChangeText={setInput}
           placeholder="Message..."
-          placeholderTextColor="#999"
+          placeholderTextColor={theme.textSubtle}
           multiline
           maxLength={2000}
           returnKeyType="send"
@@ -197,78 +202,82 @@ export default function ChatScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f9f9f9" },
-  messageList: { padding: 16, paddingBottom: 8, flexGrow: 1 },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingTop: 120,
-  },
-  messageBubble: {
-    maxWidth: "80%",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 16,
-    marginBottom: 8,
-  },
-  userBubble: {
-    alignSelf: "flex-end",
-    backgroundColor: "#3D7F94",
-  },
-  assistantBubble: {
-    alignSelf: "flex-start",
-    backgroundColor: "#e8e8e8",
-  },
-  messageText: { fontSize: 15, lineHeight: 21 },
-  userText: { color: "#fff" },
-  typingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 4,
-    gap: 6,
-  },
-  typingText: { fontSize: 13, color: "#999" },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#ddd",
-    backgroundColor: "#fff",
-  },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    color: "#1F2024",
-    backgroundColor: "#f2f2f2",
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    maxHeight: 100,
-    marginRight: 8,
-  },
-  sendBtn: {
-    backgroundColor: "#3D7F94",
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  sendBtnDisabled: { opacity: 0.4 },
-  sendBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.background },
+    messageList: { padding: 16, paddingBottom: 8, flexGrow: 1 },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: "center",
+      alignItems: "center",
+      paddingTop: 120,
+    },
+    messageBubble: {
+      maxWidth: "80%",
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderRadius: 16,
+      marginBottom: 8,
+    },
+    userBubble: {
+      alignSelf: "flex-end",
+      backgroundColor: theme.primary,
+    },
+    assistantBubble: {
+      alignSelf: "flex-start",
+      backgroundColor: theme.surfaceAlt,
+    },
+    messageText: { fontSize: 15, lineHeight: 21 },
+    userText: { color: "#fff" },
+    typingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 20,
+      paddingBottom: 4,
+      gap: 6,
+    },
+    typingText: { fontSize: 13, color: theme.textSubtle },
+    inputRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.border,
+      backgroundColor: theme.surface,
+    },
+    input: {
+      flex: 1,
+      fontSize: 15,
+      color: theme.text,
+      backgroundColor: theme.surfaceAlt,
+      borderRadius: 20,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      maxHeight: 100,
+      marginRight: 8,
+    },
+    sendBtn: {
+      backgroundColor: theme.primary,
+      paddingHorizontal: 18,
+      paddingVertical: 10,
+      borderRadius: 20,
+    },
+    sendBtnDisabled: { opacity: 0.4 },
+    sendBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+  });
+}
 
-const mdStyles = {
-  body: { fontSize: 15, lineHeight: 21, color: "#1F2024" },
-  strong: { fontWeight: "700" as const },
-  em: { fontStyle: "italic" as const },
-  paragraph: { marginTop: 0, marginBottom: 0 },
-  bullet_list: { marginTop: 4, marginBottom: 4 },
-  ordered_list: { marginTop: 4, marginBottom: 4 },
-  list_item: { marginBottom: 2 },
-  code_inline: { backgroundColor: "#d5d5d5", paddingHorizontal: 4, borderRadius: 3, fontSize: 14 },
-  fence: { backgroundColor: "#d5d5d5", padding: 8, borderRadius: 6, fontSize: 13 },
-};
+function makeMdStyles(theme: Theme) {
+  return {
+    body: { fontSize: 15, lineHeight: 21, color: theme.text },
+    strong: { fontWeight: "700" as const },
+    em: { fontStyle: "italic" as const },
+    paragraph: { marginTop: 0, marginBottom: 0 },
+    bullet_list: { marginTop: 4, marginBottom: 4 },
+    ordered_list: { marginTop: 4, marginBottom: 4 },
+    list_item: { marginBottom: 2 },
+    code_inline: { backgroundColor: theme.border, paddingHorizontal: 4, borderRadius: 3, fontSize: 14 },
+    fence: { backgroundColor: theme.border, padding: 8, borderRadius: 6, fontSize: 13 },
+  };
+}

@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../../src/api/client";
+import { type Theme } from "../../src/theme";
+import { useStyles } from "../../src/hooks/useStyles";
 
 interface CalendarEvent {
   id: string;
@@ -82,6 +84,7 @@ function timeUntil(iso: string): string | null {
 }
 
 export default function CalendarScreen() {
+  const styles = useStyles(makeStyles);
   const queryClient = useQueryClient();
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
@@ -212,38 +215,40 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  list: { paddingBottom: 20 },
-  emptyText: { fontSize: 16, color: "#999" },
-  sectionHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: "#f7f7f7",
-  },
-  sectionTitle: { fontSize: 14, fontWeight: "700", color: "#555" },
-  row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: "#fff",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#eee",
-  },
-  timeCol: { width: 65, marginRight: 12, paddingTop: 1 },
-  time: { fontSize: 14, fontWeight: "600", color: "#333" },
-  timeEnd: { fontSize: 12, color: "#999" },
-  content: { flex: 1, marginRight: 8 },
-  summary: { fontSize: 15, color: "#1F2024" },
-  calName: { fontSize: 12, color: "#3D7F94", fontWeight: "600", marginTop: 2 },
-  location: { fontSize: 13, color: "#888", marginTop: 2 },
-  datesMeta: { flexDirection: "row", gap: 10, marginTop: 3 },
-  metaText: { fontSize: 11, color: "#bbb" },
-  soon: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#CB7D34",
-    paddingTop: 1,
-  },
-});
+function makeStyles(theme: Theme) {
+  return StyleSheet.create({
+    center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: theme.background },
+    list: { paddingBottom: 20 },
+    emptyText: { fontSize: 16, color: theme.textSubtle },
+    sectionHeader: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      backgroundColor: theme.surfaceAlt,
+    },
+    sectionTitle: { fontSize: 14, fontWeight: "700", color: theme.textMuted },
+    row: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.surface,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: theme.border,
+    },
+    timeCol: { width: 65, marginRight: 12, paddingTop: 1 },
+    time: { fontSize: 14, fontWeight: "600", color: theme.text },
+    timeEnd: { fontSize: 12, color: theme.textSubtle },
+    content: { flex: 1, marginRight: 8 },
+    summary: { fontSize: 15, color: theme.text },
+    calName: { fontSize: 12, color: theme.primary, fontWeight: "600", marginTop: 2 },
+    location: { fontSize: 13, color: theme.textMuted, marginTop: 2 },
+    datesMeta: { flexDirection: "row", gap: 10, marginTop: 3 },
+    metaText: { fontSize: 11, color: theme.textSubtle },
+    soon: {
+      fontSize: 12,
+      fontWeight: "600",
+      color: theme.warning,
+      paddingTop: 1,
+    },
+  });
+}
