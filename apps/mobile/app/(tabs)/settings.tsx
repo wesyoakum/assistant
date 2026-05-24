@@ -14,6 +14,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useAuth } from "../../src/state/auth";
+import { useMe } from "../../src/hooks/useMe";
 import { apiFetch } from "../../src/api/client";
 
 interface UsageSummaryData {
@@ -339,6 +340,7 @@ export default function SettingsScreen() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [tab, setTab] = useState<SettingsTab>("general");
+  const { data: me } = useMe();
 
 
   const { data, isLoading } = useQuery({
@@ -680,6 +682,20 @@ export default function SettingsScreen() {
           <Text style={[styles.clearChatText, { color: "#4285F4" }]}>View Notification History</Text>
         </Pressable>
       </View>
+
+      {me?.isOwner && (
+        <>
+          <Text style={styles.sectionTitle}>Owner</Text>
+          <View style={styles.card}>
+            <Pressable
+              style={styles.clearChatBtn}
+              onPress={() => router.push("/experiments")}
+            >
+              <Text style={[styles.clearChatText, { color: "#4285F4" }]}>Experiments</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
 
       {/* Account section */}
       <Text style={styles.sectionTitle}>Account</Text>
