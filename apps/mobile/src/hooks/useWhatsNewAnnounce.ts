@@ -23,25 +23,27 @@ export function useWhatsNewAnnounce() {
     const unread = RELEASES.filter((r) => parseVersion(r.version) > lastSeen);
     if (unread.length === 0) return;
 
-    const latest = Math.max(...unread.map((r) => parseVersion(r.version)));
-    const lines: string[] = ["**What's new**", ""];
-    for (const r of unread.slice(0, 8)) {
-      lines.push(`**${r.version} — ${r.title}**`);
-      for (const n of r.notes) lines.push(`- ${n}`);
-      lines.push("");
-    }
-    const text = lines.join("\n").trim();
+    // First-launch flood guard: don't post >5 historical entries.
+    const toPost = unread.slice(0, 5);
+    const latest = Math.max(...toPost.map((r) => parseVersion(r.version)));
 
     (async () => {
       try {
-        await apiFetch("/chat/announce", {
-          method: "POST",
-          body: JSON.stringify({ text }),
-        });
+        // Oldest first so the chat reads top→bottom in release order.
+        for (const r of toPost.slice().reverse()) {
+          const text = [
+            `**${r.version} — ${r.title}**`,
+            ...r.notes.map((n) => `- ${n}`),
+          ].join("\n");
+          await apiFetch("/chat/announce", {
+            method: "POST",
+            body: JSON.stringify({ text }),
+          });
+        }
         await markSeen(latest);
         queryClient.invalidateQueries({ queryKey: ["chat-history"] });
       } catch {
-        // don't markSeen if the post failed — try again next launch
+        // don't markSeen if any post failed — try again next launch
       }
     })();
     // intentionally run only when lastSeen changes / hydration completes;

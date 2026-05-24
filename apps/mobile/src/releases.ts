@@ -10,6 +10,11 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v41",
+    title: "What's new = one message per update",
+    notes: ["Each release posts as its own chat message, not a bundle"],
+  },
+  {
     version: "v40",
     title: "Settings reorganized",
     notes: [
