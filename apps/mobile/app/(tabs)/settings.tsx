@@ -116,6 +116,7 @@ interface GroupMeGroup {
   image_url: string | null;
   member_count: number | null;
   last_message_at: number | null;
+  enabled: boolean;
 }
 
 interface GroupMeGroupsResponse {
@@ -156,6 +157,28 @@ function GroupMeSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["groupme-status"] });
       queryClient.removeQueries({ queryKey: ["groupme-groups"] });
+    },
+  });
+
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      apiFetch(`/groupme/groups/${encodeURIComponent(id)}/toggle`, {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      }),
+    onMutate: async ({ id, enabled }) => {
+      await queryClient.cancelQueries({ queryKey: ["groupme-groups"] });
+      const prev = queryClient.getQueryData<GroupMeGroupsResponse>(["groupme-groups"]);
+      queryClient.setQueryData<GroupMeGroupsResponse>(["groupme-groups"], (old) => {
+        if (!old) return old;
+        return {
+          groups: old.groups.map((g) => (g.id === id ? { ...g, enabled } : g)),
+        };
+      });
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(["groupme-groups"], ctx.prev);
     },
   });
 
@@ -226,14 +249,21 @@ function GroupMeSection() {
         <Text style={styles.emptyText}>No groups found</Text>
       ) : (
         groups.map((g) => (
-          <View key={g.id} style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
-            <Text style={{ fontSize: 15, fontWeight: "500" }}>{g.name}</Text>
-            {g.member_count != null && (
-              <Text style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-                {g.member_count} members
-                {g.last_message_at ? ` • last message ${new Date(g.last_message_at * 1000).toLocaleString()}` : ""}
-              </Text>
-            )}
+          <View key={g.id} style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={{ fontSize: 15, fontWeight: "500" }}>{g.name}</Text>
+              {g.member_count != null && (
+                <Text style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+                  {g.member_count} members
+                  {g.last_message_at ? ` • last message ${new Date(g.last_message_at * 1000).toLocaleString()}` : ""}
+                </Text>
+              )}
+            </View>
+            <Switch
+              value={g.enabled}
+              onValueChange={(enabled) => toggleMutation.mutate({ id: g.id, enabled })}
+              trackColor={{ false: "#ddd", true: "#4285F4" }}
+            />
           </View>
         ))
       )}

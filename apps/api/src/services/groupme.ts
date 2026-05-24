@@ -116,12 +116,24 @@ export function listGroups(token: string): Promise<GroupMeGroup[]> {
 export async function listMessages(
   token: string,
   groupId: string,
-  limit = 20,
+  opts: { limit?: number; sinceId?: string } = {},
 ): Promise<GroupMeMessage[]> {
-  const data = await groupmeGet<{ count: number; messages: GroupMeMessage[] }>(
-    token,
-    `/groups/${encodeURIComponent(groupId)}/messages`,
-    { limit: String(Math.min(Math.max(limit, 1), 100)) },
-  );
-  return data.messages;
+  const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+  const query: Record<string, string> = { limit: String(limit) };
+  if (opts.sinceId) query.since_id = opts.sinceId;
+
+  const params = new URLSearchParams({ token, ...query });
+  const url = `${GROUPME_API}/groups/${encodeURIComponent(groupId)}/messages?${params.toString()}`;
+  const res = await fetch(url);
+
+  // GroupMe returns 304 Not Modified when since_id is set and there are no
+  // new messages. That's not an error — return an empty array.
+  if (res.status === 304) return [];
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GroupMe ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const env = (await res.json()) as GroupMeEnvelope<{ count: number; messages: GroupMeMessage[] }>;
+  return env.response?.messages ?? [];
 }

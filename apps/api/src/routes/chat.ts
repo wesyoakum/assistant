@@ -44,6 +44,12 @@ chat.post("/", async (c) => {
      ORDER BY email_date ASC LIMIT 50`
   ).bind(userId).all<{ subject: string; body_text: string; email_date: string }>();
 
+  const { results: groupmeRows } = await c.env.DB.prepare(
+    `SELECT subject, from_addr, email_date, body_text
+     FROM pending_emails WHERE user_id = ? AND source_type = 'groupme'
+     ORDER BY email_date DESC LIMIT 50`
+  ).bind(userId).all<{ subject: string; from_addr: string; email_date: string; body_text: string }>();
+
   let dataContext = "";
 
   if (emailRows.length > 0) {
@@ -65,6 +71,14 @@ chat.post("/", async (c) => {
       }
     }
     dataContext += "</calendar_events>";
+  }
+
+  if (groupmeRows.length > 0) {
+    dataContext += "\n\n<groupme_messages>\n";
+    for (const m of groupmeRows) {
+      dataContext += `Group: ${m.subject}\nFrom: ${m.from_addr}\nWhen: ${m.email_date}\n${(m.body_text || "").slice(0, 300)}\n---\n`;
+    }
+    dataContext += "</groupme_messages>";
   }
 
   // Load pending reminders for context
@@ -383,8 +397,16 @@ chat.post("/briefing", async (c) => {
       ORDER BY email_date ASC LIMIT 50`
   ).bind(userId, weekFromNow).all<{ subject: string; body_text: string; email_date: string }>();
 
+  // New GroupMe messages since last briefing
+  const { results: newGroupme } = await c.env.DB.prepare(
+    `SELECT subject, from_addr, email_date, body_text
+       FROM pending_emails
+      WHERE user_id = ? AND source_type = 'groupme' AND email_date >= ?
+      ORDER BY email_date DESC LIMIT 50`
+  ).bind(userId, since).all<{ subject: string; from_addr: string; email_date: string; body_text: string }>();
+
   // If there's literally nothing new, skip (don't spam the chat)
-  if (newEmails.length === 0 && events.length === 0) {
+  if (newEmails.length === 0 && events.length === 0 && newGroupme.length === 0) {
     await c.env.DB.prepare(
       `INSERT INTO user_settings (user_id, last_briefing_at) VALUES (?, ?)
        ON CONFLICT(user_id) DO UPDATE SET last_briefing_at = excluded.last_briefing_at`
@@ -424,10 +446,18 @@ chat.post("/briefing", async (c) => {
     }
     dataBlock += `</upcoming_events>\n`;
   }
+  if (newGroupme.length > 0) {
+    dataBlock += `\n<new_groupme_messages since="${since}">\n`;
+    for (const m of newGroupme) {
+      dataBlock += `Group: ${m.subject}\nFrom: ${m.from_addr}\nWhen: ${m.email_date}\n${(m.body_text || "").slice(0, 300)}\n---\n`;
+    }
+    dataBlock += `</new_groupme_messages>\n`;
+  }
 
-  const systemPrompt = `You write a brief morning-briefing-style update for a personal-assistant app user. The user just opened the app — emails and calendar were just synced. Your job: give a friendly, scannable summary of:
+  const systemPrompt = `You write a brief morning-briefing-style update for a personal-assistant app user. The user just opened the app — emails, calendar, and GroupMe were just synced. Your job: give a friendly, scannable summary of:
 1. New emails (call out anything that looks important or time-sensitive; group routine stuff)
 2. The coming week's calendar (highlight today and tomorrow, then briefly note the rest)
+3. New GroupMe messages (which groups, what's the gist, anything that's asking for a response)
 
 Keep it conversational and tight — under 200 words. No greeting like "Good morning" (the time of day varies). Skip sections that are empty. Use plain markdown for structure (## headings, bullet lists). End with a short prompt like "Anything you want me to dig into?".`;
 
