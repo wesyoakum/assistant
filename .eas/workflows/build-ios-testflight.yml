@@ -1,0 +1,29 @@
+name: iOS build + TestFlight submit
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        type: choice
+        options:
+          - preview
+          - production
+        default: production
+
+jobs:
+  build:
+    name: Build iOS
+    type: build
+    params:
+      platform: ios
+      profile: ${{ inputs.profile }}
+
+  submit:
+    name: Submit to TestFlight
+    needs: [build]
+    if: ${{ inputs.profile == 'production' }}
+    type: submit
+    params:
+      platform: ios
+      build_id: ${{ needs.build.outputs.build_id }}
