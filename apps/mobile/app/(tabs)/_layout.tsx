@@ -37,20 +37,6 @@ export default function TabsLayout() {
         options={{ href: null }}
       />
       <Tabs.Screen
-        name="email"
-        options={{
-          title: "Email",
-          tabBarIcon: tabIcon("mail-outline"),
-        }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: "Calendar",
-          tabBarIcon: tabIcon("calendar-outline"),
-        }}
-      />
-      <Tabs.Screen
         name="capture"
         options={{
           title: "Capture",

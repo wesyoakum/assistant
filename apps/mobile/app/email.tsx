@@ -9,9 +9,9 @@ import {
   RefreshControl,
 } from "react-native";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { apiFetch } from "../../src/api/client";
-import { type Theme } from "../../src/theme";
-import { useStyles } from "../../src/hooks/useStyles";
+import { apiFetch } from "../src/api/client";
+import { type Theme } from "../src/theme";
+import { useStyles } from "../src/hooks/useStyles";
 
 interface RawEmail {
   id: string;
