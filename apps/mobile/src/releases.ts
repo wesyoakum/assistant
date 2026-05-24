@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v48",
+    title: "Spectrum on a dBFS scale",
+    pr: 42,
+    notes: [
+      "Mic spectrum bars now display dBFS (-80 to 0)",
+      "Ambient low-frequency noise sits near the bottom; voice/music pop up clearly",
+    ],
+  },
+  {
     version: "v47",
     title: "Location streaming",
     pr: 41,
