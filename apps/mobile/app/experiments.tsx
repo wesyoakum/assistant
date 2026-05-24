@@ -618,37 +618,43 @@ export function ExperimentsContent() {
 
   // Microphone frequency spectrum — uses live-audio-stream + FFT.
   // Mutually exclusive with the metering recording above (don't run both).
-  const FFT_SIZE = 4096;
   const SAMPLE_RATE = 44100;
   const N_BANDS = 96;
   const MIN_FREQ = 30;
   const MAX_FREQ = 12000;
+  const PEAK_DECAY = 0.92;
 
+  const [fftSize, setFftSize] = useState<4096 | 8192>(4096);
   const fftRef = useRef<FFT | null>(null);
   const fftOutRef = useRef<number[] | null>(null);
   const windowRef = useRef<Float32Array | null>(null);
   const bandEdgesRef = useRef<Int32Array | null>(null);
   const accumRef = useRef<Float32Array>(new Float32Array(0));
-  if (!fftRef.current) {
-    fftRef.current = new FFT(FFT_SIZE);
+  const peaksRef = useRef<Float32Array>(new Float32Array(N_BANDS));
+
+  // Rebuild FFT, window, and band edges whenever fftSize changes.
+  useEffect(() => {
+    fftRef.current = new FFT(fftSize);
     fftOutRef.current = fftRef.current.createComplexArray();
-    // Hanning window
-    const w = new Float32Array(FFT_SIZE);
-    for (let i = 0; i < FFT_SIZE; i++) {
-      w[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FFT_SIZE - 1)));
+    const w = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++) {
+      w[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (fftSize - 1)));
     }
     windowRef.current = w;
-    // Log-spaced band edges (in bin indices)
     const edges = new Int32Array(N_BANDS + 1);
     const ratio = Math.log(MAX_FREQ / MIN_FREQ);
     for (let i = 0; i <= N_BANDS; i++) {
       const f = MIN_FREQ * Math.exp((ratio * i) / N_BANDS);
-      const bin = Math.round((f * FFT_SIZE) / SAMPLE_RATE);
-      edges[i] = Math.min(FFT_SIZE / 2 - 1, Math.max(0, bin));
+      const bin = Math.round((f * fftSize) / SAMPLE_RATE);
+      edges[i] = Math.min(fftSize / 2 - 1, Math.max(0, bin));
     }
     bandEdgesRef.current = edges;
-  }
+    accumRef.current = new Float32Array(0);
+    peaksRef.current = new Float32Array(N_BANDS);
+  }, [fftSize]);
+
   const [spectrum, setSpectrum] = useState<number[]>([]);
+  const [peaks, setPeaks] = useState<number[]>([]);
   const [spectrumOn, setSpectrumOn] = useState(false);
 
   const startSpectrum = async () => {
@@ -656,15 +662,18 @@ export function ExperimentsContent() {
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) return;
       accumRef.current = new Float32Array(0);
+      peaksRef.current = new Float32Array(N_BANDS);
+      const currentFftSize = fftSize;
       LiveAudioStream.init({
         sampleRate: SAMPLE_RATE,
         channels: 1,
         bitsPerSample: 16,
         audioSource: 6,
-        bufferSize: FFT_SIZE,
+        bufferSize: currentFftSize,
         wavFile: "spectrum.wav",
       });
       LiveAudioStream.on("data", (b64: string) => {
+        const fs = fftRef.current ? fftRef.current.size : currentFftSize;
         const buf =
           typeof atob === "function"
             ? atob(b64)
@@ -677,7 +686,6 @@ export function ExperimentsContent() {
           if (v & 0x8000) v -= 0x10000;
           incoming[i] = v / 32768;
         }
-        // Accumulate; process full FFT_SIZE frames; keep leftover.
         const prev = accumRef.current;
         const combined = new Float32Array(prev.length + incoming.length);
         combined.set(prev);
@@ -688,9 +696,9 @@ export function ExperimentsContent() {
         const edges = bandEdgesRef.current!;
         let offset = 0;
         let lastBands: number[] | null = null;
-        while (combined.length - offset >= FFT_SIZE) {
-          const frame = new Float32Array(FFT_SIZE);
-          for (let i = 0; i < FFT_SIZE; i++) {
+        while (combined.length - offset >= fs) {
+          const frame = new Float32Array(fs);
+          for (let i = 0; i < fs; i++) {
             frame[i] = combined[offset + i] * win[i];
           }
           fftRef.current!.realTransform(out, frame);
@@ -708,11 +716,20 @@ export function ExperimentsContent() {
             bands[band] = mag / (hi - lo);
           }
           lastBands = bands;
-          // 50% overlap for smoother visuals
-          offset += FFT_SIZE / 2;
+          offset += fs / 2; // 50% overlap
         }
         accumRef.current = combined.slice(offset);
-        if (lastBands) setSpectrum(lastBands);
+        if (lastBands) {
+          const p = peaksRef.current;
+          const peaksOut = new Array<number>(N_BANDS);
+          for (let i = 0; i < N_BANDS; i++) {
+            if (lastBands[i] > p[i]) p[i] = lastBands[i];
+            else p[i] *= PEAK_DECAY;
+            peaksOut[i] = p[i];
+          }
+          setSpectrum(lastBands);
+          setPeaks(peaksOut);
+        }
       });
       LiveAudioStream.start();
       setSpectrumOn(true);
@@ -725,6 +742,8 @@ export function ExperimentsContent() {
     try { LiveAudioStream.stop(); } catch { /* */ }
     setSpectrumOn(false);
     setSpectrum([]);
+    setPeaks([]);
+    peaksRef.current = new Float32Array(N_BANDS);
   };
 
   useEffect(() => {
@@ -1260,9 +1279,35 @@ export function ExperimentsContent() {
 
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
-        <SpectrumBars samples={spectrum} color={theme.highlight} height={60} />
+        <SpectrumBars samples={spectrum} peaks={peaks} height={90} />
       </View>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+          {([4096, 8192] as const).map((sz) => {
+            const active = fftSize === sz;
+            return (
+              <Pressable
+                key={sz}
+                onPress={() => !spectrumOn && setFftSize(sz)}
+                disabled={spectrumOn}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                  borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                  opacity: spectrumOn && !active ? 0.4 : 1,
+                }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? "#fff" : theme.text }}>
+                  {sz}-pt FFT
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <Pressable
           onPress={spectrumOn ? stopSpectrum : startSpectrum}
           style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: spectrumOn ? theme.destructive : theme.primary }}
@@ -1272,7 +1317,7 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
         <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
-          96 log-spaced bands · 30 Hz – 12 kHz · 4096-point FFT · Hanning windowed.
+          96 log-spaced bands · 30 Hz – 12 kHz · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin
         </Text>
       </View>
     </>
@@ -1306,26 +1351,50 @@ function rssiColor(rssi: number | null, theme: Theme): string {
   return theme.destructive;
 }
 
-function SpectrumBars({ samples, color, height = 60 }: { samples: number[]; color: string; height?: number }) {
+function SpectrumBars({ samples, peaks, height = 90 }: { samples: number[]; peaks?: number[]; height?: number }) {
   if (samples.length === 0) {
     return <View style={{ height, backgroundColor: "transparent" }} />;
   }
-  const max = Math.max(0.001, ...samples);
+  const peaksArr = peaks && peaks.length === samples.length ? peaks : samples;
+  const max = Math.max(0.001, ...samples, ...peaksArr);
+  const usable = height - 4;
+  const n = samples.length;
   return (
     <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
       {samples.map((v, i) => {
-        const h = Math.max(1, (v / max) * (height - 4));
+        const barH = Math.max(1, (v / max) * usable);
+        const peakH = Math.max(1, (peaksArr[i] / max) * usable);
+        // Red (low freq, hue 0) -> blue (high freq, hue 260) across bands
+        const hue = (i / (n - 1)) * 260;
+        const barColor = `hsl(${hue.toFixed(0)}, 75%, 50%)`;
+        const peakColor = `hsl(${hue.toFixed(0)}, 80%, 75%)`;
         return (
-          <View
-            key={i}
-            style={{
-              flex: 1,
-              height: h,
-              backgroundColor: color,
-              marginRight: 1,
-              borderRadius: 1,
-            }}
-          />
+          <View key={i} style={{ flex: 1, height, position: "relative", marginRight: 1 }}>
+            <View
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: barH,
+                backgroundColor: barColor,
+                borderRadius: 1,
+              }}
+            />
+            {peaks && (
+              <View
+                style={{
+                  position: "absolute",
+                  bottom: Math.min(usable - 2, Math.max(0, peakH - 2)),
+                  left: 0,
+                  right: 0,
+                  height: 2,
+                  backgroundColor: peakColor,
+                  borderRadius: 1,
+                }}
+              />
+            )}
+          </View>
         );
       })}
     </View>
