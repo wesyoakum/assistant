@@ -51,7 +51,7 @@ function UsageSummary() {
         ].map((col) => (
           <View key={col.label} style={{ flex: 1, alignItems: "center" }}>
             <Text style={{ fontSize: 11, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>{col.label}</Text>
-            <Text style={{ fontSize: 20, fontWeight: "700", marginTop: 2 }}>{fmt(col.v.costCents)}</Text>
+            <Text style={{ fontSize: 20, fontWeight: "700", marginTop: 2, color: theme.text }}>{fmt(col.v.costCents)}</Text>
             <Text style={{ fontSize: 11, color: theme.textSubtle }}>{col.v.calls} calls</Text>
           </View>
         ))}
