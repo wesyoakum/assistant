@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v47",
+    title: "Location streaming",
+    pr: 41,
+    notes: [
+      "Start streaming → live updates, plus speed + altitude sparklines",
+      "Compass arrow shows current heading",
+      "Foreground only for now (background needs a TestFlight rebuild)",
+    ],
+  },
+  {
     version: "v46",
     title: "Color spectrum + peak holds",
     pr: 40,

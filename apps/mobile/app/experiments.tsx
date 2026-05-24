@@ -478,9 +478,28 @@ export function ExperimentsContent() {
     };
   }, [micRecording]);
 
-  // Location — on demand, not always-on
+  // Location — supports both on-demand "get one" and continuous streaming.
   const [loc, setLoc] = useState<Location.LocationObject | null>(null);
   const [locStatus, setLocStatus] = useState<string>("not requested");
+  const [locWatching, setLocWatching] = useState(false);
+  const [speedHist, setSpeedHist] = useState<number[]>([]);
+  const [altHist, setAltHist] = useState<number[]>([]);
+  const locSubRef = useRef<Location.LocationSubscription | null>(null);
+
+  const handleLocation = (pos: Location.LocationObject) => {
+    setLoc(pos);
+    const speed = pos.coords.speed ?? 0;
+    const alt = pos.coords.altitude ?? 0;
+    setSpeedHist((prev) => {
+      const next = prev.length >= HIST_LEN ? prev.slice(prev.length - HIST_LEN + 1) : prev;
+      return [...next, Math.max(0, speed)];
+    });
+    setAltHist((prev) => {
+      const next = prev.length >= HIST_LEN ? prev.slice(prev.length - HIST_LEN + 1) : prev;
+      return [...next, alt];
+    });
+  };
+
   const requestLocation = async () => {
     try {
       setLocStatus("requesting…");
@@ -490,12 +509,51 @@ export function ExperimentsContent() {
         return;
       }
       const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setLoc(pos);
+      handleLocation(pos);
       setLocStatus("granted");
     } catch (err) {
       setLocStatus(`error: ${(err as Error).message}`);
     }
   };
+
+  const startWatchingLocation = async () => {
+    try {
+      setLocStatus("starting…");
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== "granted") {
+        setLocStatus(`denied: ${perm.status}`);
+        return;
+      }
+      setSpeedHist([]);
+      setAltHist([]);
+      const sub = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1000,
+          distanceInterval: 0,
+        },
+        handleLocation
+      );
+      locSubRef.current = sub;
+      setLocWatching(true);
+      setLocStatus("streaming");
+    } catch (err) {
+      setLocStatus(`error: ${(err as Error).message}`);
+    }
+  };
+
+  const stopWatchingLocation = () => {
+    locSubRef.current?.remove();
+    locSubRef.current = null;
+    setLocWatching(false);
+    setLocStatus("stopped");
+  };
+
+  useEffect(() => {
+    return () => {
+      locSubRef.current?.remove();
+    };
+  }, []);
 
   const fireHaptic = (kind: "light" | "medium" | "heavy" | "success" | "warning" | "error") => {
     if (kind === "light") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1172,8 +1230,22 @@ export function ExperimentsContent() {
         </Pressable>
       </View>
 
+      <Text style={styles.sectionTitle}>Location</Text>
+      <View style={[styles.card, { padding: 12, marginBottom: 4, flexDirection: "row", justifyContent: "space-around", alignItems: "center" }]}>
+        <CompassArrow
+          headingDeg={loc?.coords.heading ?? 0}
+          color={theme.primary}
+          size={70}
+        />
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Text style={{ fontSize: 11, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>Speed (m/s)</Text>
+          <Sparkline samples={speedHist} color={theme.primary} height={28} />
+          <Text style={{ fontSize: 11, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase", marginTop: 6 }}>Altitude (m)</Text>
+          <Sparkline samples={altHist} color={theme.accent} height={28} />
+        </View>
+      </View>
       <Section
-        title="Location (expo-location)"
+        title=""
         rows={[
           { label: "Status", value: locStatus },
           { label: "Latitude", value: loc ? fmt(loc.coords.latitude, 5) : null },
@@ -1184,9 +1256,20 @@ export function ExperimentsContent() {
           { label: "Speed (m/s)", value: loc?.coords.speed != null ? fmt(loc.coords.speed, 2) : null },
         ]}
       />
-      <Pressable style={styles.btn} onPress={requestLocation}>
-        <Text style={styles.btnText}>Get current location</Text>
-      </Pressable>
+      <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+        <Pressable
+          style={[styles.btn, { flex: 1, marginBottom: 0 }]}
+          onPress={locWatching ? stopWatchingLocation : startWatchingLocation}
+        >
+          <Text style={styles.btnText}>{locWatching ? "Stop streaming" : "Start streaming"}</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.btn, { flex: 1, marginBottom: 0, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}
+          onPress={requestLocation}
+        >
+          <Text style={[styles.btnText, { color: theme.primary }]}>One reading</Text>
+        </Pressable>
+      </View>
 
       <Text style={styles.sectionTitle}>Haptics (expo-haptics)</Text>
       <View style={[styles.card, { padding: 8 }]}>
