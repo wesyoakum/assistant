@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v49",
+    title: "Spectrum: full hearing range",
+    pr: 43,
+    notes: ["20 Hz – 20 kHz across the 96 bands"],
+  },
+  {
     version: "v48",
     title: "Spectrum on a dBFS scale",
     pr: 42,

@@ -678,8 +678,8 @@ export function ExperimentsContent() {
   // Mutually exclusive with the metering recording above (don't run both).
   const SAMPLE_RATE = 44100;
   const N_BANDS = 96;
-  const MIN_FREQ = 30;
-  const MAX_FREQ = 12000;
+  const MIN_FREQ = 20;
+  const MAX_FREQ = 20000;
   const PEAK_DECAY = 0.92;
 
   const [fftSize, setFftSize] = useState<4096 | 8192>(4096);
@@ -1410,7 +1410,7 @@ export function ExperimentsContent() {
           </Text>
         </Pressable>
         <Text style={{ marginTop: 6, fontSize: 11, color: theme.textSubtle, textAlign: "center" }}>
-          96 log-spaced bands · 30 Hz – 12 kHz · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS -80…0
+          96 log-spaced bands · 20 Hz – 20 kHz · {(SAMPLE_RATE / fftSize).toFixed(1)} Hz/bin · dBFS -80…0
         </Text>
       </View>
     </>
