@@ -90,6 +90,72 @@ interface IcalFeedsResponse {
   feeds: IcalFeed[];
 }
 
+interface ContextEntry {
+  id: string;
+  kind: string;
+  label: string;
+  detail: string | null;
+  created_at: string;
+}
+
+interface ContextResponse {
+  entries: ContextEntry[];
+}
+
+function PreferencesList() {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["context"],
+    queryFn: () => apiFetch<ContextResponse>("/context"),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => apiFetch(`/context/${id}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["context"] }),
+  });
+
+  const prefs = (data?.entries || []).filter((e) => e.kind === "preference");
+
+  const handleDelete = (entry: ContextEntry) => {
+    Alert.alert(
+      "Remove Preference",
+      entry.label,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Remove", style: "destructive", onPress: () => deleteMutation.mutate(entry.id) },
+      ]
+    );
+  };
+
+  if (isLoading) return <ActivityIndicator style={{ padding: 16 }} />;
+
+  if (prefs.length === 0) {
+    return (
+      <Text style={{ padding: 16, fontSize: 14, color: "#999", textAlign: "center" }}>
+        No preferences yet. Ask the chat to remember something.
+      </Text>
+    );
+  }
+
+  return (
+    <>
+      {prefs.map((p) => (
+        <View key={p.id} style={{ flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#eee" }}>
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={{ fontSize: 15, color: "#222", fontWeight: "500" }}>{p.label}</Text>
+            {p.detail && (
+              <Text style={{ fontSize: 13, color: "#666", marginTop: 2 }}>{p.detail}</Text>
+            )}
+          </View>
+          <Pressable onPress={() => handleDelete(p)} style={{ paddingVertical: 4, paddingHorizontal: 8 }}>
+            <Text style={{ fontSize: 13, color: "#e53e3e" }}>Remove</Text>
+          </Pressable>
+        </View>
+      ))}
+    </>
+  );
+}
+
 
 type SettingsTab = "general" | "calendars";
 
@@ -294,6 +360,11 @@ export default function SettingsScreen() {
         <>
           <Text style={styles.sectionTitle}>API Usage</Text>
           <UsageSummary />
+
+          <Text style={styles.sectionTitle}>Preferences</Text>
+          <View style={styles.card}>
+            <PreferencesList />
+          </View>
         </>
       )}
 
