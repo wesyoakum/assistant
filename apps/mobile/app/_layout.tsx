@@ -75,7 +75,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthGate />
       </QueryClientProvider>
-      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v12</Text>
+      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v13</Text>
     </GestureHandlerRootView>
   );
 }
