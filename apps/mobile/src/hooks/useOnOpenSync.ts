@@ -7,10 +7,11 @@ import { useAuth } from "../state/auth";
 const MIN_INTERVAL_MS = 30_000; // throttle: don't re-sync more than every 30s
 
 async function runSyncs() {
-  // Fire in parallel; one failing shouldn't block the other
+  // Fire in parallel; one failing shouldn't block the others
   await Promise.allSettled([
     apiFetch("/gmail/sync", { method: "POST" }),
     apiFetch("/calendar/sync", { method: "POST" }),
+    apiFetch("/groupme/sync", { method: "POST" }),
   ]);
 }
 
