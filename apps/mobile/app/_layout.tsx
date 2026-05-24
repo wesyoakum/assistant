@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Updates from "expo-updates";
 import { useAuth } from "../src/state/auth";
 import { useNotifications } from "../src/hooks/useNotifications";
+import { useOnOpenSync } from "../src/hooks/useOnOpenSync";
 
 const queryClient = new QueryClient();
 
@@ -37,6 +38,7 @@ function AuthGate() {
   }, []);
 
   useNotifications();
+  useOnOpenSync();
 
   if (isLoading) {
     return (
@@ -75,7 +77,7 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <AuthGate />
       </QueryClientProvider>
-      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v14</Text>
+      <Text style={{ position: "absolute", bottom: 4, alignSelf: "center", fontSize: 13, color: "#999", fontWeight: "600" }}>v15</Text>
     </GestureHandlerRootView>
   );
 }
