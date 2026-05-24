@@ -2,7 +2,7 @@
   "expo": {
     "name": "whyapp",
     "slug": "whyapp",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "scheme": "whyapp",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -18,7 +18,7 @@
       "bundleIdentifier": "us.whyapp.mobile",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Needed for voice memos and microphone visualizer",
-        "NSCameraUsageDescription": "Needed to capture documents and images",
+        "NSCameraUsageDescription": "Needed to capture documents and images, show the camera preview in the Lab, and read LiDAR depth via ARKit.",
         "NSPhotoLibraryUsageDescription": "Needed to select photos for ingestion",
         "NSLocationWhenInUseUsageDescription": "Used in the Experiments screen to show your current location for testing.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Used in the Experiments screen to keep streaming your location even when the app is in the background.",
