@@ -16,6 +16,8 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Audio } from "expo-av";
 import { BleManager, type Device as BleDevice, type State as BleState } from "react-native-ble-plx";
 import LiveAudioStream from "react-native-live-audio-stream";
+import Healthkit, { HKQuantityTypeIdentifier } from "@kingstinct/react-native-healthkit";
+import NfcManager, { NfcTech, Ndef } from "react-native-nfc-manager";
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
 import { useMe } from "../src/hooks/useMe";
@@ -554,6 +556,127 @@ export function ExperimentsContent() {
       locSubRef.current?.remove();
     };
   }, []);
+
+  // HealthKit — on-demand snapshot of the most recent values.
+  const [hkAvailable, setHkAvailable] = useState<boolean | null>(null);
+  const [hkStatus, setHkStatus] = useState<string>("not requested");
+  const [hk, setHk] = useState<{
+    heartRate?: number;
+    heartRateAt?: string;
+    stepsToday?: number;
+    activeEnergy?: number;
+    restingHR?: number;
+    hrv?: number;
+    spo2?: number;
+  }>({});
+
+  useEffect(() => {
+    Healthkit.isHealthDataAvailable()
+      .then(setHkAvailable)
+      .catch(() => setHkAvailable(false));
+  }, []);
+
+  const refreshHealthkit = async () => {
+    try {
+      setHkStatus("requesting…");
+      const reads = [
+        HKQuantityTypeIdentifier.heartRate,
+        HKQuantityTypeIdentifier.stepCount,
+        HKQuantityTypeIdentifier.activeEnergyBurned,
+        HKQuantityTypeIdentifier.restingHeartRate,
+        HKQuantityTypeIdentifier.heartRateVariabilitySDNN,
+        HKQuantityTypeIdentifier.oxygenSaturation,
+      ];
+      await Healthkit.requestAuthorization(reads, []);
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const out: typeof hk = {};
+      try {
+        const hr = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.heartRate);
+        if (hr) {
+          out.heartRate = hr.quantity;
+          out.heartRateAt = new Date(hr.endDate).toLocaleTimeString();
+        }
+      } catch {}
+      try {
+        const steps = await Healthkit.queryStatisticsForQuantity(
+          HKQuantityTypeIdentifier.stepCount,
+          ["cumulativeSum"],
+          startOfDay,
+          new Date()
+        );
+        out.stepsToday = steps?.sumQuantity?.quantity;
+      } catch {}
+      try {
+        const energy = await Healthkit.queryStatisticsForQuantity(
+          HKQuantityTypeIdentifier.activeEnergyBurned,
+          ["cumulativeSum"],
+          startOfDay,
+          new Date()
+        );
+        out.activeEnergy = energy?.sumQuantity?.quantity;
+      } catch {}
+      try {
+        const rhr = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.restingHeartRate);
+        if (rhr) out.restingHR = rhr.quantity;
+      } catch {}
+      try {
+        const hrv = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.heartRateVariabilitySDNN);
+        if (hrv) out.hrv = hrv.quantity;
+      } catch {}
+      try {
+        const spo2 = await Healthkit.getMostRecentQuantitySample(HKQuantityTypeIdentifier.oxygenSaturation);
+        if (spo2) out.spo2 = spo2.quantity * 100;
+      } catch {}
+      setHk(out);
+      setHkStatus("ok");
+    } catch (err) {
+      setHkStatus(`error: ${(err as Error).message}`);
+    }
+  };
+
+  // NFC — read NDEF tag on demand.
+  const [nfcStatus, setNfcStatus] = useState<string>("idle");
+  const [nfcTag, setNfcTag] = useState<{ id?: string; type?: string; payload?: string } | null>(null);
+  const nfcInitRef = useRef(false);
+
+  const startNfc = async () => {
+    try {
+      if (!nfcInitRef.current) {
+        await NfcManager.start();
+        nfcInitRef.current = true;
+      }
+      setNfcStatus("scanning — hold a tag near the top of the phone");
+      setNfcTag(null);
+      await NfcManager.requestTechnology(NfcTech.Ndef, {
+        alertMessage: "Hold a tag near your phone",
+      });
+      const tag = await NfcManager.getTag();
+      let payloadText: string | undefined;
+      if (tag?.ndefMessage?.[0]?.payload) {
+        try {
+          payloadText = Ndef.text.decodePayload(new Uint8Array(tag.ndefMessage[0].payload));
+        } catch {
+          payloadText = undefined;
+        }
+      }
+      setNfcTag({
+        id: tag?.id,
+        type: tag?.type,
+        payload: payloadText,
+      });
+      setNfcStatus("read");
+    } catch (err) {
+      setNfcStatus(`error: ${(err as Error).message}`);
+    } finally {
+      try { await NfcManager.cancelTechnologyRequest(); } catch { /* */ }
+    }
+  };
+
+  const stopNfc = async () => {
+    try { await NfcManager.cancelTechnologyRequest(); } catch { /* */ }
+    setNfcStatus("idle");
+  };
 
   const fireHaptic = (kind: "light" | "medium" | "heavy" | "success" | "warning" | "error") => {
     if (kind === "light") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1391,6 +1514,65 @@ export function ExperimentsContent() {
               </Text>
             </View>
           ))}
+      </View>
+
+      <Text style={styles.sectionTitle}>HealthKit (Apple Watch + Health app)</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
+          {hkAvailable === false
+            ? "HealthKit not available on this device."
+            : `Status: ${hkStatus}`}
+        </Text>
+        <Section
+          title=""
+          rows={[
+            { label: "Heart rate (bpm)", value: hk.heartRate != null ? `${hk.heartRate.toFixed(0)}${hk.heartRateAt ? ` @ ${hk.heartRateAt}` : ""}` : null },
+            { label: "Resting HR (bpm)", value: hk.restingHR != null ? hk.restingHR.toFixed(0) : null },
+            { label: "HRV SDNN (ms)", value: hk.hrv != null ? hk.hrv.toFixed(0) : null },
+            { label: "SpO₂ (%)", value: hk.spo2 != null ? hk.spo2.toFixed(0) : null },
+            { label: "Steps today", value: hk.stepsToday != null ? Math.round(hk.stepsToday).toLocaleString() : null },
+            { label: "Active energy today (kcal)", value: hk.activeEnergy != null ? hk.activeEnergy.toFixed(0) : null },
+          ]}
+        />
+        <Pressable
+          onPress={refreshHealthkit}
+          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: theme.primary, marginTop: 4 }}
+        >
+          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+            {hkStatus === "ok" ? "Refresh" : "Request access + read"}
+          </Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles.sectionTitle}>NFC</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
+          Status: {nfcStatus}
+        </Text>
+        {nfcTag && (
+          <Section
+            title=""
+            rows={[
+              { label: "Tag ID", value: nfcTag.id },
+              { label: "Tag type", value: nfcTag.type },
+              { label: "NDEF payload", value: nfcTag.payload },
+            ]}
+          />
+        )}
+        <Pressable
+          onPress={nfcStatus.startsWith("scanning") ? stopNfc : startNfc}
+          style={{
+            paddingVertical: 10,
+            borderRadius: 8,
+            alignItems: "center",
+            backgroundColor: nfcStatus.startsWith("scanning") ? theme.destructive : theme.primary,
+            marginTop: 4,
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+            {nfcStatus.startsWith("scanning") ? "Cancel" : "Scan NFC tag"}
+          </Text>
+        </Pressable>
       </View>
 
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>

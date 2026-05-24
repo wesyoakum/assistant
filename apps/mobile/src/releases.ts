@@ -12,6 +12,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v53",
+    title: "HealthKit + NFC + background location (needs rebuild)",
+    pr: 47,
+    notes: [
+      "HealthKit: heart rate, HRV, SpO₂, steps, active energy — read from Apple Watch / Health app",
+      "NFC: scan a tag and read its NDEF payload",
+      "Background location keys in Info.plist (when you grant 'Always')",
+      "Fullscreen spectrum rotates to landscape (also from previous PR)",
+    ],
+  },
+  {
     version: "v52",
     title: "Fullscreen spectrum supports landscape",
     pr: 46,

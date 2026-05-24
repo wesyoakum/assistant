@@ -2,7 +2,7 @@
   "expo": {
     "name": "whyapp",
     "slug": "whyapp",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "scheme": "whyapp",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -21,9 +21,15 @@
         "NSCameraUsageDescription": "Needed to capture documents and images",
         "NSPhotoLibraryUsageDescription": "Needed to select photos for ingestion",
         "NSLocationWhenInUseUsageDescription": "Used in the Experiments screen to show your current location for testing.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Used in the Experiments screen to keep streaming your location even when the app is in the background.",
+        "NSLocationAlwaysUsageDescription": "Used in the Experiments screen to keep streaming your location even when the app is in the background.",
         "NSMotionUsageDescription": "Used in the Experiments screen to show accelerometer and gyroscope data for testing.",
         "NSBluetoothAlwaysUsageDescription": "Used in the Experiments screen to scan nearby Bluetooth devices.",
         "NSBluetoothPeripheralUsageDescription": "Used in the Experiments screen to scan nearby Bluetooth devices.",
+        "NSHealthShareUsageDescription": "Used in the Experiments screen to display heart rate, steps, and other Apple Watch health data.",
+        "NSHealthUpdateUsageDescription": "Used in the Experiments screen for writing test health data (currently unused).",
+        "NFCReaderUsageDescription": "Used in the Experiments screen to read nearby NFC tags.",
+        "UIBackgroundModes": ["location"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -70,6 +76,21 @@
           "isBackgroundEnabled": false,
           "modes": [],
           "bluetoothAlwaysPermission": "Used in the Experiments screen to scan nearby Bluetooth devices."
+        }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Used in the Experiments screen to display heart rate, steps, and other Apple Watch health data.",
+          "NSHealthUpdateUsageDescription": "Used in the Experiments screen for writing test health data (currently unused).",
+          "background": true
+        }
+      ],
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "Used in the Experiments screen to read nearby NFC tags.",
+          "selectIdentifiers": []
         }
       ]
     ],
