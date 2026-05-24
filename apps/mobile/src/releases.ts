@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v57",
+    title: "Tap a BLE device to monitor it",
+    pr: 51,
+    notes: [
+      "Lab → Env → Bluetooth: tap any device row to open a detail view",
+      "Live RSSI line graph + all advertised info (manufacturer data, service UUIDs, TX power)",
+    ],
+  },
+  {
     version: "v56",
     title: "Defer HealthKit + NFC for now",
     pr: 50,
