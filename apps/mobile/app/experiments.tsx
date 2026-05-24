@@ -639,10 +639,24 @@ export function ExperimentsContent() {
   }, []);
 
   // Bluetooth LE scanner — on-demand because scanning is power-hungry.
+  interface BleEntry {
+    id: string;
+    name: string | null;
+    localName: string | null;
+    rssi: number | null;
+    manufacturerData: string | null;
+    serviceUUIDs: string[] | null;
+    txPowerLevel: number | null;
+    isConnectable: boolean | null;
+    seenAt: number;
+  }
   const bleManagerRef = useRef<BleManager | null>(null);
   const [bleState, setBleState] = useState<BleState | "Unknown">("Unknown");
   const [bleScanning, setBleScanning] = useState(false);
-  const [bleDevices, setBleDevices] = useState<Map<string, { id: string; name: string | null; rssi: number | null; seenAt: number }>>(new Map());
+  const [bleDevices, setBleDevices] = useState<Map<string, BleEntry>>(new Map());
+  const [bleSelectedId, setBleSelectedId] = useState<string | null>(null);
+  const [bleRssiHist, setBleRssiHist] = useState<number[]>([]);
+  const bleRssiHistRef = useRef<{ id: string | null; samples: number[] }>({ id: null, samples: [] });
 
   useEffect(() => {
     const m = new BleManager();
@@ -667,18 +681,45 @@ export function ExperimentsContent() {
         const existing = next.get(device.id);
         next.set(device.id, {
           id: device.id,
-          name: device.name ?? device.localName ?? existing?.name ?? null,
+          name: device.name ?? existing?.name ?? null,
+          localName: device.localName ?? existing?.localName ?? null,
           rssi: device.rssi ?? existing?.rssi ?? null,
+          manufacturerData: device.manufacturerData ?? existing?.manufacturerData ?? null,
+          serviceUUIDs: device.serviceUUIDs ?? existing?.serviceUUIDs ?? null,
+          txPowerLevel: device.txPowerLevel ?? existing?.txPowerLevel ?? null,
+          isConnectable: device.isConnectable ?? existing?.isConnectable ?? null,
           seenAt: Date.now(),
         });
         return next;
       });
+      // If a device is selected for monitoring, push its rssi into history.
+      if (bleRssiHistRef.current.id === device.id && device.rssi != null) {
+        const cur = bleRssiHistRef.current.samples;
+        const next = cur.length >= HIST_LEN ? cur.slice(cur.length - HIST_LEN + 1) : cur;
+        const updated = [...next, device.rssi];
+        bleRssiHistRef.current.samples = updated;
+        setBleRssiHist(updated);
+      }
     });
   };
 
   const stopBleScan = () => {
     bleManagerRef.current?.stopDeviceScan();
     setBleScanning(false);
+  };
+
+  const selectBleDevice = (id: string) => {
+    bleRssiHistRef.current = { id, samples: [] };
+    setBleRssiHist([]);
+    setBleSelectedId(id);
+    // Auto-start scan if not already, so RSSI flows.
+    if (!bleScanning) startBleScan();
+  };
+
+  const closeBleDetail = () => {
+    bleRssiHistRef.current = { id: null, samples: [] };
+    setBleSelectedId(null);
+    setBleRssiHist([]);
   };
 
   useEffect(() => {
@@ -1437,15 +1478,19 @@ export function ExperimentsContent() {
           .sort((a, b) => (b.rssi ?? -999) - (a.rssi ?? -999))
           .slice(0, 20)
           .map((d) => (
-            <View key={d.id} style={{ flexDirection: "row", paddingVertical: 6, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}>
+            <Pressable
+              key={d.id}
+              onPress={() => selectBleDevice(d.id)}
+              style={{ flexDirection: "row", paddingVertical: 6, alignItems: "center", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border }}
+            >
               <View style={{ flex: 1, marginRight: 8 }}>
-                <Text style={{ color: theme.text, fontSize: 13 }} numberOfLines={1}>{d.name || "(no name)"}</Text>
+                <Text style={{ color: theme.text, fontSize: 13 }} numberOfLines={1}>{d.name || d.localName || "(no name)"}</Text>
                 <Text style={{ color: theme.textSubtle, fontSize: 10 }} numberOfLines={1}>{d.id}</Text>
               </View>
               <Text style={{ color: rssiColor(d.rssi, theme), fontSize: 13, fontWeight: "700" }}>
                 {d.rssi != null ? `${d.rssi} dBm` : "—"}
               </Text>
-            </View>
+            </Pressable>
           ))}
       </View>
       </>)}
@@ -1603,6 +1648,74 @@ export function ExperimentsContent() {
             <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Close</Text>
           </Pressable>
         </View>
+      </Modal>
+
+      <Modal
+        visible={!!bleSelectedId}
+        animationType="slide"
+        onRequestClose={closeBleDetail}
+      >
+        {(() => {
+          const d = bleSelectedId ? bleDevices.get(bleSelectedId) : null;
+          return (
+            <ScrollView
+              style={{ flex: 1, backgroundColor: theme.background }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+            >
+              <Text style={{ fontSize: 20, fontWeight: "700", color: theme.text, marginBottom: 4 }}>
+                {d?.name || d?.localName || "(no name)"}
+              </Text>
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 16 }} numberOfLines={2}>
+                {bleSelectedId}
+              </Text>
+
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+                RSSI (dBm)
+              </Text>
+              <View style={[styles.card, { padding: 8, marginBottom: 4, position: "relative" }]}>
+                <Sparkline samples={bleRssiHist} color={theme.primary} height={120} />
+                {d?.rssi != null && (
+                  <Text
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 12,
+                      fontSize: 16,
+                      fontWeight: "700",
+                      color: rssiColor(d.rssi, theme),
+                    }}
+                  >
+                    {d.rssi} dBm
+                  </Text>
+                )}
+              </View>
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 16, textAlign: "right" }}>
+                {bleRssiHist.length} samples · {bleScanning ? "live" : "scan stopped"}
+              </Text>
+
+              <Section
+                title="Device info"
+                rows={[
+                  { label: "Name", value: d?.name },
+                  { label: "Local name", value: d?.localName },
+                  { label: "RSSI (dBm)", value: d?.rssi },
+                  { label: "TX power (dBm)", value: d?.txPowerLevel },
+                  { label: "Is connectable", value: d?.isConnectable },
+                  { label: "Manufacturer data (b64)", value: d?.manufacturerData },
+                  { label: "Service UUIDs", value: d?.serviceUUIDs ? d.serviceUUIDs.join(", ") : null },
+                  { label: "Last seen", value: d ? new Date(d.seenAt).toLocaleTimeString() : null },
+                ]}
+              />
+
+              <Pressable
+                onPress={closeBleDetail}
+                style={{ paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: theme.primary, marginTop: 4 }}
+              >
+                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Close</Text>
+              </Pressable>
+            </ScrollView>
+          );
+        })()}
       </Modal>
     </>
   );
