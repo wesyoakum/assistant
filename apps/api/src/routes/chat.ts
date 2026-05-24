@@ -3,6 +3,7 @@ import type { Env } from "../index";
 import type { AuthVariables } from "../middleware/auth";
 import { authMiddleware } from "../middleware/auth";
 import { logUsage, CHAT_MODEL, CLASSIFIER_MODEL } from "../services/claude";
+import { createEvent } from "../services/google-calendar";
 
 const CLAUDE_API = "https://api.anthropic.com/v1/messages";
 
@@ -102,7 +103,7 @@ CURRENT DATE AND TIME (use this — do not guess or rely on chat history):
 
 When the user asks what time/day/date it is, answer from the line above. When parsing relative times like "in 30 minutes", "tomorrow at 9am", "next Monday", anchor to the line above and convert to UTC for the create_reminder tool. Assume US Central Time when a timezone is not specified.
 
-You can create reminders that will be delivered as push notifications. When the user asks you to remind them about something, use the create_reminder tool.${dataContext}${remindersContext}`;
+You can create reminders that will be delivered as push notifications (create_reminder tool) and add events to the user's Google Calendar (create_event tool). For create_event, convert local times to ISO 8601 with a timezone offset (Central Time is -05:00 in summer/CDT, -06:00 in winter/CST — derive from the CURRENT DATE AND TIME above). If the user doesn't specify a duration, default to 1 hour. Always confirm what you scheduled in your reply.${dataContext}${remindersContext}`;
 
   const tools = [
     {
@@ -121,6 +122,36 @@ You can create reminders that will be delivered as push notifications. When the 
           },
         },
         required: ["message", "fire_at"],
+      },
+    },
+    {
+      name: "create_event",
+      description: "Add an event to the user's Google Calendar (primary calendar). Use this when the user asks to schedule, book, add, or put something on their calendar.",
+      input_schema: {
+        type: "object",
+        properties: {
+          title: {
+            type: "string",
+            description: "Event title (what shows up in the calendar)",
+          },
+          start: {
+            type: "string",
+            description: "ISO 8601 start time with timezone offset, e.g. 2026-05-24T14:00:00-05:00 for 2pm Central in summer.",
+          },
+          end: {
+            type: "string",
+            description: "ISO 8601 end time with timezone offset. If user didn't specify, default to 1 hour after start.",
+          },
+          location: {
+            type: "string",
+            description: "Optional event location (address, room name, or meeting link).",
+          },
+          description: {
+            type: "string",
+            description: "Optional event notes / agenda.",
+          },
+        },
+        required: ["title", "start", "end"],
       },
     },
   ];
@@ -189,6 +220,39 @@ You can create reminders that will be delivered as push notifications. When the 
         tool_use_id: block.id,
         content: `Reminder created: "${input.message}" scheduled for ${input.fire_at}`,
       });
+    } else if (block.type === "tool_use" && block.name === "create_event") {
+      const input = block.input as {
+        title: string;
+        start: string;
+        end: string;
+        location?: string;
+        description?: string;
+      };
+
+      try {
+        const evt = await createEvent(
+          userId,
+          {
+            title: input.title,
+            startIso: input.start,
+            endIso: input.end,
+            location: input.location,
+            description: input.description,
+          },
+          c.env
+        );
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: `Event "${input.title}" added to Google Calendar from ${input.start} to ${input.end}. Link: ${evt.htmlLink}`,
+        });
+      } catch (err) {
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: `Failed to create event: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
     }
   }
 
