@@ -275,6 +275,7 @@ export default function ExperimentsScreen() {
 
   // DeviceMotion — fused orientation, gravity vector, user-acceleration (gravity removed)
   const [motion, setMotion] = useState<DeviceMotionMeasurement | null>(null);
+  const [motionZero, setMotionZero] = useState<{ alpha: number; beta: number; gamma: number } | null>(null);
   useEffect(() => {
     DeviceMotion.setUpdateInterval(200);
     const sub = DeviceMotion.addListener(setMotion);
@@ -623,6 +624,58 @@ export default function ExperimentsScreen() {
           { label: "User accel z", value: motion?.acceleration ? fmt(motion.acceleration.z, 3) : null },
         ]}
       />
+
+      {(() => {
+        const wrap180 = (d: number) => {
+          let x = d;
+          while (x > 180) x -= 360;
+          while (x < -180) x += 360;
+          return x;
+        };
+        const dPitch = motion?.rotation && motionZero ? wrap180(((motion.rotation.beta - motionZero.beta) * 180) / Math.PI) : 0;
+        const dRoll = motion?.rotation && motionZero ? wrap180(((motion.rotation.gamma - motionZero.gamma) * 180) / Math.PI) : 0;
+        const dYaw = motion?.rotation && motionZero ? wrap180(((motion.rotation.alpha - motionZero.alpha) * 180) / Math.PI) : 0;
+        return (
+          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+            <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 10 }}>
+              Relative orientation
+            </Text>
+            <View style={{ flexDirection: "row", justifyContent: "space-around", alignItems: "center", marginBottom: 12 }}>
+              <TiltIndicator pitchDeg={dPitch} rollDeg={dRoll} color={theme.highlight} size={80} />
+              <CompassArrow headingDeg={dYaw} color={theme.highlight} size={64} />
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 10 }}>
+              {[
+                { label: "Δ pitch", value: dPitch },
+                { label: "Δ roll", value: dRoll },
+                { label: "Δ yaw", value: dYaw },
+              ].map((d) => (
+                <View key={d.label} style={{ alignItems: "center" }}>
+                  <Text style={{ fontSize: 11, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>{d.label}</Text>
+                  <Text style={{ fontSize: 18, fontWeight: "700", color: motionZero ? theme.text : theme.textSubtle, marginTop: 2 }}>
+                    {motionZero ? fmt(d.value, 1) : "—"}°
+                  </Text>
+                </View>
+              ))}
+            </View>
+            <Pressable
+              onPress={() => motion?.rotation && setMotionZero({ alpha: motion.rotation.alpha, beta: motion.rotation.beta, gamma: motion.rotation.gamma })}
+              style={{
+                paddingVertical: 10,
+                borderRadius: 8,
+                alignItems: "center",
+                backgroundColor: theme.surfaceAlt,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.border,
+              }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>
+                {motionZero ? "Re-zero" : "Zero here"}
+              </Text>
+            </Pressable>
+          </View>
+        );
+      })()}
 
       <Text style={styles.sectionTitle}>Barometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4, position: "relative" }]}>
