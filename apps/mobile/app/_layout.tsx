@@ -99,7 +99,7 @@ function VersionBadge() {
         fontWeight: "600",
       }}
     >
-      v33
+      v34
     </Text>
   );
 }
