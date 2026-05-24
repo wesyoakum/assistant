@@ -20,6 +20,7 @@ import Markdown from "react-native-markdown-display";
 import { apiFetch } from "../../src/api/client";
 import { useTheme, type Theme } from "../../src/theme";
 import { useStyles } from "../../src/hooks/useStyles";
+import { WhatsNewBanner } from "../../src/components/WhatsNewBanner";
 
 interface Message {
   id: string;
@@ -149,6 +150,7 @@ export default function ChatScreen() {
             didInitialScroll.current = true;
             flatListRef.current?.scrollToEnd({ animated });
           }}
+          ListHeaderComponent={<WhatsNewBanner />}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="small" color="#999" />
