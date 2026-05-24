@@ -1,0 +1,59 @@
+name: iOS build + TestFlight submit
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        default: production
+        type: choice
+        options:
+          - preview
+          - production
+      submit:
+        description: 'Auto-submit to TestFlight after build (production only)'
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: eas-build-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build iOS (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build iOS
+        working-directory: apps/mobile
+        run: eas build --platform ios --profile ${{ inputs.profile }} --non-interactive --wait
+
+      - name: Submit to TestFlight
+        if: ${{ inputs.submit && inputs.profile == 'production' }}
+        working-directory: apps/mobile
+        run: eas submit --platform ios --profile production --latest --non-interactive
