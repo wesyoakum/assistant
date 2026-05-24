@@ -6,12 +6,21 @@ export interface Release {
   version: string;
   title: string;
   notes: string[];
+  /** GitHub PR number, if applicable. Shown next to the version label. */
+  pr?: number;
 }
 
 export const RELEASES: Release[] = [
   {
+    version: "v43",
+    title: "Version label shows PR + build",
+    pr: 37,
+    notes: ["Bottom badge now shows the current version, PR number, and native build"],
+  },
+  {
     version: "v42",
     title: "Email + Calendar moved under Context",
+    pr: 36,
     notes: [
       "Bottom tabs slim down to Chat | Capture | Settings",
       "Email and Calendar views now live under Settings → Context",
@@ -21,11 +30,13 @@ export const RELEASES: Release[] = [
   {
     version: "v41",
     title: "What's new = one message per update",
+    pr: 35,
     notes: ["Each release posts as its own chat message, not a bundle"],
   },
   {
     version: "v40",
     title: "Settings reorganized",
+    pr: 34,
     notes: [
       "New 'Context' tab — your preferences live here",
       "New 'Lab' tab — sensor sandbox moved in from a separate screen",
@@ -35,6 +46,7 @@ export const RELEASES: Release[] = [
   {
     version: "v39",
     title: "What's new lives in chat now",
+    pr: 33,
     notes: [
       "Release notes post as an assistant message in chat instead of a banner",
       "Chat reliably scrolls to the bottom on open",
@@ -43,26 +55,31 @@ export const RELEASES: Release[] = [
   {
     version: "v38",
     title: "Position by integration (experimental)",
+    pr: 32,
     notes: ["Tap 'Start tracking' to integrate accelerometer into position", "Drifts heavily — that's the physics demo"],
   },
   {
     version: "v37",
     title: "Relative orientation",
+    pr: 31,
     notes: ["New card under Device Motion: tap 'Zero here' to start tracking how far you've rotated"],
   },
   {
     version: "v36",
     title: "Barometer in psi",
+    pr: 30,
     notes: ["Tiny psi readout in the corner of the pressure chart"],
   },
   {
     version: "v35",
     title: "Line charts instead of bars",
+    pr: 29,
     notes: ["Sensor sparklines now draw as smooth lines"],
   },
   {
     version: "v34",
     title: "What's new banner",
+    pr: 28,
     notes: [
       "A dismissible banner shows recent changes when you open chat",
       "Tap 'Got it' to mark them as seen",
@@ -71,6 +88,7 @@ export const RELEASES: Release[] = [
   {
     version: "v33",
     title: "Altitude in your units",
+    pr: 27,
     notes: [
       "Pick mm / m / in / ft+in for relative altitude in Experiments",
       "Tap 'Zero here' to set the baseline",
@@ -79,6 +97,7 @@ export const RELEASES: Release[] = [
   {
     version: "v32",
     title: "Microphone visualizer",
+    pr: 26,
     notes: [
       "Tap 'Start listening' in Experiments to see a live mic waveform",
       "Audio is never persisted or uploaded",
@@ -87,6 +106,7 @@ export const RELEASES: Release[] = [
   {
     version: "v31",
     title: "More motion visualizations",
+    pr: 25,
     notes: [
       "Tilt + compass for device motion, pressure sparkline for barometer",
       "Battery and step progress bars",
@@ -95,21 +115,25 @@ export const RELEASES: Release[] = [
   {
     version: "v30",
     title: "More sensors",
+    pr: 24,
     notes: ["DeviceMotion, Barometer, Pedometer added to Experiments"],
   },
   {
     version: "v29",
     title: "Motion sparklines",
+    pr: 23,
     notes: ["Live mini-charts above accel / gyro / mag readouts"],
   },
   {
     version: "v28",
     title: "Chat opens at the bottom",
+    pr: 22,
     notes: ["No more scrolling down on open"],
   },
   {
     version: "v25",
     title: "Dark mode",
+    pr: 19,
     notes: ["System / Light / Dark picker in Settings → General"],
   },
 ];
@@ -118,4 +142,9 @@ export const RELEASES: Release[] = [
 export function parseVersion(v: string): number {
   const n = parseInt(v.replace(/^v/i, ""), 10);
   return Number.isFinite(n) ? n : 0;
+}
+
+/** Latest release (top of the list). */
+export function currentRelease(): Release | null {
+  return RELEASES[0] ?? null;
 }
