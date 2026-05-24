@@ -625,8 +625,22 @@ export default function ExperimentsScreen() {
       />
 
       <Text style={styles.sectionTitle}>Barometer</Text>
-      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
+      <View style={[styles.card, { padding: 6, marginBottom: 4, position: "relative" }]}>
         <Sparkline samples={pressureHist} color={theme.accent} height={48} />
+        {pressure && (
+          <Text
+            style={{
+              position: "absolute",
+              top: 6,
+              right: 10,
+              fontSize: 10,
+              fontWeight: "600",
+              color: theme.textSubtle,
+            }}
+          >
+            {(pressure.pressure * 0.0145038).toFixed(3)} psi
+          </Text>
+        )}
       </View>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
