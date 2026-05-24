@@ -67,6 +67,168 @@ function UsageSummary() {
   );
 }
 
+interface DailyRow {
+  day: string;
+  purpose: string;
+  calls: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cost: number;
+}
+
+interface RecentCall {
+  model: string;
+  purpose: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_cents: number;
+  created_at: string;
+}
+
+function UsageDashboard() {
+  const theme = useTheme();
+  const fmt = (cents: number) => "$" + (cents / 100).toFixed(2);
+
+  const { data: dailyData } = useQuery({
+    queryKey: ["usage-daily"],
+    queryFn: () => apiFetch<{ daily: DailyRow[] }>("/usage/daily"),
+    staleTime: 30_000,
+  });
+
+  const { data: recentData } = useQuery({
+    queryKey: ["usage-recent"],
+    queryFn: () => apiFetch<{ calls: RecentCall[] }>("/usage/recent"),
+    staleTime: 30_000,
+  });
+
+  const { data: cumData } = useQuery({
+    queryKey: ["usage-cumulative"],
+    queryFn: () => apiFetch<{ cumulative: { day: string; dailyCost: number; cumulativeCost: number }[] }>("/usage/cumulative"),
+    staleTime: 60_000,
+  });
+
+  // Aggregate daily rows by day for the bar chart
+  const byDay = new Map<string, number>();
+  for (const r of dailyData?.daily ?? []) {
+    byDay.set(r.day, (byDay.get(r.day) ?? 0) + r.cost);
+  }
+  const days = Array.from(byDay.entries())
+    .sort(([a], [b]) => (a < b ? -1 : 1))
+    .slice(-30);
+  const maxDay = Math.max(0.001, ...days.map(([, c]) => c));
+
+  const cumDays = cumData?.cumulative ?? [];
+  const cumMax = Math.max(0.001, ...cumDays.map((d) => d.cumulativeCost));
+
+  return (
+    <>
+      <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+        Daily spend (last 30 days)
+      </Text>
+      <View style={[{ padding: 12, marginBottom: 16, backgroundColor: theme.surface, borderRadius: 12 }]}>
+        {days.length === 0 ? (
+          <Text style={{ color: theme.textSubtle, textAlign: "center", padding: 12 }}>No data yet</Text>
+        ) : (
+          <>
+            <View style={{ height: 80, flexDirection: "row", alignItems: "flex-end", gap: 2 }}>
+              {days.map(([day, cents]) => {
+                const h = Math.max(2, (cents / maxDay) * 76);
+                return (
+                  <View
+                    key={day}
+                    style={{
+                      flex: 1,
+                      height: h,
+                      backgroundColor: theme.primary,
+                      borderRadius: 2,
+                    }}
+                  />
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 6 }}>
+              <Text style={{ fontSize: 10, color: theme.textSubtle }}>{days[0][0]}</Text>
+              <Text style={{ fontSize: 10, color: theme.textSubtle }}>{days[days.length - 1][0]}</Text>
+            </View>
+            <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 6, textAlign: "right" }}>
+              Peak day: {fmt(maxDay)} · 30-day total: {fmt(days.reduce((a, [, c]) => a + c, 0))}
+            </Text>
+          </>
+        )}
+      </View>
+
+      <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+        Cumulative spend (all time)
+      </Text>
+      <View style={[{ padding: 12, marginBottom: 16, backgroundColor: theme.surface, borderRadius: 12 }]}>
+        {cumDays.length === 0 ? (
+          <Text style={{ color: theme.textSubtle, textAlign: "center", padding: 12 }}>No data yet</Text>
+        ) : (
+          <>
+            <View style={{ height: 80, flexDirection: "row", alignItems: "flex-end", gap: 1 }}>
+              {cumDays.map((d) => {
+                const h = Math.max(2, (d.cumulativeCost / cumMax) * 76);
+                return (
+                  <View
+                    key={d.day}
+                    style={{ flex: 1, height: h, backgroundColor: theme.accent, borderRadius: 1 }}
+                  />
+                );
+              })}
+            </View>
+            <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 6, textAlign: "right" }}>
+              Total to date: {fmt(cumMax * 100)}
+            </Text>
+          </>
+        )}
+      </View>
+
+      <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+        Recent calls
+      </Text>
+      <View style={[{ backgroundColor: theme.surface, borderRadius: 12, overflow: "hidden", marginBottom: 16 }]}>
+        {!recentData ? (
+          <ActivityIndicator style={{ padding: 16 }} />
+        ) : recentData.calls.length === 0 ? (
+          <Text style={{ color: theme.textSubtle, textAlign: "center", padding: 12 }}>No calls yet</Text>
+        ) : (
+          recentData.calls.slice(0, 20).map((c, i) => {
+            const when = new Date(c.created_at + "Z").toLocaleString();
+            return (
+              <View
+                key={`${c.created_at}-${i}`}
+                style={{
+                  flexDirection: "row",
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderBottomWidth: i === recentData.calls.length - 1 ? 0 : StyleSheet.hairlineWidth,
+                  borderBottomColor: theme.border,
+                }}
+              >
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={{ fontSize: 13, color: theme.text, fontWeight: "500" }}>{c.purpose}</Text>
+                  <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 1 }} numberOfLines={1}>
+                    {c.model} · {when}
+                  </Text>
+                </View>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>{fmt(c.cost_cents)}</Text>
+                  <Text style={{ fontSize: 10, color: theme.textSubtle, marginTop: 1 }}>
+                    {c.input_tokens.toLocaleString()}↓ {c.output_tokens.toLocaleString()}↑
+                  </Text>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </View>
+    </>
+  );
+}
+
 interface CalendarSummary {
   id: string;
   summary: string;
@@ -380,13 +542,14 @@ function PreferencesList() {
 }
 
 
-type SettingsTab = "general" | "calendars" | "groupme" | "context" | "experiments";
+type SettingsTab = "general" | "calendars" | "groupme" | "context" | "usage" | "experiments";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "general", label: "General" },
   { key: "calendars", label: "Calendars" },
   { key: "groupme", label: "GroupMe" },
   { key: "context", label: "Context" },
+  { key: "usage", label: "Usage" },
   { key: "experiments", label: "Lab" },
 ];
 
@@ -594,11 +757,12 @@ export default function SettingsScreen() {
         </>
       )}
 
-      {/* General section */}
-      {tab === "general" && (
+      {/* Usage tab — full dashboard */}
+      {tab === "usage" && (
         <>
           <Text style={styles.sectionTitle}>API Usage</Text>
           <UsageSummary />
+          <UsageDashboard />
         </>
       )}
 
