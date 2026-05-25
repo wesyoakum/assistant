@@ -7,6 +7,7 @@ import * as Notifications from "expo-notifications";
 import { Accelerometer, Gyroscope, Magnetometer, DeviceMotion, Barometer, Pedometer } from "expo-sensors";
 import type { DeviceMotionMeasurement } from "expo-sensors";
 import * as Location from "expo-location";
+import * as TaskManager from "expo-task-manager";
 import * as Haptics from "expo-haptics";
 import * as Battery from "expo-battery";
 import * as Network from "expo-network";
@@ -18,6 +19,7 @@ import { BleManager, type Device as BleDevice, type State as BleState } from "re
 import LiveAudioStream from "react-native-live-audio-stream";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Lidar, type DepthFrame } from "expo-lidar";
+import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
@@ -57,6 +59,46 @@ function format(v: unknown): string {
 
 function fmt(n: number, digits = 2) {
   return n.toFixed(digits);
+}
+
+// --- Background location task --------------------------------------------
+// Registered at module load so iOS can wake the task while backgrounded.
+// Buffer is module-scoped; UI subscribes via bgLocListeners. Cleared on start.
+const BG_LOCATION_TASK = "whyapp.bg-location";
+
+export interface BgLocPoint {
+  ts: number;
+  lat: number;
+  lon: number;
+  alt: number | null;
+  speed: number | null;
+  accuracy: number | null;
+}
+
+const bgLocBuffer: BgLocPoint[] = [];
+const bgLocListeners = new Set<() => void>();
+
+function pushBgLoc(p: BgLocPoint) {
+  bgLocBuffer.push(p);
+  if (bgLocBuffer.length > 500) bgLocBuffer.splice(0, bgLocBuffer.length - 500);
+  bgLocListeners.forEach((cb) => { try { cb(); } catch {} });
+}
+
+if (!TaskManager.isTaskDefined(BG_LOCATION_TASK)) {
+  TaskManager.defineTask(BG_LOCATION_TASK, async ({ data, error }) => {
+    if (error || !data) return;
+    const { locations } = data as { locations: Location.LocationObject[] };
+    for (const l of locations ?? []) {
+      pushBgLoc({
+        ts: l.timestamp,
+        lat: l.coords.latitude,
+        lon: l.coords.longitude,
+        alt: l.coords.altitude,
+        speed: l.coords.speed,
+        accuracy: l.coords.accuracy,
+      });
+    }
+  });
 }
 
 // Vision tab — Camera + LiDAR. Isolated as its own component so the
@@ -244,6 +286,177 @@ function DepthGrid({ frame }: { frame: DepthFrame }) {
       resizeMode="contain"
       fadeDuration={0}
     />
+  );
+}
+
+// Game controller — isolated like VisionTab so the native module being
+// missing from this build doesn't take down the rest of the Device tab.
+function GameControllerSection({ theme, styles }: { theme: Theme; styles: ReturnType<typeof makeStyles> }) {
+  const available = GameController.available();
+  const [watching, setWatching] = useState(false);
+  const [controllers, setControllers] = useState<ControllerInfo[]>([]);
+  const [frames, setFrames] = useState<Record<string, ControllerInputFrame>>({});
+  const [err, setErr] = useState<string | null>(null);
+
+  const start = async () => {
+    try {
+      setErr(null);
+      await GameController.startWatching(30);
+      setWatching(true);
+      setControllers(GameController.listControllers());
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  };
+  const stop = async () => {
+    try { await GameController.stopWatching(); } catch {}
+    setWatching(false);
+    setControllers([]);
+    setFrames({});
+  };
+
+  useEffect(() => {
+    if (!watching) return;
+    const sub1 = GameController.addControllersListener(setControllers);
+    const sub2 = GameController.addInputListener((batch) => {
+      setFrames((prev) => {
+        const next = { ...prev };
+        for (const f of batch) next[f.id] = f;
+        return next;
+      });
+    });
+    return () => { sub1.remove(); sub2.remove(); };
+  }, [watching]);
+
+  useEffect(() => () => { GameController.stopWatching().catch(() => {}); }, []);
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>Game controller</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        {!available ? (
+          <Text style={{ fontSize: 13, color: theme.textSubtle }}>
+            Native module not in this build.
+          </Text>
+        ) : (
+          <>
+            <Pressable
+              onPress={watching ? stop : start}
+              style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: watching ? theme.destructive : theme.primary }}
+            >
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                {watching ? "Stop watching" : "Start watching"}
+              </Text>
+            </Pressable>
+            {err && <Text style={{ fontSize: 11, color: theme.destructive, marginTop: 6 }}>{err}</Text>}
+            <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+              Pair a DualSense / DualShock / Xbox / MFi pad in iOS Settings → Bluetooth first.
+            </Text>
+          </>
+        )}
+      </View>
+
+      {watching && controllers.length === 0 && (
+        <View style={[styles.card, { padding: 14, marginBottom: 16 }]}>
+          <Text style={{ fontSize: 13, color: theme.textSubtle, textAlign: "center" }}>
+            No controllers connected yet…
+          </Text>
+        </View>
+      )}
+
+      {controllers.map((c) => {
+        const f = frames[c.id];
+        return (
+          <View key={c.id} style={[styles.card, { padding: 12, marginBottom: 12 }]}>
+            <Text style={{ fontSize: 13, fontWeight: "700", color: theme.text }}>{c.vendorName || "Unknown"}</Text>
+            <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 8 }}>
+              {c.productCategory} {c.hasExtendedGamepad ? "· extended" : ""} {c.isAttachedToDevice ? "· attached" : ""}
+            </Text>
+            {f ? <ControllerView frame={f} theme={theme} /> : (
+              <Text style={{ fontSize: 12, color: theme.textSubtle }}>Waiting for input…</Text>
+            )}
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
+function ControllerView({ frame, theme }: { frame: ControllerInputFrame; theme: Theme }) {
+  const buttons: [string, number][] = [
+    ["A / ✕", frame.buttonA],
+    ["B / ○", frame.buttonB],
+    ["X / □", frame.buttonX],
+    ["Y / △", frame.buttonY],
+    ["LB", frame.leftShoulder],
+    ["RB", frame.rightShoulder],
+    ["LT", frame.leftTrigger],
+    ["RT", frame.rightTrigger],
+    ["L3", frame.leftThumbstickButton],
+    ["R3", frame.rightThumbstickButton],
+    ["Menu", frame.buttonMenu],
+    ["Opt", frame.buttonOptions],
+    ["Home", frame.buttonHome],
+  ];
+  return (
+    <>
+      <View style={{ flexDirection: "row", gap: 12, marginBottom: 10 }}>
+        <Stick label="L" x={frame.leftX} y={frame.leftY} theme={theme} />
+        <Stick label="R" x={frame.rightX} y={frame.rightY} theme={theme} />
+        <Stick label="D-pad" x={frame.dpadX} y={frame.dpadY} theme={theme} />
+      </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+        {buttons.map(([label, v]) => {
+          const active = v > 0.05;
+          return (
+            <View
+              key={label}
+              style={{
+                paddingVertical: 4,
+                paddingHorizontal: 8,
+                borderRadius: 6,
+                backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: theme.border,
+                minWidth: 40,
+                alignItems: "center",
+              }}
+            >
+              <Text style={{ fontSize: 10, color: active ? "#fff" : theme.textSubtle, fontWeight: "600" }}>{label}</Text>
+              <Text style={{ fontSize: 10, color: active ? "#fff" : theme.text, fontVariant: ["tabular-nums"] }}>
+                {v > 0.01 ? v.toFixed(2) : "—"}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </>
+  );
+}
+
+function Stick({ label, x, y, theme }: { label: string; x: number; y: number; theme: Theme }) {
+  const size = 64;
+  const radius = size / 2;
+  // GameController y axis: +1 = up. Screen y: +1 = down. Flip.
+  const dotX = radius + x * (radius - 6);
+  const dotY = radius - y * (radius - 6);
+  return (
+    <View style={{ alignItems: "center" }}>
+      <View style={{
+        width: size, height: size, borderRadius: radius,
+        backgroundColor: theme.surfaceAlt,
+        borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border,
+        position: "relative",
+      }}>
+        <View style={{
+          position: "absolute",
+          left: dotX - 5, top: dotY - 5,
+          width: 10, height: 10, borderRadius: 5,
+          backgroundColor: theme.primary,
+        }} />
+      </View>
+      <Text style={{ fontSize: 10, color: theme.textSubtle, marginTop: 4, fontWeight: "600" }}>{label}</Text>
+    </View>
   );
 }
 
@@ -770,9 +983,26 @@ export function ExperimentsContent() {
   const [loc, setLoc] = useState<Location.LocationObject | null>(null);
   const [locStatus, setLocStatus] = useState<string>("not requested");
   const [locWatching, setLocWatching] = useState(false);
+  const [locBackground, setLocBackground] = useState(false);
   const [speedHist, setSpeedHist] = useState<number[]>([]);
   const [altHist, setAltHist] = useState<number[]>([]);
   const locSubRef = useRef<Location.LocationSubscription | null>(null);
+  const [bgLocCount, setBgLocCount] = useState(0);
+  const [bgLocLast, setBgLocLast] = useState<BgLocPoint | null>(null);
+  useEffect(() => {
+    const refresh = () => {
+      setBgLocCount(bgLocBuffer.length);
+      setBgLocLast(bgLocBuffer[bgLocBuffer.length - 1] ?? null);
+    };
+    refresh();
+    bgLocListeners.add(refresh);
+    return () => { bgLocListeners.delete(refresh); };
+  }, []);
+  useEffect(() => {
+    Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK)
+      .then((started) => { if (started) { setLocBackground(true); setLocWatching(true); setLocStatus("background streaming"); } })
+      .catch(() => {});
+  }, []);
 
   const handleLocation = (pos: Location.LocationObject) => {
     setLoc(pos);
@@ -807,13 +1037,38 @@ export function ExperimentsContent() {
   const startWatchingLocation = async () => {
     try {
       setLocStatus("starting…");
-      const perm = await Location.requestForegroundPermissionsAsync();
-      if (perm.status !== "granted") {
-        setLocStatus(`denied: ${perm.status}`);
+      const fg = await Location.requestForegroundPermissionsAsync();
+      if (fg.status !== "granted") {
+        setLocStatus(`denied: ${fg.status}`);
         return;
       }
       setSpeedHist([]);
       setAltHist([]);
+      if (locBackground) {
+        const bg = await Location.requestBackgroundPermissionsAsync();
+        if (bg.status !== "granted") {
+          setLocStatus(`background denied: ${bg.status} — turn on "Always" in Settings`);
+          return;
+        }
+        bgLocBuffer.length = 0;
+        setBgLocCount(0);
+        setBgLocLast(null);
+        await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 1000,
+          distanceInterval: 0,
+          showsBackgroundLocationIndicator: true,
+          pausesUpdatesAutomatically: false,
+          activityType: Location.ActivityType.Other,
+          foregroundService: {
+            notificationTitle: "whyapp location",
+            notificationBody: "Streaming location for the Lab demo",
+          },
+        });
+        setLocWatching(true);
+        setLocStatus("background streaming");
+        return;
+      }
       const sub = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.BestForNavigation,
@@ -830,9 +1085,13 @@ export function ExperimentsContent() {
     }
   };
 
-  const stopWatchingLocation = () => {
+  const stopWatchingLocation = async () => {
     locSubRef.current?.remove();
     locSubRef.current = null;
+    try {
+      const started = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK);
+      if (started) await Location.stopLocationUpdatesAsync(BG_LOCATION_TASK);
+    } catch {}
     setLocWatching(false);
     setLocStatus("stopped");
   };
@@ -1689,7 +1948,7 @@ export function ExperimentsContent() {
           { label: "Speed (m/s)", value: loc?.coords.speed != null ? fmt(loc.coords.speed, 2) : null },
         ]}
       />
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
         <Pressable
           style={[styles.btn, { flex: 1, marginBottom: 0 }]}
           onPress={locWatching ? stopWatchingLocation : startWatchingLocation}
@@ -1703,6 +1962,69 @@ export function ExperimentsContent() {
           <Text style={[styles.btnText, { color: theme.primary }]}>One reading</Text>
         </Pressable>
       </View>
+      <Pressable
+        onPress={() => { if (!locWatching) setLocBackground((b) => !b); }}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          borderRadius: 8,
+          backgroundColor: theme.surfaceAlt,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.border,
+          marginBottom: 8,
+          opacity: locWatching ? 0.5 : 1,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>Allow background</Text>
+          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 2 }}>
+            Keeps streaming when you leave the app. Requires "Always" permission.
+          </Text>
+        </View>
+        <View style={{
+          width: 44, height: 24, borderRadius: 12,
+          backgroundColor: locBackground ? theme.primary : theme.border,
+          padding: 2, justifyContent: "center",
+        }}>
+          <View style={{
+            width: 20, height: 20, borderRadius: 10, backgroundColor: "#fff",
+            alignSelf: locBackground ? "flex-end" : "flex-start",
+          }} />
+        </View>
+      </Pressable>
+      {locBackground && (
+        <View style={[styles.card, { padding: 12, marginBottom: 20 }]}>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+            Background buffer
+          </Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+            <Text style={{ fontSize: 13, color: theme.text }}>Points received</Text>
+            <Text style={{ fontSize: 13, color: theme.text, fontVariant: ["tabular-nums"], fontWeight: "600" }}>{bgLocCount}</Text>
+          </View>
+          {bgLocLast && (
+            <>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                <Text style={{ fontSize: 13, color: theme.text }}>Last point</Text>
+                <Text style={{ fontSize: 13, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                  {fmt(bgLocLast.lat, 5)}, {fmt(bgLocLast.lon, 5)}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                <Text style={{ fontSize: 13, color: theme.text }}>Age</Text>
+                <Text style={{ fontSize: 13, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                  {Math.round((Date.now() - bgLocLast.ts) / 1000)} s ago
+                </Text>
+              </View>
+            </>
+          )}
+          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 8 }}>
+            Lock the phone, walk around, come back — count should keep climbing.
+          </Text>
+        </View>
+      )}
       </>)}
 
       {labTab === "device" && (<>
@@ -1890,6 +2212,8 @@ export function ExperimentsContent() {
         )}
       </View>
       </>)}
+
+      {labTab === "device" && <GameControllerSection theme={theme} styles={styles} />}
 
       {labTab === "health" && (<>
       <Text style={styles.sectionTitle}>HealthKit</Text>
