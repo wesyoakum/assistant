@@ -2,10 +2,13 @@ import ExpoModulesCore
 import ARKit
 import UIKit
 import CoreGraphics
+import CoreImage
+import simd
 
 public final class LidarModule: Module {
   private var arSession: ARSession?
   private var sessionDelegate: LidarSessionDelegate?
+  private let ciContext = CIContext()
 
   public func definition() -> ModuleDefinition {
     Name("ExpoLidar")
@@ -47,15 +50,107 @@ public final class LidarModule: Module {
         self.sessionDelegate = nil
       }
     }
+
+    // Capture one aligned ARKit frame: camera image + scene depth + camera
+    // intrinsics/transform/orientation, all from the same instant. Requires
+    // an active session (call startSession first).
+    AsyncFunction("captureAlignedFrame") { (jpegQuality: Double) -> [String: Any] in
+      guard let session = self.arSession else { throw LidarError.notRunning }
+      guard let frame = session.currentFrame else { throw LidarError.noFrame }
+      guard let sceneDepth = frame.sceneDepth else { throw LidarError.noDepth }
+
+      // --- Camera image → JPEG -----------------------------------------
+      let ciImage = CIImage(cvPixelBuffer: frame.capturedImage)
+      guard let cgImage = self.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+        throw LidarError.imageEncodeFailed
+      }
+      let uiImage = UIImage(cgImage: cgImage)
+      guard let jpegData = uiImage.jpegData(compressionQuality: CGFloat(jpegQuality)) else {
+        throw LidarError.imageEncodeFailed
+      }
+      let imageBase64 = jpegData.base64EncodedString()
+      let imageW = cgImage.width
+      let imageH = cgImage.height
+
+      // --- Depth map → packed Float32 base64 ---------------------------
+      let pb = sceneDepth.depthMap
+      CVPixelBufferLockBaseAddress(pb, .readOnly)
+      let depthW = CVPixelBufferGetWidth(pb)
+      let depthH = CVPixelBufferGetHeight(pb)
+      let bytesPerRow = CVPixelBufferGetBytesPerRow(pb)
+      let strideFloats = bytesPerRow / MemoryLayout<Float32>.size
+      guard let baseAddr = CVPixelBufferGetBaseAddress(pb) else {
+        CVPixelBufferUnlockBaseAddress(pb, .readOnly)
+        throw LidarError.imageEncodeFailed
+      }
+      let base = baseAddr.assumingMemoryBound(to: Float32.self)
+      var packed = Data(count: depthW * depthH * MemoryLayout<Float32>.size)
+      packed.withUnsafeMutableBytes { raw in
+        let outPtr = raw.bindMemory(to: Float32.self).baseAddress!
+        for y in 0..<depthH {
+          for x in 0..<depthW {
+            outPtr[y * depthW + x] = base[y * strideFloats + x]
+          }
+        }
+      }
+      CVPixelBufferUnlockBaseAddress(pb, .readOnly)
+      let depthBase64 = packed.base64EncodedString()
+
+      // --- Camera intrinsics + extrinsics ------------------------------
+      let cam = frame.camera
+      let intr = cam.intrinsics
+      let fx: Float = intr.columns.0.x
+      let fy: Float = intr.columns.1.y
+      let cx: Float = intr.columns.2.x
+      let cy: Float = intr.columns.2.y
+
+      let xform = cam.transform
+      var xformArr: [Float] = []
+      xformArr.reserveCapacity(16)
+      for col in 0..<4 {
+        let c = xform[col]
+        xformArr.append(c.x); xformArr.append(c.y); xformArr.append(c.z); xformArr.append(c.w)
+      }
+
+      let euler = cam.eulerAngles  // (pitch, yaw, roll) in radians
+
+      return [
+        "imageBase64": imageBase64,
+        "imageWidth": imageW,
+        "imageHeight": imageH,
+        "depthBase64": depthBase64,
+        "depthWidth": depthW,
+        "depthHeight": depthH,
+        "intrinsics": [
+          "fx": fx, "fy": fy, "cx": cx, "cy": cy,
+          "imageWidth": Int(cam.imageResolution.width),
+          "imageHeight": Int(cam.imageResolution.height),
+        ],
+        "transform4x4": xformArr,           // column-major, 16 floats
+        "eulerAngles": [
+          "pitch": euler.x,
+          "yaw": euler.y,
+          "roll": euler.z,
+        ],
+        "timestamp": frame.timestamp,
+      ]
+    }
   }
 }
 
 enum LidarError: Error, LocalizedError {
   case unsupported
+  case notRunning
+  case noFrame
+  case noDepth
+  case imageEncodeFailed
   var errorDescription: String? {
     switch self {
-    case .unsupported:
-      return "Device does not support ARKit scene depth (no LiDAR)."
+    case .unsupported:       return "Device does not support ARKit scene depth (no LiDAR)."
+    case .notRunning:        return "ARSession is not running. Call startSession first."
+    case .noFrame:           return "No ARFrame available yet — try again in a moment."
+    case .noDepth:           return "Current frame has no scene depth."
+    case .imageEncodeFailed: return "Failed to encode camera image / depth buffer."
     }
   }
 }

@@ -19,7 +19,7 @@ import { BleManager, type Device as BleDevice, type State as BleState } from "re
 import LiveAudioStream from "react-native-live-audio-stream";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { CameraView as CameraViewType } from "expo-camera";
-import { Lidar, type DepthFrame } from "expo-lidar";
+import { Lidar, type DepthFrame, type AlignedFrame, decodeDepthBuffer, sampleDepth } from "expo-lidar";
 import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
 import { VisionDetect, type DetectResult } from "expo-vision-detect";
 import { Yolo, type YoloResult } from "expo-yolo";
@@ -115,7 +115,7 @@ interface DetectedObject {
   description?: string;
 }
 
-function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof makeStyles> }) {
+function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnType<typeof makeStyles>; pressure: { pressure: number; relativeAltitude?: number | null } | null }) {
   const [cameraPerm, requestCameraPerm] = useCameraPermissions();
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<"back" | "front">("back");
@@ -196,14 +196,94 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   useEffect(() => () => { yoloLiveRef.current = false; }, []);
 
   // Vision sub-mode — tabs under the camera/depth tile
-  type VisionMode = "claude" | "applevision" | "yolo" | "lidar";
+  type VisionMode = "claude" | "applevision" | "yolo" | "lidar" | "map";
   const [visionMode, setVisionMode] = useState<VisionMode>("claude");
   const VISION_MODE_TABS: { key: VisionMode; label: string }[] = [
     { key: "claude", label: "Claude" },
     { key: "applevision", label: "Apple" },
     { key: "yolo", label: "YOLO" },
     { key: "lidar", label: "LiDAR" },
+    { key: "map", label: "Map" },
   ];
+
+  // Map mode — ARKit-aligned capture + YOLO + depth → per-object spatial record
+  interface MappedObject {
+    label: string;
+    confidence: number;
+    box: { x: number; y: number; width: number; height: number };
+    /** Meters from camera, or null if depth sample failed (e.g. sky, mirror) */
+    distance: number | null;
+    /** Radians, right of optical axis (+) */
+    horizontalAngle: number;
+    /** Radians, above optical axis (+) */
+    verticalAngle: number;
+  }
+  interface MapCapture {
+    id: string;
+    timestamp: number;
+    imageUri: string;
+    imageWidth: number;
+    imageHeight: number;
+    eulerAngles: { pitch: number; yaw: number; roll: number };
+    /** Relative altitude in meters from the barometer zero (null if barometer not ready) */
+    relativeAltitudeMeters: number | null;
+    objects: MappedObject[];
+  }
+  const [mapBusy, setMapBusy] = useState(false);
+  const [mapErr, setMapErr] = useState<string | null>(null);
+  const [mapCaptures, setMapCaptures] = useState<MapCapture[]>([]);
+  const [mapShownIdx, setMapShownIdx] = useState<number | null>(null);
+
+  const captureAndMap = async () => {
+    if (!yoloReady) { setMapErr("YOLO model not ready"); return; }
+    if (!lidarOn) { setMapErr("Start LiDAR (above) first — ARSession must be running"); return; }
+    setMapBusy(true);
+    setMapErr(null);
+    try {
+      const aligned = await Lidar.captureAlignedFrame(0.75);
+      // Persist the JPEG to a file URI so YOLO + <Image> can read it.
+      // Use a data URI for simplicity (works for both).
+      const dataUri = `data:image/jpeg;base64,${aligned.imageBase64}`;
+      const yoloRes = await Yolo.detect(dataUri, { minConfidence: 0.25 });
+      const depth = decodeDepthBuffer(aligned.depthBase64);
+      const { fx, fy, cx, cy, imageWidth: intrW, imageHeight: intrH } = aligned.intrinsics;
+      const objs: MappedObject[] = yoloRes.detections.map((d) => {
+        const nx = d.box.x + d.box.width / 2;
+        const ny = d.box.y + d.box.height / 2;
+        const distance = sampleDepth(depth, aligned.depthWidth, aligned.depthHeight, nx, ny);
+        // Map normalized point back into intrinsics image space.
+        const px = nx * intrW;
+        const py = ny * intrH;
+        return {
+          label: d.label,
+          confidence: d.confidence,
+          box: d.box,
+          distance,
+          horizontalAngle: Math.atan2(px - cx, fx),
+          verticalAngle: Math.atan2(cy - py, fy),
+        };
+      });
+      // Read barometer relative altitude opportunistically.
+      let rel: number | null = null;
+      if (pressure?.relativeAltitude != null) rel = pressure.relativeAltitude;
+      const cap: MapCapture = {
+        id: `${aligned.timestamp}`,
+        timestamp: Date.now(),
+        imageUri: dataUri,
+        imageWidth: aligned.imageWidth,
+        imageHeight: aligned.imageHeight,
+        eulerAngles: aligned.eulerAngles,
+        relativeAltitudeMeters: rel,
+        objects: objs,
+      };
+      setMapCaptures((prev) => [cap, ...prev].slice(0, 20));
+      setMapShownIdx(0);
+    } catch (err) {
+      setMapErr((err as Error).message);
+    } finally {
+      setMapBusy(false);
+    }
+  };
 
   // Apple Vision (on-device) — faces / text / barcodes
   const visionAvailable = VisionDetect.available();
@@ -318,9 +398,9 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
 
   return (
     <>
-      {/* Shared top tile — live camera OR live LiDAR depth */}
+      {/* Shared top tile — live camera OR live LiDAR depth (lidar + map modes) */}
       <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
-        {visionMode === "lidar" ? (
+        {(visionMode === "lidar" || visionMode === "map") ? (
           lidarFrame ? (
             <DepthGrid frame={lidarFrame} />
           ) : (
@@ -329,7 +409,7 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
                 {!lidarAvailable
                   ? "LiDAR native module not in this build"
                   : lidarSupported
-                    ? "Tap Start LiDAR below"
+                    ? "Tap Start to begin (depth preview will appear here)"
                     : "No LiDAR sensor on this device"}
               </Text>
             </View>
@@ -353,7 +433,7 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
       </View>
 
       {/* Status line under the tile */}
-      {visionMode === "lidar" && lidarFrame && (
+      {(visionMode === "lidar" || visionMode === "map") && lidarFrame && (
         <Text style={{ fontSize: 11, color: theme.textMuted, marginBottom: 8, textAlign: "right", paddingHorizontal: 4 }}>
           {lidarFrame.width}×{lidarFrame.height} · {lidarFps} fps · min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m
         </Text>
@@ -385,8 +465,9 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
         })}
       </View>
 
-      {/* Top-tile controls: start/stop the right hardware */}
-      {visionMode === "lidar" ? (
+      {/* Top-tile controls: start/stop the right hardware.
+          Map mode has its own controls inside the per-mode body. */}
+      {visionMode === "map" ? null : visionMode === "lidar" ? (
         <View style={[styles.card, { padding: 14, marginBottom: 14 }]}>
           <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
             Resolution
@@ -735,6 +816,152 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
       )}
 
       {/* LiDAR mode has no per-mode body beyond the top-tile + controls above. */}
+
+      {visionMode === "map" && (
+        <>
+          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+            {!lidarAvailable ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>LiDAR native module not in this build.</Text>
+            ) : !lidarSupported ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>No LiDAR sensor on this device.</Text>
+            ) : !yoloAvailable || !yoloReady ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>YOLO native module not ready.</Text>
+            ) : (
+              <>
+                <Pressable
+                  onPress={lidarOn ? stopLidar : startLidar}
+                  style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: lidarOn ? theme.destructive : theme.primary, marginBottom: 8 }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                    {lidarOn ? "Stop ARSession" : "Start ARSession (camera + depth)"}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={captureAndMap}
+                  disabled={!lidarOn || mapBusy}
+                  style={{ paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: lidarOn ? theme.highlight : theme.surfaceAlt, opacity: mapBusy ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: lidarOn ? "#fff" : theme.textSubtle, fontSize: 14, fontWeight: "700" }}>
+                    {mapBusy ? "Capturing + analyzing…" : "Capture & map objects"}
+                  </Text>
+                </Pressable>
+                <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+                  Grabs one ARKit frame (camera + depth, time-synced). Runs YOLO, samples depth at each box center.
+                </Text>
+              </>
+            )}
+          </View>
+          {mapErr && (
+            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 12, color: theme.destructive }}>{mapErr}</Text>
+            </View>
+          )}
+
+          {mapShownIdx !== null && mapCaptures[mapShownIdx] && (() => {
+            const cap = mapCaptures[mapShownIdx]!;
+            return (
+              <>
+                <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+                  <View style={{ aspectRatio: cap.imageWidth / cap.imageHeight, position: "relative", borderRadius: 6, overflow: "hidden" }}>
+                    <Image source={{ uri: cap.imageUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
+                    {cap.objects.map((o, i) => (
+                      <View key={i} style={{
+                        position: "absolute",
+                        left: `${o.box.x * 100}%`, top: `${o.box.y * 100}%`,
+                        width: `${o.box.width * 100}%`, height: `${o.box.height * 100}%`,
+                        borderWidth: 2, borderColor: theme.highlight,
+                      }}>
+                        <View style={{ position: "absolute", top: -16, left: 0, backgroundColor: theme.highlight, paddingHorizontal: 4, paddingVertical: 1 }}>
+                          <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>
+                            {o.label} {o.distance != null ? `· ${o.distance.toFixed(2)}m` : ""}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+                  <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+                    Phone state at capture
+                  </Text>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 12, color: theme.textSubtle }}>Pitch / Yaw / Roll</Text>
+                    <Text style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                      {((cap.eulerAngles.pitch * 180) / Math.PI).toFixed(1)}° / {((cap.eulerAngles.yaw * 180) / Math.PI).toFixed(1)}° / {((cap.eulerAngles.roll * 180) / Math.PI).toFixed(1)}°
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 12, color: theme.textSubtle }}>Relative altitude</Text>
+                    <Text style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                      {cap.relativeAltitudeMeters != null ? `${cap.relativeAltitudeMeters.toFixed(2)} m` : "—"}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 12, color: theme.textSubtle }}>Timestamp</Text>
+                    <Text style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                      {new Date(cap.timestamp).toLocaleTimeString()}
+                    </Text>
+                  </View>
+                </View>
+
+                {cap.objects.length > 0 && (
+                  <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+                    <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+                      Mapped objects ({cap.objects.length})
+                    </Text>
+                    {cap.objects.map((o, i) => (
+                      <View key={i} style={{ paddingVertical: 6, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                          <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>{o.label}</Text>
+                          <Text style={{ fontSize: 12, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                            {(o.confidence * 100).toFixed(0)}%
+                          </Text>
+                        </View>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 2 }}>
+                          <Text style={{ fontSize: 11, color: theme.textSubtle }}>
+                            distance · h° · v°
+                          </Text>
+                          <Text style={{ fontSize: 11, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                            {o.distance != null ? `${o.distance.toFixed(2)} m` : "—"} · {((o.horizontalAngle * 180) / Math.PI).toFixed(1)}° · {((o.verticalAngle * 180) / Math.PI).toFixed(1)}°
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {mapCaptures.length > 1 && (
+                  <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+                    <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+                      Recent captures ({mapShownIdx + 1} / {mapCaptures.length})
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      {mapCaptures.map((c, i) => (
+                        <Pressable
+                          key={c.id}
+                          onPress={() => setMapShownIdx(i)}
+                          style={{
+                            marginRight: 4,
+                            borderWidth: 2,
+                            borderColor: i === mapShownIdx ? theme.primary : "transparent",
+                            borderRadius: 4,
+                          }}
+                        >
+                          <Image source={{ uri: c.imageUri }} style={{ width: 56, height: 42, borderRadius: 2 }} />
+                          <Text style={{ fontSize: 9, color: theme.textSubtle, marginTop: 2, textAlign: "center" }}>
+                            {c.objects.length}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </>
+            );
+          })()}
+        </>
+      )}
     </>
   );
 }
@@ -2514,7 +2741,7 @@ export function ExperimentsContent() {
       />
       </>)}
 
-      {labTab === "vision" && <VisionTab theme={theme} styles={styles} />}
+      {labTab === "vision" && <VisionTab theme={theme} styles={styles} pressure={pressure} />}
 
       {labTab === "audio" && (<>
       <Text style={styles.sectionTitle}>Microphone</Text>

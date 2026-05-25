@@ -2,6 +2,7 @@ import ExpoModulesCore
 import Vision
 import CoreML
 import UIKit
+import AudioToolbox
 
 public final class YoloModule: Module {
   private var visionModel: VNCoreMLModel?
@@ -11,6 +12,11 @@ public final class YoloModule: Module {
     Name("ExpoYolo")
 
     OnCreate {
+      // Silence the camera shutter sound app-wide. Sound ID 1108 is the
+      // shutter on iOS — disposing it once suppresses the click that
+      // AVCapturePhotoOutput plays on every takePictureAsync.
+      AudioServicesDisposeSystemSoundID(1108)
+
       do {
         // CocoaPods resource_bundle ships the compiled model as
         // ExpoYoloModels.bundle/YOLOv3Tiny.mlmodelc next to the main bundle.
