@@ -21,6 +21,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import type { CameraView as CameraViewType } from "expo-camera";
 import { Lidar, type DepthFrame } from "expo-lidar";
 import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
+import { VisionDetect, type DetectResult } from "expo-vision-detect";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
@@ -125,6 +126,30 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   const [detectionObjects, setDetectionObjects] = useState<DetectedObject[] | null>(null);
   const [detectionNote, setDetectionNote] = useState<string | null>(null);
   const [detectionAt, setDetectionAt] = useState<number | null>(null);
+
+  // Apple Vision (on-device) — faces / text / barcodes
+  const visionAvailable = VisionDetect.available();
+  const [visionRunning, setVisionRunning] = useState(false);
+  const [visionResult, setVisionResult] = useState<DetectResult | null>(null);
+  const [visionPhotoUri, setVisionPhotoUri] = useState<string | null>(null);
+  const [visionErr, setVisionErr] = useState<string | null>(null);
+
+  const runAppleVision = async () => {
+    if (!cameraRef.current) return;
+    setVisionRunning(true);
+    setVisionErr(null);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, skipProcessing: true });
+      if (!photo?.uri) throw new Error("No image captured");
+      const result = await VisionDetect.detect(photo.uri, { faces: true, text: true, barcodes: true });
+      setVisionPhotoUri(photo.uri);
+      setVisionResult(result);
+    } catch (err) {
+      setVisionErr((err as Error).message);
+    } finally {
+      setVisionRunning(false);
+    }
+  };
 
   const detectObjects = async () => {
     if (!cameraRef.current) return;
@@ -305,6 +330,93 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
                 </Text>
               </View>
             ))
+          )}
+        </View>
+      )}
+
+      <Text style={styles.sectionTitle}>Object detection — Apple Vision (on-device)</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        {!visionAvailable ? (
+          <Text style={{ fontSize: 13, color: theme.textSubtle }}>Native module not in this build.</Text>
+        ) : (
+          <>
+            <Pressable
+              onPress={runAppleVision}
+              disabled={!cameraOn || visionRunning}
+              style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: visionRunning ? 0.6 : 1 }}
+            >
+              <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+                {visionRunning ? "Analyzing…" : "Detect faces / text / barcodes"}
+              </Text>
+            </Pressable>
+            <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+              On-device, free. Apple Vision: face rectangles, OCR (any language), QR/UPC/etc.
+            </Text>
+          </>
+        )}
+      </View>
+      {visionErr && (
+        <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+          <Text style={{ fontSize: 12, color: theme.destructive }}>{visionErr}</Text>
+        </View>
+      )}
+      {visionResult && visionPhotoUri && (
+        <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+          <View style={{ aspectRatio: visionResult.width / visionResult.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
+            <Image source={{ uri: visionPhotoUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+            {visionResult.faces.map((f, i) => (
+              <View key={`f${i}`} style={{
+                position: "absolute",
+                left: `${f.box.x * 100}%`, top: `${f.box.y * 100}%`,
+                width: `${f.box.width * 100}%`, height: `${f.box.height * 100}%`,
+                borderWidth: 2, borderColor: "#ff5566",
+              }} />
+            ))}
+            {visionResult.textBlocks.map((t, i) => (
+              <View key={`t${i}`} style={{
+                position: "absolute",
+                left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%`,
+                width: `${t.box.width * 100}%`, height: `${t.box.height * 100}%`,
+                borderWidth: 1, borderColor: "#33ddaa",
+              }} />
+            ))}
+            {visionResult.barcodes.map((b, i) => (
+              <View key={`b${i}`} style={{
+                position: "absolute",
+                left: `${b.box.x * 100}%`, top: `${b.box.y * 100}%`,
+                width: `${b.box.width * 100}%`, height: `${b.box.height * 100}%`,
+                borderWidth: 2, borderColor: "#ffcc33",
+              }} />
+            ))}
+          </View>
+          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
+            {visionResult.elapsedMs} ms · {visionResult.faces.length} faces (red) · {visionResult.textBlocks.length} text (green) · {visionResult.barcodes.length} barcodes (yellow)
+          </Text>
+        </View>
+      )}
+      {visionResult && (visionResult.textBlocks.length > 0 || visionResult.barcodes.length > 0) && (
+        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+          {visionResult.textBlocks.length > 0 && (
+            <>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+                Recognized text
+              </Text>
+              <Text style={{ fontSize: 13, color: theme.text, marginBottom: 12 }}>
+                {visionResult.textBlocks.map((t) => t.text).join(" ")}
+              </Text>
+            </>
+          )}
+          {visionResult.barcodes.length > 0 && (
+            <>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+                Barcodes
+              </Text>
+              {visionResult.barcodes.map((b, i) => (
+                <Text key={i} style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                  {b.symbology}: {b.payload}
+                </Text>
+              ))}
+            </>
           )}
         </View>
       )}
