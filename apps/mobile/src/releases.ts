@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v70",
+    title: "LiDAR — fix archive (root .gitignore + explicit includes)",
+    pr: 64,
+    notes: ["Repo-root .gitignore now has !apps/mobile/modules/**/ios/ negation; .easignore explicitly includes modules/"],
+  },
+  {
     version: "v69",
     title: "LiDAR — fix EAS Build archive missing module files",
     pr: 63,

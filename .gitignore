@@ -7,6 +7,12 @@ build/
 .expo-shared/
 ios/
 android/
+# Local Expo modules ship their own ios/ folder with podspec + Swift; don't
+# let the broad rule above hide them from git OR from EAS Build's archive.
+!apps/mobile/modules/**/ios/
+!apps/mobile/modules/**/ios/**
+!apps/mobile/modules/**/android/
+!apps/mobile/modules/**/android/**
 .wrangler/
 .dev.vars
 .env
