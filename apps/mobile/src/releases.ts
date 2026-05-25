@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v69",
+    title: "LiDAR — fix EAS Build archive missing module files",
+    pr: 63,
+    notes: ["Apps/mobile/.easignore stops EAS from excluding local Expo modules' ios files via the broad ios/ rule"],
+  },
+  {
     version: "v68",
     title: "LiDAR module rename — matches Expo convention",
     pr: 62,
