@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal, useWindowDimensions } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal, useWindowDimensions, Image } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import * as Clipboard from "expo-clipboard";
@@ -235,31 +235,15 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   );
 }
 
-function DepthGrid({ frame, maxMeters = 5 }: { frame: { width: number; height: number; depth: number[] }; maxMeters?: number }) {
-  // ARKit's depth map is in landscape orientation regardless of how the
-  // phone is held. Rotate 90° CW for portrait viewing.
-  // Original (cols × rows); rotated (rows × cols).
-  const { width: srcCols, height: srcRows, depth } = frame;
-  const newRows = srcCols;
-  const newCols = srcRows;
+function DepthGrid({ frame }: { frame: DepthFrame }) {
+  // Native module ships a pre-colorized, pre-rotated PNG. Just display it.
   return (
-    <View style={{ aspectRatio: newCols / newRows, borderRadius: 8, overflow: "hidden" }}>
-      {Array.from({ length: newRows }).map((_, r) => (
-        <View key={r} style={{ flex: 1, flexDirection: "row" }}>
-          {Array.from({ length: newCols }).map((__, c) => {
-            // 90° CW: new[r][c] = old[srcRows - 1 - c][r]
-            const oldR = srcRows - 1 - c;
-            const oldC = r;
-            const d = depth[oldR * srcCols + oldC] || 0;
-            const color =
-              d <= 0
-                ? "rgb(0,0,0)"
-                : `hsl(${Math.min(260, (d / maxMeters) * 260).toFixed(0)}, 80%, 50%)`;
-            return <View key={c} style={{ flex: 1, backgroundColor: color }} />;
-          })}
-        </View>
-      ))}
-    </View>
+    <Image
+      source={{ uri: `data:image/png;base64,${frame.imageBase64}` }}
+      style={{ width: "100%", aspectRatio: frame.width / frame.height, borderRadius: 8 }}
+      resizeMode="contain"
+      fadeDuration={0}
+    />
   );
 }
 
