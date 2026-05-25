@@ -215,7 +215,7 @@ export async function listUpcomingEvents(
  */
 export async function createEvent(
   userId: string,
-  event: { title: string; startIso: string; endIso: string; location?: string; description?: string },
+  event: { title: string; startIso: string; endIso: string; location?: string; description?: string; recurrence?: string[] },
   env: Env
 ): Promise<{ id: string; htmlLink: string }> {
   const accessToken = await getValidAccessToken(userId, env);
@@ -227,6 +227,7 @@ export async function createEvent(
   };
   if (event.location) body.location = event.location;
   if (event.description) body.description = event.description;
+  if (event.recurrence && event.recurrence.length > 0) body.recurrence = event.recurrence;
 
   const res = await fetch(
     `${CAL_API}/calendars/primary/events`,

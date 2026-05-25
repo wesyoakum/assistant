@@ -117,9 +117,16 @@ CURRENT DATE AND TIME (use this — do not guess or rely on chat history):
 
 When the user asks what time/day/date it is, answer from the line above. When parsing relative times like "in 30 minutes", "tomorrow at 9am", "next Monday", anchor to the line above and convert to UTC for the create_reminder tool. Assume US Central Time when a timezone is not specified.
 
-You can create reminders that will be delivered as push notifications (create_reminder tool) and add events to the user's Google Calendar (create_event tool). For create_event, convert local times to ISO 8601 with a timezone offset (Central Time is -05:00 in summer/CDT, -06:00 in winter/CST — derive from the CURRENT DATE AND TIME above). If the user doesn't specify a duration, default to 1 hour. Always confirm what you scheduled in your reply.${dataContext}${remindersContext}`;
+You can create reminders that will be delivered as push notifications (create_reminder tool) and add events to the user's Google Calendar (create_event tool). For create_event, convert local times to ISO 8601 with a timezone offset (Central Time is -05:00 in summer/CDT, -06:00 in winter/CST — derive from the CURRENT DATE AND TIME above). If the user doesn't specify a duration, default to 1 hour. Always confirm what you scheduled in your reply.
+
+You also have web_search available for current information (news, weather, sports scores, recent events, anything time-sensitive or outside your training cutoff). Search when asked about something current, when you're uncertain, or when the user explicitly asks you to look something up. Cite sources when you do.${dataContext}${remindersContext}`;
 
   const tools = [
+    {
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: 5,
+    },
     {
       name: "create_reminder",
       description: "Schedule a push notification reminder for the user at a specific time. Use this when the user asks to be reminded about something.",
@@ -163,6 +170,11 @@ You can create reminders that will be delivered as push notifications (create_re
           description: {
             type: "string",
             description: "Optional event notes / agenda.",
+          },
+          recurrence: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional RFC 5545 RRULE strings for recurring events, each prefixed with 'RRULE:'. Examples: 'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR' (every Mon/Wed/Fri), 'RRULE:FREQ=DAILY;COUNT=10' (next 10 days), 'RRULE:FREQ=MONTHLY;BYMONTHDAY=15;UNTIL=20261231T000000Z' (15th of every month until Dec 31 2026), 'RRULE:FREQ=YEARLY' (annually). Use UNTIL or COUNT to bound — never create unbounded recurrence unless the user explicitly asks for it.",
           },
         },
         required: ["title", "start", "end"],
@@ -241,6 +253,7 @@ You can create reminders that will be delivered as push notifications (create_re
         end: string;
         location?: string;
         description?: string;
+        recurrence?: string[];
       };
 
       try {
@@ -252,13 +265,15 @@ You can create reminders that will be delivered as push notifications (create_re
             endIso: input.end,
             location: input.location,
             description: input.description,
+            recurrence: input.recurrence,
           },
           c.env
         );
+        const recurNote = input.recurrence && input.recurrence.length > 0 ? ` (recurring: ${input.recurrence.join("; ")})` : "";
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
-          content: `Event "${input.title}" added to Google Calendar from ${input.start} to ${input.end}. Link: ${evt.htmlLink}`,
+          content: `Event "${input.title}" added to Google Calendar from ${input.start} to ${input.end}${recurNote}. Link: ${evt.htmlLink}`,
         });
       } catch (err) {
         toolResults.push({

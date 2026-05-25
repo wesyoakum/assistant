@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v79",
+    title: "Chat web search + recurring events + weather card",
+    notes: [
+      "Chat can now browse the web — ask about news, sports scores, current weather, anything time-sensitive",
+      "Chat can create recurring events on Google Calendar (\"every Mon/Wed/Fri at 7am\", \"15th of every month\", etc.)",
+      "Lab → Env → Weather: tap Fetch to pull current conditions + 24-hour forecast from Open-Meteo using your location",
+    ],
+  },
+  {
     version: "v78",
     title: "YOLO object detection + Claude snapshot preview (needs rebuild)",
     notes: [
