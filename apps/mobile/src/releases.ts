@@ -12,6 +12,23 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v75",
+    title: "Game controllers (needs rebuild)",
+    notes: [
+      "Lab → Device → Game controller. Pair a DualSense / DualShock / Xbox / MFi pad in iOS Settings → Bluetooth, then tap Start watching",
+      "Live readout: dual sticks + D-pad as joystick dots, face/shoulder/trigger/menu buttons light up when pressed",
+      "New local Expo module wrapping iOS GameController framework — needs the new TestFlight build",
+    ],
+  },
+  {
+    version: "v74",
+    title: "Background location streaming",
+    notes: [
+      "Lab → Device → Location has a new Allow-background toggle. Asks for Always permission and uses TaskManager so iOS keeps feeding points while the app is backgrounded or the phone is locked",
+      "Counter + last point + age show what arrived while you were away",
+    ],
+  },
+  {
     version: "v73",
     title: "LiDAR: native bitmap render (smooth at 256×192)",
     notes: ["Swift colorizes + rotates the depth frame and ships a PNG; JS just draws an <Image>. Full-res no longer chokes the view tree"],
