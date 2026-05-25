@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v76",
+    title: "Object detection — Claude vision (one-shot)",
+    notes: [
+      "Lab → Vision → Detect (snapshot). Takes one camera frame, sends to Claude Haiku, lists objects with confidence + a one-line scene summary",
+      "Smart but slow (~1–2 s per call, ~¢0.2 per snapshot)",
+      "First of three detection modes — Vision framework built-ins (faces/text/barcodes) and on-device YOLO are next",
+    ],
+  },
+  {
     version: "v75",
     title: "Game controllers (needs rebuild)",
     notes: [
