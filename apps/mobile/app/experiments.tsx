@@ -872,6 +872,21 @@ function formatAltitude(meters: number, unit: AltUnit): string {
   }
 }
 
+// Open-Meteo WMO weather codes → short label + emoji.
+function weatherLabel(code: number): { label: string; emoji: string } {
+  if (code === 0) return { label: "Clear", emoji: "☀️" };
+  if (code <= 2) return { label: "Mostly clear", emoji: "🌤" };
+  if (code === 3) return { label: "Overcast", emoji: "☁️" };
+  if (code >= 45 && code <= 48) return { label: "Fog", emoji: "🌫" };
+  if (code >= 51 && code <= 57) return { label: "Drizzle", emoji: "🌦" };
+  if (code >= 61 && code <= 67) return { label: "Rain", emoji: "🌧" };
+  if (code >= 71 && code <= 77) return { label: "Snow", emoji: "🌨" };
+  if (code >= 80 && code <= 82) return { label: "Showers", emoji: "🌦" };
+  if (code === 85 || code === 86) return { label: "Snow showers", emoji: "🌨" };
+  if (code >= 95 && code <= 99) return { label: "Thunderstorm", emoji: "⛈" };
+  return { label: `code ${code}`, emoji: "❓" };
+}
+
 function magnitude(v: { x: number; y: number; z: number }) {
   return Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 }
@@ -1457,6 +1472,68 @@ export function ExperimentsContent() {
       case Battery.BatteryState.CHARGING: return "charging";
       case Battery.BatteryState.FULL: return "full";
       default: return "unknown";
+    }
+  };
+
+  // Weather — Open-Meteo (free, no key)
+  interface WeatherCurrent {
+    temperature: number;
+    apparentTemperature: number;
+    humidity: number;
+    windSpeed: number;
+    weatherCode: number;
+  }
+  interface WeatherHourly {
+    time: string;
+    temperature: number;
+    precipProb: number;
+  }
+  const [weather, setWeather] = useState<{ current: WeatherCurrent; hourly: WeatherHourly[]; placeLat: number; placeLon: number; fetchedAt: number } | null>(null);
+  const [weatherErr, setWeatherErr] = useState<string | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const fetchWeather = async () => {
+    setWeatherLoading(true);
+    setWeatherErr(null);
+    try {
+      const perm = await Location.requestForegroundPermissionsAsync();
+      if (perm.status !== "granted") throw new Error(`location ${perm.status}`);
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const { latitude, longitude } = pos.coords;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation_probability&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_days=2&timezone=auto`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as {
+        current: { temperature_2m: number; apparent_temperature: number; relative_humidity_2m: number; wind_speed_10m: number; weather_code: number };
+        hourly: { time: string[]; temperature_2m: number[]; precipitation_probability: number[] };
+      };
+      const nowH = new Date();
+      const hourly: WeatherHourly[] = [];
+      for (let i = 0; i < data.hourly.time.length && hourly.length < 24; i++) {
+        const t = new Date(data.hourly.time[i]!);
+        if (t.getTime() < nowH.getTime() - 30 * 60 * 1000) continue;
+        hourly.push({
+          time: data.hourly.time[i]!,
+          temperature: data.hourly.temperature_2m[i]!,
+          precipProb: data.hourly.precipitation_probability[i] ?? 0,
+        });
+      }
+      setWeather({
+        current: {
+          temperature: data.current.temperature_2m,
+          apparentTemperature: data.current.apparent_temperature,
+          humidity: data.current.relative_humidity_2m,
+          windSpeed: data.current.wind_speed_10m,
+          weatherCode: data.current.weather_code,
+        },
+        hourly,
+        placeLat: latitude,
+        placeLon: longitude,
+        fetchedAt: Date.now(),
+      });
+    } catch (err) {
+      setWeatherErr((err as Error).message);
+    } finally {
+      setWeatherLoading(false);
     }
   };
 
@@ -2115,6 +2192,83 @@ export function ExperimentsContent() {
       </>)}
 
       {labTab === "env" && (<>
+      <Text style={styles.sectionTitle}>Weather (Open-Meteo)</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        {weather ? (
+          (() => {
+            const wl = weatherLabel(weather.current.weatherCode);
+            return (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                  <Text style={{ fontSize: 40 }}>{wl.emoji}</Text>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={{ fontSize: 28, fontWeight: "700", color: theme.text, fontVariant: ["tabular-nums"] }}>
+                      {weather.current.temperature.toFixed(0)}°F
+                    </Text>
+                    <Text style={{ fontSize: 13, color: theme.textSubtle }}>
+                      Feels {weather.current.apparentTemperature.toFixed(0)}° · {wl.label}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ flexDirection: "row", justifyContent: "space-around", marginBottom: 4 }}>
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={{ fontSize: 10, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>Humidity</Text>
+                    <Text style={{ fontSize: 14, color: theme.text, fontVariant: ["tabular-nums"] }}>{weather.current.humidity}%</Text>
+                  </View>
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={{ fontSize: 10, color: theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>Wind</Text>
+                    <Text style={{ fontSize: 14, color: theme.text, fontVariant: ["tabular-nums"] }}>{weather.current.windSpeed.toFixed(0)} mph</Text>
+                  </View>
+                </View>
+              </>
+            );
+          })()
+        ) : (
+          <Text style={{ fontSize: 13, color: theme.textSubtle, textAlign: "center" }}>
+            {weatherErr ? `Error: ${weatherErr}` : "Tap below to fetch."}
+          </Text>
+        )}
+        <Pressable
+          onPress={fetchWeather}
+          disabled={weatherLoading}
+          style={{ marginTop: 10, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: theme.primary, opacity: weatherLoading ? 0.6 : 1 }}
+        >
+          <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+            {weatherLoading ? "Fetching…" : weather ? "Refresh" : "Fetch weather"}
+          </Text>
+        </Pressable>
+        {weather && (
+          <Text style={{ fontSize: 10, color: theme.textSubtle, marginTop: 4, textAlign: "right" }}>
+            {Math.round((Date.now() - weather.fetchedAt) / 1000)} s ago · {weather.placeLat.toFixed(3)}, {weather.placeLon.toFixed(3)}
+          </Text>
+        )}
+      </View>
+      {weather && weather.hourly.length > 0 && (
+        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+            Next 24 hours
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {weather.hourly.map((h, i) => {
+              const d = new Date(h.time);
+              const hour = d.getHours();
+              const label = hour === 0 ? "12a" : hour < 12 ? `${hour}a` : hour === 12 ? "12p" : `${hour - 12}p`;
+              return (
+                <View key={i} style={{ alignItems: "center", paddingHorizontal: 8, minWidth: 44 }}>
+                  <Text style={{ fontSize: 10, color: theme.textSubtle }}>{label}</Text>
+                  <Text style={{ fontSize: 13, color: theme.text, fontVariant: ["tabular-nums"], marginVertical: 2 }}>
+                    {h.temperature.toFixed(0)}°
+                  </Text>
+                  <Text style={{ fontSize: 9, color: h.precipProb > 30 ? theme.primary : theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                    {h.precipProb}%
+                  </Text>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
       <Text style={styles.sectionTitle}>Barometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4, position: "relative" }]}>
         <Sparkline samples={pressureHist} color={theme.accent} height={48} />
