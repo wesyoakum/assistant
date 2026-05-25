@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v80",
+    title: "Vision tab: detection modes as tabs + frame review",
+    notes: [
+      "Lab → Vision: tabs under the camera tile for Claude / Apple / YOLO / LiDAR",
+      "LiDAR view now shares the same display area as the camera (one tile, swapped by the active tab)",
+      "Last capture stays visible inside the active tab",
+      "YOLO Live keeps the last 10 frames — stop live and step through them with Prev/Next + thumbnail strip",
+    ],
+  },
+  {
     version: "v79",
     title: "Chat web search + recurring events + weather card",
     notes: [

@@ -139,6 +139,10 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   const [yoloPhotoUri, setYoloPhotoUri] = useState<string | null>(null);
   const [yoloErr, setYoloErr] = useState<string | null>(null);
   const yoloLiveRef = useRef(false);
+  // Ring buffer of last 10 frames for after-the-fact review
+  const yoloFramesRef = useRef<{ uri: string; result: YoloResult; ts: number }[]>([]);
+  const [yoloFramesVersion, setYoloFramesVersion] = useState(0);
+  const [yoloReviewIdx, setYoloReviewIdx] = useState<number | null>(null);
 
   const runYoloOnce = async () => {
     if (!cameraRef.current) return;
@@ -147,8 +151,13 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, skipProcessing: true });
       if (!photo?.uri) throw new Error("No image captured");
       const result = await Yolo.detect(photo.uri, { minConfidence: 0.25 });
+      // Push into ring buffer (max 10)
+      yoloFramesRef.current.push({ uri: photo.uri, result, ts: Date.now() });
+      if (yoloFramesRef.current.length > 10) yoloFramesRef.current.shift();
+      setYoloFramesVersion((v) => v + 1);
       setYoloPhotoUri(photo.uri);
       setYoloResult(result);
+      setYoloReviewIdx(null);
     } catch (err) {
       setYoloErr((err as Error).message);
     }
@@ -162,6 +171,8 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
 
   const startYoloLive = async () => {
     if (!cameraOn) return;
+    yoloFramesRef.current = [];
+    setYoloFramesVersion((v) => v + 1);
     yoloLiveRef.current = true;
     setYoloLive(true);
     while (yoloLiveRef.current) {
@@ -171,8 +182,28 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   const stopYoloLive = () => {
     yoloLiveRef.current = false;
     setYoloLive(false);
+    if (yoloFramesRef.current.length > 0) {
+      setYoloReviewIdx(yoloFramesRef.current.length - 1);
+    }
+  };
+  const reviewYoloFrame = (idx: number) => {
+    const frame = yoloFramesRef.current[idx];
+    if (!frame) return;
+    setYoloReviewIdx(idx);
+    setYoloPhotoUri(frame.uri);
+    setYoloResult(frame.result);
   };
   useEffect(() => () => { yoloLiveRef.current = false; }, []);
+
+  // Vision sub-mode — tabs under the camera/depth tile
+  type VisionMode = "claude" | "applevision" | "yolo" | "lidar";
+  const [visionMode, setVisionMode] = useState<VisionMode>("claude");
+  const VISION_MODE_TABS: { key: VisionMode; label: string }[] = [
+    { key: "claude", label: "Claude" },
+    { key: "applevision", label: "Apple" },
+    { key: "yolo", label: "YOLO" },
+    { key: "lidar", label: "LiDAR" },
+  ];
 
   // Apple Vision (on-device) — faces / text / barcodes
   const visionAvailable = VisionDetect.available();
@@ -287,332 +318,423 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
 
   return (
     <>
-      <Text style={styles.sectionTitle}>Camera</Text>
+      {/* Shared top tile — live camera OR live LiDAR depth */}
       <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
-        {cameraOn && cameraPerm?.granted ? (
-          <CameraView
-            ref={cameraRef}
-            style={{ width: "100%", aspectRatio: 4 / 3 }}
-            facing={cameraFacing}
-            mute
-          />
+        {visionMode === "lidar" ? (
+          lidarFrame ? (
+            <DepthGrid frame={lidarFrame} />
+          ) : (
+            <View style={{ width: "100%", aspectRatio: 4 / 3, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
+              <Text style={{ color: theme.textSubtle, fontSize: 13, textAlign: "center", paddingHorizontal: 24 }}>
+                {!lidarAvailable
+                  ? "LiDAR native module not in this build"
+                  : lidarSupported
+                    ? "Tap Start LiDAR below"
+                    : "No LiDAR sensor on this device"}
+              </Text>
+            </View>
+          )
         ) : (
-          <View style={{ width: "100%", aspectRatio: 4 / 3, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
-            <Text style={{ color: theme.textSubtle, fontSize: 14 }}>
-              {cameraPerm?.granted ? "Camera off" : "Camera permission not granted"}
-            </Text>
-          </View>
+          cameraOn && cameraPerm?.granted ? (
+            <CameraView
+              ref={cameraRef}
+              style={{ width: "100%", aspectRatio: 4 / 3 }}
+              facing={cameraFacing}
+              mute
+            />
+          ) : (
+            <View style={{ width: "100%", aspectRatio: 4 / 3, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
+              <Text style={{ color: theme.textSubtle, fontSize: 14 }}>
+                {cameraPerm?.granted ? "Camera off" : "Camera permission not granted"}
+              </Text>
+            </View>
+          )
         )}
       </View>
-      <View style={[styles.card, { padding: 14, marginBottom: 16 }]}>
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <Pressable
-            onPress={async () => {
-              if (!cameraPerm?.granted) {
-                const res = await requestCameraPerm();
-                if (!res.granted) return;
-              }
-              setCameraOn((on) => !on);
-            }}
-            style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.destructive : theme.primary }}
-          >
-            <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-              {cameraOn ? "Stop" : "Start"} camera
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setCameraFacing((f) => (f === "back" ? "front" : "back"))}
-            disabled={!cameraOn}
-            style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: cameraOn ? 1 : 0.4 }}
-          >
-            <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>Flip</Text>
-          </Pressable>
-        </View>
-      </View>
 
-      <Text style={styles.sectionTitle}>Object detection — Claude</Text>
-      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        <Pressable
-          onPress={detectObjects}
-          disabled={!cameraOn || detecting}
-          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: detecting ? 0.6 : 1 }}
-        >
-          <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
-            {detecting ? "Asking Claude…" : "Detect (snapshot)"}
-          </Text>
-        </Pressable>
-        <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-          Sends one frame to Claude Haiku vision. ~¢0.2 per snapshot.
+      {/* Status line under the tile */}
+      {visionMode === "lidar" && lidarFrame && (
+        <Text style={{ fontSize: 11, color: theme.textMuted, marginBottom: 8, textAlign: "right", paddingHorizontal: 4 }}>
+          {lidarFrame.width}×{lidarFrame.height} · {lidarFps} fps · min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m
         </Text>
-      </View>
-      {detectionErr && (
-        <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
-          <Text style={{ fontSize: 12, color: theme.destructive }}>{detectionErr}</Text>
-        </View>
       )}
-      {detectionObjects && (
-        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
-          {detectionPhotoUri && (
-            <Image
-              source={{ uri: detectionPhotoUri }}
-              style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 6, marginBottom: 8 }}
-              resizeMode="cover"
-            />
-          )}
-          <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 6 }}>
-            {detectionAt ? `${Math.round((Date.now() - detectionAt) / 1000)} s ago` : ""} · {detectionObjects.length} objects
+
+      {/* Mode tabs */}
+      <View style={{ flexDirection: "row", gap: 4, marginBottom: 8 }}>
+        {VISION_MODE_TABS.map((t) => {
+          const active = visionMode === t.key;
+          return (
+            <Pressable
+              key={t.key}
+              onPress={() => setVisionMode(t.key)}
+              style={{
+                flex: 1,
+                paddingVertical: 8,
+                borderRadius: 8,
+                alignItems: "center",
+                backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                borderColor: theme.border,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: "600", color: active ? "#fff" : theme.text }}>
+                {t.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Top-tile controls: start/stop the right hardware */}
+      {visionMode === "lidar" ? (
+        <View style={[styles.card, { padding: 14, marginBottom: 14 }]}>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+            Resolution
           </Text>
-          {detectionNote && (
-            <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8, fontStyle: "italic" }}>
-              {detectionNote}
-            </Text>
-          )}
-          {detectionObjects.length === 0 ? (
-            <Text style={{ fontSize: 12, color: theme.textSubtle }}>(nothing detected)</Text>
-          ) : (
-            detectionObjects.map((o, i) => (
-              <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>
-                    {o.count > 1 ? `${o.count}× ` : ""}{o.label}
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {LIDAR_RES_OPTIONS.map((opt, idx) => {
+              const active = lidarResIdx === idx;
+              return (
+                <Pressable
+                  key={opt.label}
+                  onPress={() => changeRes(idx)}
+                  style={{
+                    flexGrow: 1,
+                    minWidth: "22%",
+                    paddingVertical: 8,
+                    borderRadius: 8,
+                    alignItems: "center",
+                    backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                    borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                    borderColor: theme.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: active ? "#fff" : theme.text }}>
+                    {opt.label}
                   </Text>
-                  {o.description && (
-                    <Text style={{ fontSize: 11, color: theme.textSubtle }}>{o.description}</Text>
-                  )}
-                </View>
-                <Text style={{ fontSize: 11, color: o.confidence === "high" ? theme.primary : o.confidence === "medium" ? theme.text : theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>
-                  {o.confidence}
-                </Text>
-              </View>
-            ))
-          )}
+                </Pressable>
+              );
+            })}
+          </View>
+          <Pressable
+            onPress={lidarOn ? stopLidar : startLidar}
+            disabled={!lidarSupported}
+            style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: lidarSupported ? (lidarOn ? theme.destructive : theme.primary) : theme.surfaceAlt }}
+          >
+            <Text style={{ color: lidarSupported ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+              {!lidarSupported ? "Unsupported" : lidarOn ? "Stop LiDAR" : "Start LiDAR"}
+            </Text>
+          </Pressable>
+          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+            Color: red (near) → blue (far). Capped at 5 m. Native sensor res is 256×192.
+          </Text>
+        </View>
+      ) : (
+        <View style={[styles.card, { padding: 14, marginBottom: 14 }]}>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              onPress={async () => {
+                if (!cameraPerm?.granted) {
+                  const res = await requestCameraPerm();
+                  if (!res.granted) return;
+                }
+                setCameraOn((on) => !on);
+              }}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.destructive : theme.primary }}
+            >
+              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                {cameraOn ? "Stop" : "Start"} camera
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setCameraFacing((f) => (f === "back" ? "front" : "back"))}
+              disabled={!cameraOn}
+              style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: cameraOn ? 1 : 0.4 }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.primary }}>Flip</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
-      <Text style={styles.sectionTitle}>Object detection — Apple Vision (on-device)</Text>
-      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        {!visionAvailable ? (
-          <Text style={{ fontSize: 13, color: theme.textSubtle }}>Native module not in this build.</Text>
-        ) : (
-          <>
+      {/* Per-mode body */}
+      {visionMode === "claude" && (
+        <>
+          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
             <Pressable
-              onPress={runAppleVision}
-              disabled={!cameraOn || visionRunning}
-              style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: visionRunning ? 0.6 : 1 }}
+              onPress={detectObjects}
+              disabled={!cameraOn || detecting}
+              style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: detecting ? 0.6 : 1 }}
             >
               <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
-                {visionRunning ? "Analyzing…" : "Detect faces / text / barcodes"}
+                {detecting ? "Asking Claude…" : "Detect (snapshot)"}
               </Text>
             </Pressable>
             <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-              On-device, free. Apple Vision: face rectangles, OCR (any language), QR/UPC/etc.
+              Sends one frame to Claude Haiku vision. ~¢0.2 per snapshot.
             </Text>
-          </>
-        )}
-      </View>
-      {visionErr && (
-        <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
-          <Text style={{ fontSize: 12, color: theme.destructive }}>{visionErr}</Text>
-        </View>
-      )}
-      {visionResult && visionPhotoUri && (
-        <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
-          <View style={{ aspectRatio: visionResult.width / visionResult.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
-            <Image source={{ uri: visionPhotoUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
-            {visionResult.faces.map((f, i) => (
-              <View key={`f${i}`} style={{
-                position: "absolute",
-                left: `${f.box.x * 100}%`, top: `${f.box.y * 100}%`,
-                width: `${f.box.width * 100}%`, height: `${f.box.height * 100}%`,
-                borderWidth: 2, borderColor: "#ff5566",
-              }} />
-            ))}
-            {visionResult.textBlocks.map((t, i) => (
-              <View key={`t${i}`} style={{
-                position: "absolute",
-                left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%`,
-                width: `${t.box.width * 100}%`, height: `${t.box.height * 100}%`,
-                borderWidth: 1, borderColor: "#33ddaa",
-              }} />
-            ))}
-            {visionResult.barcodes.map((b, i) => (
-              <View key={`b${i}`} style={{
-                position: "absolute",
-                left: `${b.box.x * 100}%`, top: `${b.box.y * 100}%`,
-                width: `${b.box.width * 100}%`, height: `${b.box.height * 100}%`,
-                borderWidth: 2, borderColor: "#ffcc33",
-              }} />
-            ))}
           </View>
-          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
-            {visionResult.elapsedMs} ms · {visionResult.faces.length} faces (red) · {visionResult.textBlocks.length} text (green) · {visionResult.barcodes.length} barcodes (yellow)
-          </Text>
-        </View>
-      )}
-      {visionResult && (visionResult.textBlocks.length > 0 || visionResult.barcodes.length > 0) && (
-        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
-          {visionResult.textBlocks.length > 0 && (
-            <>
-              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
-                Recognized text
-              </Text>
-              <Text style={{ fontSize: 13, color: theme.text, marginBottom: 12 }}>
-                {visionResult.textBlocks.map((t) => t.text).join(" ")}
-              </Text>
-            </>
+          {detectionErr && (
+            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 12, color: theme.destructive }}>{detectionErr}</Text>
+            </View>
           )}
-          {visionResult.barcodes.length > 0 && (
-            <>
-              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
-                Barcodes
+          {detectionObjects && (
+            <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+              {detectionPhotoUri && (
+                <Image
+                  source={{ uri: detectionPhotoUri }}
+                  style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 6, marginBottom: 8 }}
+                  resizeMode="cover"
+                />
+              )}
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 6 }}>
+                {detectionAt ? `${Math.round((Date.now() - detectionAt) / 1000)} s ago` : ""} · {detectionObjects.length} objects
               </Text>
-              {visionResult.barcodes.map((b, i) => (
-                <Text key={i} style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
-                  {b.symbology}: {b.payload}
+              {detectionNote && (
+                <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8, fontStyle: "italic" }}>
+                  {detectionNote}
                 </Text>
-              ))}
-            </>
+              )}
+              {detectionObjects.length === 0 ? (
+                <Text style={{ fontSize: 12, color: theme.textSubtle }}>(nothing detected)</Text>
+              ) : (
+                detectionObjects.map((o, i) => (
+                  <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>
+                        {o.count > 1 ? `${o.count}× ` : ""}{o.label}
+                      </Text>
+                      {o.description && (
+                        <Text style={{ fontSize: 11, color: theme.textSubtle }}>{o.description}</Text>
+                      )}
+                    </View>
+                    <Text style={{ fontSize: 11, color: o.confidence === "high" ? theme.primary : o.confidence === "medium" ? theme.text : theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>
+                      {o.confidence}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </View>
           )}
-        </View>
+        </>
       )}
 
-      <Text style={styles.sectionTitle}>Object detection — YOLO (Core ML)</Text>
-      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        {!yoloAvailable ? (
-          <Text style={{ fontSize: 13, color: theme.textSubtle }}>Native module not in this build.</Text>
-        ) : !yoloReady ? (
-          <Text style={{ fontSize: 13, color: theme.destructive }}>{yoloLoadErr ?? "Model failed to load"}</Text>
-        ) : (
-          <>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={yoloSnap}
-                disabled={!cameraOn || yoloRunning || yoloLive}
-                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: yoloRunning ? 0.6 : 1 }}
-              >
-                <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
-                  {yoloRunning ? "Detecting…" : "Snapshot"}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={yoloLive ? stopYoloLive : startYoloLive}
-                disabled={!cameraOn}
-                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: yoloLive ? theme.destructive : (cameraOn ? theme.surfaceAlt : theme.surfaceAlt), borderWidth: yoloLive ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}
-              >
-                <Text style={{ color: yoloLive ? "#fff" : (cameraOn ? theme.primary : theme.textSubtle), fontSize: 13, fontWeight: "600" }}>
-                  {yoloLive ? "Stop live" : "Live (~3–5 fps)"}
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-              YOLOv3-Tiny on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
-            </Text>
-          </>
-        )}
-      </View>
-      {yoloErr && (
-        <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
-          <Text style={{ fontSize: 12, color: theme.destructive }}>{yoloErr}</Text>
-        </View>
-      )}
-      {yoloResult && yoloPhotoUri && (
-        <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
-          <View style={{ aspectRatio: yoloResult.width / yoloResult.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
-            <Image source={{ uri: yoloPhotoUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
-            {yoloResult.detections.map((d, i) => (
-              <View key={i} style={{
-                position: "absolute",
-                left: `${d.box.x * 100}%`, top: `${d.box.y * 100}%`,
-                width: `${d.box.width * 100}%`, height: `${d.box.height * 100}%`,
-                borderWidth: 2, borderColor: theme.highlight,
-              }}>
-                <View style={{ position: "absolute", top: -16, left: 0, backgroundColor: theme.highlight, paddingHorizontal: 4, paddingVertical: 1 }}>
-                  <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>
-                    {d.label} {(d.confidence * 100).toFixed(0)}%
+      {visionMode === "applevision" && (
+        <>
+          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+            {!visionAvailable ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>Native module not in this build.</Text>
+            ) : (
+              <>
+                <Pressable
+                  onPress={runAppleVision}
+                  disabled={!cameraOn || visionRunning}
+                  style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: visionRunning ? 0.6 : 1 }}
+                >
+                  <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+                    {visionRunning ? "Analyzing…" : "Detect faces / text / barcodes"}
                   </Text>
-                </View>
-              </View>
-            ))}
+                </Pressable>
+                <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+                  On-device, free. Apple Vision: face rectangles, OCR (any language), QR/UPC/etc.
+                </Text>
+              </>
+            )}
           </View>
-          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
-            {yoloResult.elapsedMs} ms · {yoloResult.detections.length} detection{yoloResult.detections.length === 1 ? "" : "s"}
-          </Text>
-        </View>
-      )}
-      {yoloResult && yoloResult.detections.length > 0 && (
-        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
-          {yoloResult.detections.map((d, i) => (
-            <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
-              <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>{d.label}</Text>
-              <Text style={{ fontSize: 12, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>{(d.confidence * 100).toFixed(0)}%</Text>
+          {visionErr && (
+            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 12, color: theme.destructive }}>{visionErr}</Text>
             </View>
-          ))}
-        </View>
+          )}
+          {visionResult && visionPhotoUri && (
+            <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+              <View style={{ aspectRatio: visionResult.width / visionResult.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
+                <Image source={{ uri: visionPhotoUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                {visionResult.faces.map((f, i) => (
+                  <View key={`f${i}`} style={{
+                    position: "absolute",
+                    left: `${f.box.x * 100}%`, top: `${f.box.y * 100}%`,
+                    width: `${f.box.width * 100}%`, height: `${f.box.height * 100}%`,
+                    borderWidth: 2, borderColor: "#ff5566",
+                  }} />
+                ))}
+                {visionResult.textBlocks.map((t, i) => (
+                  <View key={`t${i}`} style={{
+                    position: "absolute",
+                    left: `${t.box.x * 100}%`, top: `${t.box.y * 100}%`,
+                    width: `${t.box.width * 100}%`, height: `${t.box.height * 100}%`,
+                    borderWidth: 1, borderColor: "#33ddaa",
+                  }} />
+                ))}
+                {visionResult.barcodes.map((b, i) => (
+                  <View key={`b${i}`} style={{
+                    position: "absolute",
+                    left: `${b.box.x * 100}%`, top: `${b.box.y * 100}%`,
+                    width: `${b.box.width * 100}%`, height: `${b.box.height * 100}%`,
+                    borderWidth: 2, borderColor: "#ffcc33",
+                  }} />
+                ))}
+              </View>
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
+                {visionResult.elapsedMs} ms · {visionResult.faces.length} faces (red) · {visionResult.textBlocks.length} text (green) · {visionResult.barcodes.length} barcodes (yellow)
+              </Text>
+            </View>
+          )}
+          {visionResult && (visionResult.textBlocks.length > 0 || visionResult.barcodes.length > 0) && (
+            <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+              {visionResult.textBlocks.length > 0 && (
+                <>
+                  <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+                    Recognized text
+                  </Text>
+                  <Text style={{ fontSize: 13, color: theme.text, marginBottom: 12 }}>
+                    {visionResult.textBlocks.map((t) => t.text).join(" ")}
+                  </Text>
+                </>
+              )}
+              {visionResult.barcodes.length > 0 && (
+                <>
+                  <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+                    Barcodes
+                  </Text>
+                  {visionResult.barcodes.map((b, i) => (
+                    <Text key={i} style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                      {b.symbology}: {b.payload}
+                    </Text>
+                  ))}
+                </>
+              )}
+            </View>
+          )}
+        </>
       )}
 
-      <Text style={styles.sectionTitle}>LiDAR depth map</Text>
-      <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
-        {lidarFrame ? (
-          <DepthGrid frame={lidarFrame} />
-        ) : (
-          <View style={{ aspectRatio: 4 / 3, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center", borderRadius: 8 }}>
-            <Text style={{ color: theme.textSubtle, fontSize: 13 }}>
-              {!lidarAvailable
-                ? "LiDAR native module not in this build"
-                : lidarSupported
-                  ? "Tap Start to begin"
-                  : "No LiDAR sensor on this device"}
-            </Text>
-          </View>
-        )}
-        {lidarFrame && (
-          <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 6, textAlign: "right" }}>
-            {lidarFrame.width}×{lidarFrame.height} · {lidarFps} fps · min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m
-          </Text>
-        )}
-      </View>
-      <View style={[styles.card, { padding: 14, marginBottom: 16 }]}>
-        <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
-          Resolution
-        </Text>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-          {LIDAR_RES_OPTIONS.map((opt, idx) => {
-            const active = lidarResIdx === idx;
-            return (
-              <Pressable
-                key={opt.label}
-                onPress={() => changeRes(idx)}
-                style={{
-                  flexGrow: 1,
-                  minWidth: "22%",
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                  alignItems: "center",
-                  backgroundColor: active ? theme.primary : theme.surfaceAlt,
-                  borderWidth: active ? 0 : StyleSheet.hairlineWidth,
-                  borderColor: theme.border,
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: "600", color: active ? "#fff" : theme.text }}>
-                  {opt.label}
+      {visionMode === "yolo" && (
+        <>
+          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+            {!yoloAvailable ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>Native module not in this build.</Text>
+            ) : !yoloReady ? (
+              <Text style={{ fontSize: 13, color: theme.destructive }}>{yoloLoadErr ?? "Model failed to load"}</Text>
+            ) : (
+              <>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={yoloSnap}
+                    disabled={!cameraOn || yoloRunning || yoloLive}
+                    style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: yoloRunning ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+                      {yoloRunning ? "Detecting…" : "Snapshot"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={yoloLive ? stopYoloLive : startYoloLive}
+                    disabled={!cameraOn}
+                    style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: yoloLive ? theme.destructive : (cameraOn ? theme.surfaceAlt : theme.surfaceAlt), borderWidth: yoloLive ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}
+                  >
+                    <Text style={{ color: yoloLive ? "#fff" : (cameraOn ? theme.primary : theme.textSubtle), fontSize: 13, fontWeight: "600" }}>
+                      {yoloLive ? "Stop live" : "Live (~3–5 fps)"}
+                    </Text>
+                  </Pressable>
+                </View>
+                <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+                  YOLOv3-Tiny on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
                 </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        <Pressable
-          onPress={lidarOn ? stopLidar : startLidar}
-          disabled={!lidarSupported}
-          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: lidarSupported ? (lidarOn ? theme.destructive : theme.primary) : theme.surfaceAlt }}
-        >
-          <Text style={{ color: lidarSupported ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
-            {!lidarSupported ? "Unsupported" : lidarOn ? "Stop LiDAR" : "Start LiDAR"}
-          </Text>
-        </Pressable>
-        <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-          Color: red (near) → blue (far). Capped at 5 m. Native sensor res is 256×192.
-        </Text>
-      </View>
+              </>
+            )}
+          </View>
+          {yoloErr && (
+            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 12, color: theme.destructive }}>{yoloErr}</Text>
+            </View>
+          )}
+          {/* Frame scrubber — only after live stop, when buffer has >1 frames */}
+          {!yoloLive && yoloReviewIdx !== null && yoloFramesRef.current.length > 1 && (
+            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase" }}>
+                  Reviewing live capture
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                  frame {yoloReviewIdx + 1} / {yoloFramesRef.current.length}
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                <Pressable
+                  onPress={() => reviewYoloFrame(Math.max(0, yoloReviewIdx - 1))}
+                  disabled={yoloReviewIdx <= 0}
+                  style={{ flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: yoloReviewIdx <= 0 ? 0.4 : 1 }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>← Prev</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => reviewYoloFrame(Math.min(yoloFramesRef.current.length - 1, yoloReviewIdx + 1))}
+                  disabled={yoloReviewIdx >= yoloFramesRef.current.length - 1}
+                  style={{ flex: 1, paddingVertical: 8, borderRadius: 6, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: yoloReviewIdx >= yoloFramesRef.current.length - 1 ? 0.4 : 1 }}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>Next →</Text>
+                </Pressable>
+              </View>
+              {/* Thumbnail strip */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                {yoloFramesRef.current.map((f, i) => (
+                  <Pressable
+                    key={f.ts}
+                    onPress={() => reviewYoloFrame(i)}
+                    style={{
+                      marginRight: 4,
+                      borderWidth: 2,
+                      borderColor: i === yoloReviewIdx ? theme.primary : "transparent",
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Image source={{ uri: f.uri }} style={{ width: 56, height: 42, borderRadius: 2 }} />
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+          {yoloResult && yoloPhotoUri && (
+            <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+              <View style={{ aspectRatio: yoloResult.width / yoloResult.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
+                <Image source={{ uri: yoloPhotoUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
+                {yoloResult.detections.map((d, i) => (
+                  <View key={i} style={{
+                    position: "absolute",
+                    left: `${d.box.x * 100}%`, top: `${d.box.y * 100}%`,
+                    width: `${d.box.width * 100}%`, height: `${d.box.height * 100}%`,
+                    borderWidth: 2, borderColor: theme.highlight,
+                  }}>
+                    <View style={{ position: "absolute", top: -16, left: 0, backgroundColor: theme.highlight, paddingHorizontal: 4, paddingVertical: 1 }}>
+                      <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>
+                        {d.label} {(d.confidence * 100).toFixed(0)}%
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
+                {yoloResult.elapsedMs} ms · {yoloResult.detections.length} detection{yoloResult.detections.length === 1 ? "" : "s"}
+                {yoloLive ? ` · live (${yoloFramesRef.current.length}/10)` : ""}
+              </Text>
+            </View>
+          )}
+          {yoloResult && yoloResult.detections.length > 0 && (
+            <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+              {yoloResult.detections.map((d, i) => (
+                <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
+                  <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>{d.label}</Text>
+                  <Text style={{ fontSize: 12, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>{(d.confidence * 100).toFixed(0)}%</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+
+      {/* LiDAR mode has no per-mode body beyond the top-tile + controls above. */}
     </>
   );
 }
