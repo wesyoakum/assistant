@@ -18,11 +18,13 @@ import { Audio } from "expo-av";
 import { BleManager, type Device as BleDevice, type State as BleState } from "react-native-ble-plx";
 import LiveAudioStream from "react-native-live-audio-stream";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import type { CameraView as CameraViewType } from "expo-camera";
 import { Lidar, type DepthFrame } from "expo-lidar";
 import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
+import { API_BASE } from "../src/api/client";
 import { useMe } from "../src/hooks/useMe";
 import { type Theme, useTheme } from "../src/theme";
 import { useStyles } from "../src/hooks/useStyles";
@@ -104,10 +106,54 @@ if (!TaskManager.isTaskDefined(BG_LOCATION_TASK)) {
 // Vision tab — Camera + LiDAR. Isolated as its own component so the
 // useCameraPermissions hook and Lidar.isSupported() call only run when
 // the tab is mounted. Keeps a crash here from taking down all of Lab.
+interface DetectedObject {
+  label: string;
+  count: number;
+  confidence: "high" | "medium" | "low";
+  description?: string;
+}
+
 function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof makeStyles> }) {
   const [cameraPerm, requestCameraPerm] = useCameraPermissions();
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<"back" | "front">("back");
+  const cameraRef = useRef<CameraViewType>(null);
+
+  // Claude object detection (one-shot)
+  const [detecting, setDetecting] = useState(false);
+  const [detectionErr, setDetectionErr] = useState<string | null>(null);
+  const [detectionObjects, setDetectionObjects] = useState<DetectedObject[] | null>(null);
+  const [detectionNote, setDetectionNote] = useState<string | null>(null);
+  const [detectionAt, setDetectionAt] = useState<number | null>(null);
+
+  const detectObjects = async () => {
+    if (!cameraRef.current) return;
+    setDetecting(true);
+    setDetectionErr(null);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.6, skipProcessing: true });
+      if (!photo?.base64) throw new Error("No image captured");
+      const token = useAuth.getState().token;
+      const bytes = Uint8Array.from(atob(photo.base64), (ch) => ch.charCodeAt(0));
+      const res = await fetch(`${API_BASE}/vision/detect`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "image/jpeg",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: bytes,
+      });
+      if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+      const data = await res.json() as { objects?: DetectedObject[]; note?: string };
+      setDetectionObjects(data.objects ?? []);
+      setDetectionNote(data.note ?? null);
+      setDetectionAt(Date.now());
+    } catch (err) {
+      setDetectionErr((err as Error).message);
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   const lidarAvailable = Lidar.available();
   const lidarSupported = lidarAvailable && Lidar.isSupported();
@@ -172,6 +218,7 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
       <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
         {cameraOn && cameraPerm?.granted ? (
           <CameraView
+            ref={cameraRef}
             style={{ width: "100%", aspectRatio: 4 / 3 }}
             facing={cameraFacing}
             mute
@@ -209,6 +256,58 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
           </Pressable>
         </View>
       </View>
+
+      <Text style={styles.sectionTitle}>Object detection — Claude</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <Pressable
+          onPress={detectObjects}
+          disabled={!cameraOn || detecting}
+          style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: detecting ? 0.6 : 1 }}
+        >
+          <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+            {detecting ? "Asking Claude…" : "Detect (snapshot)"}
+          </Text>
+        </Pressable>
+        <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+          Sends one frame to Claude Haiku vision. ~¢0.2 per snapshot.
+        </Text>
+      </View>
+      {detectionErr && (
+        <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+          <Text style={{ fontSize: 12, color: theme.destructive }}>{detectionErr}</Text>
+        </View>
+      )}
+      {detectionObjects && (
+        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+          <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 6 }}>
+            {detectionAt ? `${Math.round((Date.now() - detectionAt) / 1000)} s ago` : ""} · {detectionObjects.length} objects
+          </Text>
+          {detectionNote && (
+            <Text style={{ fontSize: 12, color: theme.textMuted, marginBottom: 8, fontStyle: "italic" }}>
+              {detectionNote}
+            </Text>
+          )}
+          {detectionObjects.length === 0 ? (
+            <Text style={{ fontSize: 12, color: theme.textSubtle }}>(nothing detected)</Text>
+          ) : (
+            detectionObjects.map((o, i) => (
+              <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>
+                    {o.count > 1 ? `${o.count}× ` : ""}{o.label}
+                  </Text>
+                  {o.description && (
+                    <Text style={{ fontSize: 11, color: theme.textSubtle }}>{o.description}</Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: 11, color: o.confidence === "high" ? theme.primary : o.confidence === "medium" ? theme.text : theme.textSubtle, fontWeight: "600", textTransform: "uppercase" }}>
+                  {o.confidence}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
 
       <Text style={styles.sectionTitle}>LiDAR depth map</Text>
       <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
