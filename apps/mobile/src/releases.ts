@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v83",
+    title: "Balls: real AR view (needs rebuild)",
+    notes: [
+      "Replaced the depth-grid preview with ARSCNView — live camera with proper portrait orientation",
+      "ARKit handles raycast to floor, places ARAnchors, renders SceneKit spheres + numbered labels that stay glued to ball positions as you move",
+      "Capture: takes one ARKit frame, runs YOLO, raycasts each sports ball to the floor plane",
+      "Live distance + bearing in the list updates as you walk around (camera pose polled every 500 ms)",
+    ],
+  },
+  {
     version: "v82",
     title: "Balls: ARKit-tracked ball locations (Phase 1)",
     notes: [

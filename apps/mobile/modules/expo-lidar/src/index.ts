@@ -1,5 +1,7 @@
-import { requireNativeModule } from "expo-modules-core";
+import { requireNativeModule, requireNativeViewManager } from "expo-modules-core";
 import type { EventSubscription } from "expo-modules-core";
+import * as React from "react";
+import type { ViewProps } from "react-native";
 
 export interface CameraIntrinsics {
   /** Focal length in pixels (x axis). */
@@ -82,6 +84,49 @@ export const Lidar = {
     return NativeLidar.addListener("onDepth", cb);
   },
 };
+
+// ─── ARKit native view (ARSCNView wrapper) ──────────────────────────────────
+
+export interface BallAnchor {
+  id: string;
+  number: number;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+}
+
+export interface LidarARViewRef {
+  /** Raycast from a screen point (normalized 0–1 to the view's bounds) onto
+   *  the estimated horizontal plane and add a ball anchor at the hit.
+   *  Returns the anchor's world position + assigned number, or null if no hit. */
+  addBallAtScreenPoint: (nx: number, ny: number, radius?: number) => Promise<BallAnchor | null>;
+  /** Current set of ball anchors with their tracked world positions. */
+  listBalls: () => Promise<BallAnchor[]>;
+  /** Remove all ball anchors. */
+  clearBalls: () => Promise<void>;
+  /** Current camera-to-world transform, column-major 16 floats. */
+  currentCameraTransform: () => Promise<number[] | null>;
+  /** Capture the current camera image (rotated to portrait, JPEG base64). */
+  captureViewImage: (jpegQuality?: number) => Promise<{ imageBase64: string; imageWidth: number; imageHeight: number } | null>;
+}
+
+let NativeARView: React.ComponentType<ViewProps> | null = null;
+try {
+  NativeARView = requireNativeViewManager("ExpoLidar");
+} catch {
+  NativeARView = null;
+}
+
+/** Returns true if the LidarARView native component is registered in this build. */
+export function lidarARViewAvailable(): boolean {
+  return NativeARView !== null;
+}
+
+/** ARSCNView wrapped as a React Native view. Imperative methods are exposed via ref. */
+export const LidarARView = React.forwardRef<LidarARViewRef, ViewProps>(function LidarARView(props, ref) {
+  if (!NativeARView) return null;
+  return React.createElement(NativeARView as React.ComponentType<ViewProps & { ref?: React.Ref<unknown> }>, { ...props, ref: ref as unknown as React.Ref<unknown> });
+});
 
 /** Decode the base64 Float32 depth array from a captureAlignedFrame result. */
 export function decodeDepthBuffer(depthBase64: string): Float32Array {
