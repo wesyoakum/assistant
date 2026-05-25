@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v71",
+    title: "LiDAR depth map rotated 90° CW for portrait",
+    pr: 65,
+    notes: ["ARKit depth ships in landscape; rotated in JS to match how you hold the phone"],
+  },
+  {
     version: "v70",
     title: "LiDAR — fix archive (root .gitignore + explicit includes)",
     pr: 64,

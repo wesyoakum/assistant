@@ -178,15 +178,21 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
 }
 
 function DepthGrid({ frame, maxMeters = 5 }: { frame: { width: number; height: number; depth: number[] }; maxMeters?: number }) {
-  const { width: cols, height: rows, depth } = frame;
+  // ARKit's depth map is in landscape orientation regardless of how the
+  // phone is held. Rotate 90° CW for portrait viewing.
+  // Original (cols × rows); rotated (rows × cols).
+  const { width: srcCols, height: srcRows, depth } = frame;
+  const newRows = srcCols;
+  const newCols = srcRows;
   return (
-    <View style={{ aspectRatio: cols / rows, borderRadius: 8, overflow: "hidden" }}>
-      {Array.from({ length: rows }).map((_, r) => (
+    <View style={{ aspectRatio: newCols / newRows, borderRadius: 8, overflow: "hidden" }}>
+      {Array.from({ length: newRows }).map((_, r) => (
         <View key={r} style={{ flex: 1, flexDirection: "row" }}>
-          {Array.from({ length: cols }).map((__, c) => {
-            const d = depth[r * cols + c] || 0;
-            // 0 = invalid (no return). Show as black.
-            // Otherwise normalize 0..maxMeters → hue 0 (red, close) … 260 (violet, far).
+          {Array.from({ length: newCols }).map((__, c) => {
+            // 90° CW: new[r][c] = old[srcRows - 1 - c][r]
+            const oldR = srcRows - 1 - c;
+            const oldC = r;
+            const d = depth[oldR * srcCols + oldC] || 0;
             const color =
               d <= 0
                 ? "rgb(0,0,0)"
