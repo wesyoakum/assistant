@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v77",
+    title: "Apple Vision detection (needs rebuild)",
+    notes: [
+      "Lab → Vision → Detect faces / text / barcodes. On-device, free, fast (~50–200 ms per snapshot)",
+      "Renders bounding boxes over the photo: faces red, text green, barcodes yellow. OCR text + barcode payloads listed below",
+      "New local Expo module wrapping Apple Vision framework",
+    ],
+  },
+  {
     version: "v76",
     title: "Object detection — Claude vision (one-shot)",
     notes: [
