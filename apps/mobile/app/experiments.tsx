@@ -71,23 +71,53 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   const lidarSupported = lidarAvailable && Lidar.isSupported();
   const [lidarOn, setLidarOn] = useState(false);
   const [lidarFrame, setLidarFrame] = useState<DepthFrame | null>(null);
+  const LIDAR_RES_OPTIONS = [
+    { label: "32×24", w: 32, h: 24 },
+    { label: "64×48", w: 64, h: 48 },
+    { label: "128×96", w: 128, h: 96 },
+    { label: "256×192", w: 256, h: 192 },
+  ] as const;
+  const [lidarResIdx, setLidarResIdx] = useState(0);
+  const lidarRes = LIDAR_RES_OPTIONS[lidarResIdx];
 
-  const startLidar = async () => {
+  // FPS counter
+  const fpsRef = useRef({ count: 0, lastReset: Date.now() });
+  const [lidarFps, setLidarFps] = useState(0);
+
+  const startLidarWith = async (w: number, h: number) => {
     try {
-      await Lidar.startSession({ width: 32, height: 24, throttleMs: 100 });
+      await Lidar.startSession({ width: w, height: h, throttleMs: 100 });
       setLidarOn(true);
     } catch (err) {
       Alert.alert("LiDAR error", (err as Error).message);
     }
   };
+  const startLidar = () => startLidarWith(lidarRes.w, lidarRes.h);
   const stopLidar = async () => {
     try { await Lidar.stopSession(); } catch {}
     setLidarOn(false);
     setLidarFrame(null);
+    setLidarFps(0);
+  };
+  const changeRes = async (idx: number) => {
+    setLidarResIdx(idx);
+    const next = LIDAR_RES_OPTIONS[idx];
+    if (lidarOn) {
+      try { await Lidar.stopSession(); } catch {}
+      await startLidarWith(next.w, next.h);
+    }
   };
   useEffect(() => {
     if (!lidarOn) return;
-    const sub = Lidar.addDepthListener(setLidarFrame);
+    const sub = Lidar.addDepthListener((frame) => {
+      setLidarFrame(frame);
+      const now = Date.now();
+      fpsRef.current.count++;
+      if (now - fpsRef.current.lastReset >= 1000) {
+        setLidarFps(fpsRef.current.count);
+        fpsRef.current = { count: 0, lastReset: now };
+      }
+    });
     return () => sub.remove();
   }, [lidarOn]);
   useEffect(() => {
@@ -155,11 +185,39 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
         )}
         {lidarFrame && (
           <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 6, textAlign: "right" }}>
-            min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m · {lidarFrame.width}×{lidarFrame.height}
+            {lidarFrame.width}×{lidarFrame.height} · {lidarFps} fps · min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m
           </Text>
         )}
       </View>
       <View style={[styles.card, { padding: 14, marginBottom: 16 }]}>
+        <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+          Resolution
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {LIDAR_RES_OPTIONS.map((opt, idx) => {
+            const active = lidarResIdx === idx;
+            return (
+              <Pressable
+                key={opt.label}
+                onPress={() => changeRes(idx)}
+                style={{
+                  flexGrow: 1,
+                  minWidth: "22%",
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  backgroundColor: active ? theme.primary : theme.surfaceAlt,
+                  borderWidth: active ? 0 : StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", color: active ? "#fff" : theme.text }}>
+                  {opt.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
         <Pressable
           onPress={lidarOn ? stopLidar : startLidar}
           disabled={!lidarSupported}
@@ -170,7 +228,7 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
           </Text>
         </Pressable>
         <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-          Color: red (near) → blue (far). Capped at 5 m.
+          Color: red (near) → blue (far). Capped at 5 m. Native sensor res is 256×192.
         </Text>
       </View>
     </>

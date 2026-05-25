@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v72",
+    title: "LiDAR: selectable resolution + fps counter",
+    pr: 66,
+    notes: ["Pick 32×24 / 64×48 / 128×96 / 256×192 (native). FPS shown beside the chart so you can see how each performs"],
+  },
+  {
     version: "v71",
     title: "LiDAR depth map rotated 90° CW for portrait",
     pr: 65,
