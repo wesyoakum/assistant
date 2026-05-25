@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v78",
+    title: "YOLO object detection + Claude snapshot preview (needs rebuild)",
+    notes: [
+      "Lab → Vision → YOLO. On-device Core ML inference with 80 COCO classes (person, bottle, chair, dog, car, laptop, …)",
+      "Two modes: Snapshot (one frame) or Live (~3–5 fps snap-and-process loop)",
+      "Bounding boxes overlay the photo with per-detection labels + confidence",
+      "Also: Claude vision now shows the snapshot it analyzed",
+    ],
+  },
+  {
     version: "v77",
     title: "Apple Vision detection (needs rebuild)",
     notes: [

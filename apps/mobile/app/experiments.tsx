@@ -22,6 +22,7 @@ import type { CameraView as CameraViewType } from "expo-camera";
 import { Lidar, type DepthFrame } from "expo-lidar";
 import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
 import { VisionDetect, type DetectResult } from "expo-vision-detect";
+import { Yolo, type YoloResult } from "expo-yolo";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { useAuth } from "../src/state/auth";
@@ -126,6 +127,52 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
   const [detectionObjects, setDetectionObjects] = useState<DetectedObject[] | null>(null);
   const [detectionNote, setDetectionNote] = useState<string | null>(null);
   const [detectionAt, setDetectionAt] = useState<number | null>(null);
+  const [detectionPhotoUri, setDetectionPhotoUri] = useState<string | null>(null);
+
+  // YOLO (on-device, CoreML) — generic object detection with COCO labels
+  const yoloAvailable = Yolo.available();
+  const yoloReady = yoloAvailable && Yolo.isReady();
+  const yoloLoadErr = yoloAvailable ? Yolo.loadError() : null;
+  const [yoloRunning, setYoloRunning] = useState(false);
+  const [yoloLive, setYoloLive] = useState(false);
+  const [yoloResult, setYoloResult] = useState<YoloResult | null>(null);
+  const [yoloPhotoUri, setYoloPhotoUri] = useState<string | null>(null);
+  const [yoloErr, setYoloErr] = useState<string | null>(null);
+  const yoloLiveRef = useRef(false);
+
+  const runYoloOnce = async () => {
+    if (!cameraRef.current) return;
+    setYoloErr(null);
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, skipProcessing: true });
+      if (!photo?.uri) throw new Error("No image captured");
+      const result = await Yolo.detect(photo.uri, { minConfidence: 0.25 });
+      setYoloPhotoUri(photo.uri);
+      setYoloResult(result);
+    } catch (err) {
+      setYoloErr((err as Error).message);
+    }
+  };
+
+  const yoloSnap = async () => {
+    setYoloRunning(true);
+    await runYoloOnce();
+    setYoloRunning(false);
+  };
+
+  const startYoloLive = async () => {
+    if (!cameraOn) return;
+    yoloLiveRef.current = true;
+    setYoloLive(true);
+    while (yoloLiveRef.current) {
+      await runYoloOnce();
+    }
+  };
+  const stopYoloLive = () => {
+    yoloLiveRef.current = false;
+    setYoloLive(false);
+  };
+  useEffect(() => () => { yoloLiveRef.current = false; }, []);
 
   // Apple Vision (on-device) — faces / text / barcodes
   const visionAvailable = VisionDetect.available();
@@ -158,6 +205,7 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.6, skipProcessing: true });
       if (!photo?.base64) throw new Error("No image captured");
+      setDetectionPhotoUri(photo.uri ?? null);
       const token = useAuth.getState().token;
       const bytes = Uint8Array.from(atob(photo.base64), (ch) => ch.charCodeAt(0));
       const res = await fetch(`${API_BASE}/vision/detect`, {
@@ -304,6 +352,13 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
       )}
       {detectionObjects && (
         <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+          {detectionPhotoUri && (
+            <Image
+              source={{ uri: detectionPhotoUri }}
+              style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 6, marginBottom: 8 }}
+              resizeMode="cover"
+            />
+          )}
           <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 6 }}>
             {detectionAt ? `${Math.round((Date.now() - detectionAt) / 1000)} s ago` : ""} · {detectionObjects.length} objects
           </Text>
@@ -418,6 +473,80 @@ function VisionTab({ theme, styles }: { theme: Theme; styles: ReturnType<typeof 
               ))}
             </>
           )}
+        </View>
+      )}
+
+      <Text style={styles.sectionTitle}>Object detection — YOLO (Core ML)</Text>
+      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        {!yoloAvailable ? (
+          <Text style={{ fontSize: 13, color: theme.textSubtle }}>Native module not in this build.</Text>
+        ) : !yoloReady ? (
+          <Text style={{ fontSize: 13, color: theme.destructive }}>{yoloLoadErr ?? "Model failed to load"}</Text>
+        ) : (
+          <>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable
+                onPress={yoloSnap}
+                disabled={!cameraOn || yoloRunning || yoloLive}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: cameraOn ? theme.primary : theme.surfaceAlt, opacity: yoloRunning ? 0.6 : 1 }}
+              >
+                <Text style={{ color: cameraOn ? "#fff" : theme.textSubtle, fontSize: 13, fontWeight: "600" }}>
+                  {yoloRunning ? "Detecting…" : "Snapshot"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={yoloLive ? stopYoloLive : startYoloLive}
+                disabled={!cameraOn}
+                style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: yoloLive ? theme.destructive : (cameraOn ? theme.surfaceAlt : theme.surfaceAlt), borderWidth: yoloLive ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}
+              >
+                <Text style={{ color: yoloLive ? "#fff" : (cameraOn ? theme.primary : theme.textSubtle), fontSize: 13, fontWeight: "600" }}>
+                  {yoloLive ? "Stop live" : "Live (~3–5 fps)"}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+              YOLOv3-Tiny on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
+            </Text>
+          </>
+        )}
+      </View>
+      {yoloErr && (
+        <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+          <Text style={{ fontSize: 12, color: theme.destructive }}>{yoloErr}</Text>
+        </View>
+      )}
+      {yoloResult && yoloPhotoUri && (
+        <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+          <View style={{ aspectRatio: yoloResult.width / yoloResult.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
+            <Image source={{ uri: yoloPhotoUri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
+            {yoloResult.detections.map((d, i) => (
+              <View key={i} style={{
+                position: "absolute",
+                left: `${d.box.x * 100}%`, top: `${d.box.y * 100}%`,
+                width: `${d.box.width * 100}%`, height: `${d.box.height * 100}%`,
+                borderWidth: 2, borderColor: theme.highlight,
+              }}>
+                <View style={{ position: "absolute", top: -16, left: 0, backgroundColor: theme.highlight, paddingHorizontal: 4, paddingVertical: 1 }}>
+                  <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>
+                    {d.label} {(d.confidence * 100).toFixed(0)}%
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+          <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
+            {yoloResult.elapsedMs} ms · {yoloResult.detections.length} detection{yoloResult.detections.length === 1 ? "" : "s"}
+          </Text>
+        </View>
+      )}
+      {yoloResult && yoloResult.detections.length > 0 && (
+        <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+          {yoloResult.detections.map((d, i) => (
+            <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 3, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
+              <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>{d.label}</Text>
+              <Text style={{ fontSize: 12, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>{(d.confidence * 100).toFixed(0)}%</Text>
+            </View>
+          ))}
         </View>
       )}
 
