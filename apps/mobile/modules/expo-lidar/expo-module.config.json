@@ -1,6 +1,6 @@
 {
-  "platforms": ["ios"],
-  "ios": {
-    "modules": ["ExpoLidarModule"]
+  "platforms": ["apple"],
+  "apple": {
+    "modules": ["LidarModule"]
   }
 }
