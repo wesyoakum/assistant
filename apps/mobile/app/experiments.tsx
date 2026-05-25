@@ -19,7 +19,7 @@ import { BleManager, type Device as BleDevice, type State as BleState } from "re
 import LiveAudioStream from "react-native-live-audio-stream";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { CameraView as CameraViewType } from "expo-camera";
-import { Lidar, type DepthFrame, type AlignedFrame, decodeDepthBuffer, sampleDepth } from "expo-lidar";
+import { Lidar, type DepthFrame, type AlignedFrame, type LidarARViewRef, type BallAnchor, decodeDepthBuffer, sampleDepth, LidarARView, lidarARViewAvailable } from "expo-lidar";
 import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
 import { VisionDetect, type DetectResult } from "expo-vision-detect";
 import { Yolo, type YoloResult } from "expo-yolo";
@@ -286,14 +286,14 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     }
   };
 
-  // Balls mode — persistent in-session tracking of sports-ball detections in
-  // ARKit world coordinates. Each Capture pulls one aligned ARKit frame,
-  // filters YOLO results to sports_ball, computes world XYZ from
-  // depth + intrinsics + camera transform, and merges with existing balls by
-  // 3D distance. The latest capture's camera pose is kept so we can recompute
-  // distance + bearing for each ball.
+  // Balls mode — uses ARSCNView as live preview. ARKit owns world tracking,
+  // plane detection, raycast, and SceneKit marker rendering. JS orchestrates:
+  // captures the current camera frame for YOLO, then calls native raycast for
+  // each sports-ball detection. Native returns world XYZ; JS keeps a list of
+  // tracked balls with sightings + confidence, and dedups by 3D distance.
   interface TrackedBall {
-    id: string;
+    id: string;       // ARKit anchor UUID
+    number: number;   // assigned by native at creation
     worldX: number;
     worldY: number;
     worldZ: number;
@@ -301,128 +301,108 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     lastSeen: number;
     sightings: number;
     lastConfidence: number;
-    imageUri: string;
-    /** Normalized box on the imageUri, for the icon thumbnail. */
-    box: { x: number; y: number; width: number; height: number };
   }
   interface CameraPose {
     worldX: number;
     worldY: number;
     worldZ: number;
-    /** Forward direction (unit vector) in world frame */
-    forwardX: number;
-    forwardY: number;
-    forwardZ: number;
-    /** Up direction (unit vector) in world frame */
-    upX: number;
-    upY: number;
-    upZ: number;
+    forwardX: number; forwardY: number; forwardZ: number;
+    upX: number; upY: number; upZ: number;
   }
+  const arRef = useRef<LidarARViewRef>(null);
+  const arViewAvailable = lidarARViewAvailable();
   const [balls, setBalls] = useState<TrackedBall[]>([]);
   const [ballsCameraPose, setBallsCameraPose] = useState<CameraPose | null>(null);
   const [ballsBusy, setBallsBusy] = useState(false);
   const [ballsErr, setBallsErr] = useState<string | null>(null);
-  const [ballsLastImage, setBallsLastImage] = useState<{ uri: string; width: number; height: number; boxes: { x: number; y: number; width: number; height: number; ballId: string }[] } | null>(null);
+  const [ballsLastImage, setBallsLastImage] = useState<{ uri: string; width: number; height: number; boxes: { x: number; y: number; width: number; height: number; number: number }[] } | null>(null);
+
+  // Poll current camera pose while Balls mode is active so the list can show
+  // live distance/bearing without requiring another capture.
+  useEffect(() => {
+    if (visionMode !== "balls") return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      const t = await arRef.current?.currentCameraTransform().catch(() => null);
+      if (cancelled || !t || t.length < 16) return;
+      setBallsCameraPose({
+        worldX: t[12]!, worldY: t[13]!, worldZ: t[14]!,
+        forwardX: -t[8]!, forwardY: -t[9]!, forwardZ: -t[10]!,
+        upX: t[4]!, upY: t[5]!, upZ: t[6]!,
+      });
+    };
+    const interval = setInterval(tick, 500);
+    tick();
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [visionMode]);
 
   const captureAndFindBalls = async () => {
+    if (!arRef.current) { setBallsErr("AR view not ready"); return; }
     if (!yoloReady) { setBallsErr("YOLO model not ready"); return; }
-    if (!lidarOn) { setBallsErr("Start LiDAR (above) first — ARSession must be running"); return; }
     setBallsBusy(true);
     setBallsErr(null);
     try {
-      const aligned = await Lidar.captureAlignedFrame(0.7);
-      const dataUri = `data:image/jpeg;base64,${aligned.imageBase64}`;
+      const cap = await arRef.current.captureViewImage(0.7);
+      if (!cap) { setBallsErr("No frame yet — give ARKit a moment to start"); return; }
+      const dataUri = `data:image/jpeg;base64,${cap.imageBase64}`;
       const yoloRes = await Yolo.detect(dataUri, { minConfidence: 0.2 });
 
-      // ARKit camera-to-world transform (column-major, 16 floats).
-      // Camera frame: +x right, +y up, -z forward.
-      // Column 0 = camera-right in world, col 1 = camera-up in world,
-      // col 2 = camera-back in world, col 3 = camera position in world.
-      const T = aligned.transform4x4;
-      const rightX = T[0]!, rightY = T[1]!, rightZ = T[2]!;
-      const upX = T[4]!, upY = T[5]!, upZ = T[6]!;
-      const backX = T[8]!, backY = T[9]!, backZ = T[10]!;
-      const camX = T[12]!, camY = T[13]!, camZ = T[14]!;
-      const forwardX = -backX, forwardY = -backY, forwardZ = -backZ;
-
-      const pose: CameraPose = {
-        worldX: camX, worldY: camY, worldZ: camZ,
-        forwardX, forwardY, forwardZ,
-        upX, upY, upZ,
-      };
-      setBallsCameraPose(pose);
-
-      const depth = decodeDepthBuffer(aligned.depthBase64);
-      const { fx, fy, cx, cy, imageWidth: intrW, imageHeight: intrH } = aligned.intrinsics;
-
-      const newBalls: TrackedBall[] = [];
-      const drawBoxes: { x: number; y: number; width: number; height: number; ballId: string }[] = [];
-      const updatedBalls = [...balls];
+      const newBalls = [...balls];
+      const drawBoxes: { x: number; y: number; width: number; height: number; number: number }[] = [];
       const now = Date.now();
 
       for (const d of yoloRes.detections) {
         if (d.label !== "sports ball") continue;
         const nx = d.box.x + d.box.width / 2;
         const ny = d.box.y + d.box.height / 2;
-        const distance = sampleDepth(depth, aligned.depthWidth, aligned.depthHeight, nx, ny);
-        if (distance == null) continue;
 
-        // Camera-frame XYZ in meters
-        const px = nx * intrW;
-        const py = ny * intrH;
-        const xCam = (px - cx) * distance / fx;
-        const yCam = -(py - cy) * distance / fy;  // flip y (image down → camera up)
-        const zCam = -distance;                    // forward is -z in ARKit
-        // Transform to world: world = T * (xCam, yCam, zCam, 1)
-        const wx = T[0]! * xCam + T[4]! * yCam + T[8]!  * zCam + T[12]!;
-        const wy = T[1]! * xCam + T[5]! * yCam + T[9]!  * zCam + T[13]!;
-        const wz = T[2]! * xCam + T[6]! * yCam + T[10]! * zCam + T[14]!;
+        const added = await arRef.current.addBallAtScreenPoint(nx, ny, 0.035);
+        if (!added) continue;  // raycast missed (no plane below)
 
-        // Match against existing balls (3D distance threshold)
+        // Dedup against existing balls (3D distance threshold)
         const THRESHOLD_M = 0.15;
         let matchedIdx = -1;
         let bestDist = THRESHOLD_M;
-        for (let i = 0; i < updatedBalls.length; i++) {
-          const b = updatedBalls[i]!;
-          const dx = b.worldX - wx, dy = b.worldY - wy, dz = b.worldZ - wz;
+        for (let i = 0; i < newBalls.length; i++) {
+          const b = newBalls[i]!;
+          const dx = b.worldX - added.worldX;
+          const dy = b.worldY - added.worldY;
+          const dz = b.worldZ - added.worldZ;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
           if (dist < bestDist) { bestDist = dist; matchedIdx = i; }
         }
+
         if (matchedIdx >= 0) {
-          const b = updatedBalls[matchedIdx]!;
-          // Running-average position (smooths noise across sightings)
-          const n = b.sightings + 1;
-          updatedBalls[matchedIdx] = {
+          // Duplicate — keep the existing anchor, update its JS metadata.
+          // (ARKit will keep both anchors; the duplicate sphere is hidden
+          // behind the original. Acceptable for v1.)
+          const b = newBalls[matchedIdx]!;
+          newBalls[matchedIdx] = {
             ...b,
-            worldX: (b.worldX * b.sightings + wx) / n,
-            worldY: (b.worldY * b.sightings + wy) / n,
-            worldZ: (b.worldZ * b.sightings + wz) / n,
-            sightings: n,
+            sightings: b.sightings + 1,
             lastSeen: now,
             lastConfidence: d.confidence,
-            imageUri: dataUri,
-            box: d.box,
           };
-          drawBoxes.push({ ...d.box, ballId: b.id });
+          drawBoxes.push({ ...d.box, number: b.number });
         } else {
-          const id = `ball-${now}-${updatedBalls.length}`;
-          const fresh: TrackedBall = {
-            id,
-            worldX: wx, worldY: wy, worldZ: wz,
-            firstSeen: now, lastSeen: now,
+          newBalls.push({
+            id: added.id,
+            number: added.number,
+            worldX: added.worldX,
+            worldY: added.worldY,
+            worldZ: added.worldZ,
+            firstSeen: now,
+            lastSeen: now,
             sightings: 1,
             lastConfidence: d.confidence,
-            imageUri: dataUri,
-            box: d.box,
-          };
-          updatedBalls.push(fresh);
-          newBalls.push(fresh);
-          drawBoxes.push({ ...d.box, ballId: id });
+          });
+          drawBoxes.push({ ...d.box, number: added.number });
         }
       }
 
-      setBalls(updatedBalls);
-      setBallsLastImage({ uri: dataUri, width: aligned.imageWidth, height: aligned.imageHeight, boxes: drawBoxes });
+      setBalls(newBalls);
+      setBallsLastImage({ uri: dataUri, width: cap.imageWidth, height: cap.imageHeight, boxes: drawBoxes });
     } catch (err) {
       setBallsErr((err as Error).message);
     } finally {
@@ -430,10 +410,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     }
   };
 
-  const clearBalls = () => {
+  const clearBalls = async () => {
+    try { await arRef.current?.clearBalls(); } catch {}
     setBalls([]);
     setBallsLastImage(null);
-    setBallsCameraPose(null);
   };
 
   /** Distance + bearing from current camera pose to a ball. */
@@ -443,7 +423,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     const dy = ball.worldY - pose.worldY;
     const dz = ball.worldZ - pose.worldZ;
     const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    // Project onto forward axis (cos angle) and lateral axes.
     const forward = dx * pose.forwardX + dy * pose.forwardY + dz * pose.forwardZ;
     const right = dx * (pose.upY * pose.forwardZ - pose.upZ * pose.forwardY)
                 + dy * (pose.upZ * pose.forwardX - pose.upX * pose.forwardZ)
@@ -451,9 +430,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     const upDot = dx * pose.upX + dy * pose.upY + dz * pose.upZ;
     return {
       distance,
-      // Bearing angle from forward axis. Positive = right.
       horizontalAngleRad: Math.atan2(right, forward),
-      // Elevation angle from horizontal. Positive = above.
       verticalAngleRad: Math.atan2(upDot, Math.sqrt(forward * forward + right * right)),
     };
   };
@@ -571,9 +548,21 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   return (
     <>
-      {/* Shared top tile — live camera OR live LiDAR depth (lidar + map modes) */}
+      {/* Shared top tile — live AR (balls), live LiDAR depth (lidar/map), or live camera (claude/apple/yolo) */}
       <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
-        {(visionMode === "lidar" || visionMode === "map" || visionMode === "balls") ? (
+        {visionMode === "balls" ? (
+          arViewAvailable ? (
+            <View style={{ width: "100%", aspectRatio: 3 / 4 }}>
+              <LidarARView ref={arRef} style={{ flex: 1 }} />
+            </View>
+          ) : (
+            <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
+              <Text style={{ color: theme.textSubtle, fontSize: 13, textAlign: "center", paddingHorizontal: 24 }}>
+                AR view not in this build — rebuild the app
+              </Text>
+            </View>
+          )
+        ) : (visionMode === "lidar" || visionMode === "map") ? (
           lidarFrame ? (
             <DepthGrid frame={lidarFrame} />
           ) : (
@@ -606,7 +595,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       </View>
 
       {/* Status line under the tile */}
-      {(visionMode === "lidar" || visionMode === "map" || visionMode === "balls") && lidarFrame && (
+      {(visionMode === "lidar" || visionMode === "map") && lidarFrame && (
         <Text style={{ fontSize: 11, color: theme.textMuted, marginBottom: 8, textAlign: "right", paddingHorizontal: 4 }}>
           {lidarFrame.width}×{lidarFrame.height} · {lidarFps} fps · min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m
         </Text>
@@ -1139,29 +1128,19 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       {visionMode === "balls" && (
         <>
           <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-            {!lidarAvailable ? (
-              <Text style={{ fontSize: 13, color: theme.textSubtle }}>LiDAR native module not in this build.</Text>
-            ) : !lidarSupported ? (
-              <Text style={{ fontSize: 13, color: theme.textSubtle }}>No LiDAR sensor on this device.</Text>
+            {!arViewAvailable ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>AR view not in this build.</Text>
             ) : !yoloAvailable || !yoloReady ? (
               <Text style={{ fontSize: 13, color: theme.textSubtle }}>YOLO native module not ready.</Text>
             ) : (
               <>
-                <Pressable
-                  onPress={lidarOn ? stopLidar : startLidar}
-                  style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: lidarOn ? theme.destructive : theme.primary, marginBottom: 8 }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
-                    {lidarOn ? "Stop ARSession" : "Start ARSession (camera + depth)"}
-                  </Text>
-                </Pressable>
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Pressable
                     onPress={captureAndFindBalls}
-                    disabled={!lidarOn || ballsBusy}
-                    style={{ flex: 2, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: lidarOn ? theme.highlight : theme.surfaceAlt, opacity: ballsBusy ? 0.6 : 1 }}
+                    disabled={ballsBusy}
+                    style={{ flex: 2, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: theme.highlight, opacity: ballsBusy ? 0.6 : 1 }}
                   >
-                    <Text style={{ color: lidarOn ? "#fff" : theme.textSubtle, fontSize: 14, fontWeight: "700" }}>
+                    <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>
                       {ballsBusy ? "Searching…" : "Capture & find balls"}
                     </Text>
                   </Pressable>
@@ -1174,7 +1153,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   </Pressable>
                 </View>
                 <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-                  Sweep the area and capture from different angles to refine positions. Balls within 15 cm of an existing track are merged.
+                  Aim at balls on the ground, tap Capture. ARKit raycasts to the floor plane and pins a sphere. Balls within 15 cm of an existing track are merged.
                 </Text>
               </>
             )}
@@ -1190,7 +1169,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               <View style={{ aspectRatio: ballsLastImage.width / ballsLastImage.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
                 <Image source={{ uri: ballsLastImage.uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
                 {ballsLastImage.boxes.map((b, i) => {
-                  const idx = balls.findIndex((x) => x.id === b.ballId);
                   return (
                     <View key={i} style={{
                       position: "absolute",
@@ -1199,7 +1177,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                       borderWidth: 2, borderColor: theme.highlight,
                     }}>
                       <View style={{ position: "absolute", top: -16, left: 0, backgroundColor: theme.highlight, paddingHorizontal: 4, paddingVertical: 1 }}>
-                        <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>#{idx + 1}</Text>
+                        <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>#{b.number}</Text>
                       </View>
                     </View>
                   );
@@ -1221,7 +1199,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                 return (
                   <View key={b.id} style={{ paddingVertical: 8, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>#{i + 1}</Text>
+                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>#{b.number}</Text>
                       <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
                         seen {b.sightings}× · {Math.round((Date.now() - b.lastSeen) / 1000)} s ago
                       </Text>
