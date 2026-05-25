@@ -74,6 +74,9 @@ importers:
       expo-document-picker:
         specifier: ~14.0.8
         version: 14.0.8(expo@54.0.34)
+      expo-gamecontroller:
+        specifier: workspace:*
+        version: link:modules/expo-gamecontroller
       expo-haptics:
         specifier: ~15.0.8
         version: 15.0.8(expo@54.0.34)
@@ -165,6 +168,8 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+
+  apps/mobile/modules/expo-gamecontroller: {}
 
   apps/mobile/modules/expo-lidar: {}
 
