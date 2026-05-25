@@ -12,6 +12,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v81",
+    title: "Object → LiDAR spatial mapping (needs rebuild)",
+    notes: [
+      "New Lab → Vision → Map tab. Start ARSession, tap Capture & map",
+      "ARKit grabs one frame (camera image + depth, time-synced); YOLO runs on it; depth is sampled at each detection",
+      "For each object: label · distance (m) · horizontal angle · vertical angle, plus phone pitch/yaw/roll and barometer-relative altitude at the moment of capture",
+      "Last 20 captures kept; thumbnail strip to switch between them",
+      "Also: camera shutter sound is now silenced app-wide",
+    ],
+  },
+  {
     version: "v80",
     title: "Vision tab: detection modes as tabs + frame review",
     notes: [
