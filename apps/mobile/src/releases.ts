@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v66",
+    title: "Fix Lab crash from Vision tab",
+    pr: 60,
+    notes: [
+      "Camera + LiDAR hooks moved into a sub-component that only mounts when Vision is the active tab",
+      "LiDAR native module loaded defensively — if missing, the section just shows 'not in this build'",
+    ],
+  },
+  {
     version: "v65",
     title: "Camera preview + LiDAR depth (needs rebuild)",
     pr: 59,
