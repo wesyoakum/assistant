@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v68",
+    title: "LiDAR module rename — matches Expo convention",
+    pr: 62,
+    notes: ["Swift class renamed to LidarModule (no Expo prefix), config uses 'apple' platform — fixes autolinking"],
+  },
+  {
     version: "v67",
     title: "LiDAR autolinking fix",
     pr: 61,

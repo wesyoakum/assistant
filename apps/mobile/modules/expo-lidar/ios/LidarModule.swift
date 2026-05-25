@@ -1,7 +1,7 @@
 import ExpoModulesCore
 import ARKit
 
-public class ExpoLidarModule: Module {
+public final class LidarModule: Module {
   private var arSession: ARSession?
   private var sessionDelegate: LidarSessionDelegate?
 
