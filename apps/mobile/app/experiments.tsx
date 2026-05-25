@@ -196,7 +196,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   useEffect(() => () => { yoloLiveRef.current = false; }, []);
 
   // Vision sub-mode — tabs under the camera/depth tile
-  type VisionMode = "claude" | "applevision" | "yolo" | "lidar" | "map";
+  type VisionMode = "claude" | "applevision" | "yolo" | "lidar" | "map" | "balls";
   const [visionMode, setVisionMode] = useState<VisionMode>("claude");
   const VISION_MODE_TABS: { key: VisionMode; label: string }[] = [
     { key: "claude", label: "Claude" },
@@ -204,6 +204,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     { key: "yolo", label: "YOLO" },
     { key: "lidar", label: "LiDAR" },
     { key: "map", label: "Map" },
+    { key: "balls", label: "Balls" },
   ];
 
   // Map mode — ARKit-aligned capture + YOLO + depth → per-object spatial record
@@ -283,6 +284,178 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     } finally {
       setMapBusy(false);
     }
+  };
+
+  // Balls mode — persistent in-session tracking of sports-ball detections in
+  // ARKit world coordinates. Each Capture pulls one aligned ARKit frame,
+  // filters YOLO results to sports_ball, computes world XYZ from
+  // depth + intrinsics + camera transform, and merges with existing balls by
+  // 3D distance. The latest capture's camera pose is kept so we can recompute
+  // distance + bearing for each ball.
+  interface TrackedBall {
+    id: string;
+    worldX: number;
+    worldY: number;
+    worldZ: number;
+    firstSeen: number;
+    lastSeen: number;
+    sightings: number;
+    lastConfidence: number;
+    imageUri: string;
+    /** Normalized box on the imageUri, for the icon thumbnail. */
+    box: { x: number; y: number; width: number; height: number };
+  }
+  interface CameraPose {
+    worldX: number;
+    worldY: number;
+    worldZ: number;
+    /** Forward direction (unit vector) in world frame */
+    forwardX: number;
+    forwardY: number;
+    forwardZ: number;
+    /** Up direction (unit vector) in world frame */
+    upX: number;
+    upY: number;
+    upZ: number;
+  }
+  const [balls, setBalls] = useState<TrackedBall[]>([]);
+  const [ballsCameraPose, setBallsCameraPose] = useState<CameraPose | null>(null);
+  const [ballsBusy, setBallsBusy] = useState(false);
+  const [ballsErr, setBallsErr] = useState<string | null>(null);
+  const [ballsLastImage, setBallsLastImage] = useState<{ uri: string; width: number; height: number; boxes: { x: number; y: number; width: number; height: number; ballId: string }[] } | null>(null);
+
+  const captureAndFindBalls = async () => {
+    if (!yoloReady) { setBallsErr("YOLO model not ready"); return; }
+    if (!lidarOn) { setBallsErr("Start LiDAR (above) first — ARSession must be running"); return; }
+    setBallsBusy(true);
+    setBallsErr(null);
+    try {
+      const aligned = await Lidar.captureAlignedFrame(0.7);
+      const dataUri = `data:image/jpeg;base64,${aligned.imageBase64}`;
+      const yoloRes = await Yolo.detect(dataUri, { minConfidence: 0.2 });
+
+      // ARKit camera-to-world transform (column-major, 16 floats).
+      // Camera frame: +x right, +y up, -z forward.
+      // Column 0 = camera-right in world, col 1 = camera-up in world,
+      // col 2 = camera-back in world, col 3 = camera position in world.
+      const T = aligned.transform4x4;
+      const rightX = T[0]!, rightY = T[1]!, rightZ = T[2]!;
+      const upX = T[4]!, upY = T[5]!, upZ = T[6]!;
+      const backX = T[8]!, backY = T[9]!, backZ = T[10]!;
+      const camX = T[12]!, camY = T[13]!, camZ = T[14]!;
+      const forwardX = -backX, forwardY = -backY, forwardZ = -backZ;
+
+      const pose: CameraPose = {
+        worldX: camX, worldY: camY, worldZ: camZ,
+        forwardX, forwardY, forwardZ,
+        upX, upY, upZ,
+      };
+      setBallsCameraPose(pose);
+
+      const depth = decodeDepthBuffer(aligned.depthBase64);
+      const { fx, fy, cx, cy, imageWidth: intrW, imageHeight: intrH } = aligned.intrinsics;
+
+      const newBalls: TrackedBall[] = [];
+      const drawBoxes: { x: number; y: number; width: number; height: number; ballId: string }[] = [];
+      const updatedBalls = [...balls];
+      const now = Date.now();
+
+      for (const d of yoloRes.detections) {
+        if (d.label !== "sports ball") continue;
+        const nx = d.box.x + d.box.width / 2;
+        const ny = d.box.y + d.box.height / 2;
+        const distance = sampleDepth(depth, aligned.depthWidth, aligned.depthHeight, nx, ny);
+        if (distance == null) continue;
+
+        // Camera-frame XYZ in meters
+        const px = nx * intrW;
+        const py = ny * intrH;
+        const xCam = (px - cx) * distance / fx;
+        const yCam = -(py - cy) * distance / fy;  // flip y (image down → camera up)
+        const zCam = -distance;                    // forward is -z in ARKit
+        // Transform to world: world = T * (xCam, yCam, zCam, 1)
+        const wx = T[0]! * xCam + T[4]! * yCam + T[8]!  * zCam + T[12]!;
+        const wy = T[1]! * xCam + T[5]! * yCam + T[9]!  * zCam + T[13]!;
+        const wz = T[2]! * xCam + T[6]! * yCam + T[10]! * zCam + T[14]!;
+
+        // Match against existing balls (3D distance threshold)
+        const THRESHOLD_M = 0.15;
+        let matchedIdx = -1;
+        let bestDist = THRESHOLD_M;
+        for (let i = 0; i < updatedBalls.length; i++) {
+          const b = updatedBalls[i]!;
+          const dx = b.worldX - wx, dy = b.worldY - wy, dz = b.worldZ - wz;
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (dist < bestDist) { bestDist = dist; matchedIdx = i; }
+        }
+        if (matchedIdx >= 0) {
+          const b = updatedBalls[matchedIdx]!;
+          // Running-average position (smooths noise across sightings)
+          const n = b.sightings + 1;
+          updatedBalls[matchedIdx] = {
+            ...b,
+            worldX: (b.worldX * b.sightings + wx) / n,
+            worldY: (b.worldY * b.sightings + wy) / n,
+            worldZ: (b.worldZ * b.sightings + wz) / n,
+            sightings: n,
+            lastSeen: now,
+            lastConfidence: d.confidence,
+            imageUri: dataUri,
+            box: d.box,
+          };
+          drawBoxes.push({ ...d.box, ballId: b.id });
+        } else {
+          const id = `ball-${now}-${updatedBalls.length}`;
+          const fresh: TrackedBall = {
+            id,
+            worldX: wx, worldY: wy, worldZ: wz,
+            firstSeen: now, lastSeen: now,
+            sightings: 1,
+            lastConfidence: d.confidence,
+            imageUri: dataUri,
+            box: d.box,
+          };
+          updatedBalls.push(fresh);
+          newBalls.push(fresh);
+          drawBoxes.push({ ...d.box, ballId: id });
+        }
+      }
+
+      setBalls(updatedBalls);
+      setBallsLastImage({ uri: dataUri, width: aligned.imageWidth, height: aligned.imageHeight, boxes: drawBoxes });
+    } catch (err) {
+      setBallsErr((err as Error).message);
+    } finally {
+      setBallsBusy(false);
+    }
+  };
+
+  const clearBalls = () => {
+    setBalls([]);
+    setBallsLastImage(null);
+    setBallsCameraPose(null);
+  };
+
+  /** Distance + bearing from current camera pose to a ball. */
+  const ballRelative = (ball: TrackedBall, pose: CameraPose | null) => {
+    if (!pose) return null;
+    const dx = ball.worldX - pose.worldX;
+    const dy = ball.worldY - pose.worldY;
+    const dz = ball.worldZ - pose.worldZ;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    // Project onto forward axis (cos angle) and lateral axes.
+    const forward = dx * pose.forwardX + dy * pose.forwardY + dz * pose.forwardZ;
+    const right = dx * (pose.upY * pose.forwardZ - pose.upZ * pose.forwardY)
+                + dy * (pose.upZ * pose.forwardX - pose.upX * pose.forwardZ)
+                + dz * (pose.upX * pose.forwardY - pose.upY * pose.forwardX);
+    const upDot = dx * pose.upX + dy * pose.upY + dz * pose.upZ;
+    return {
+      distance,
+      // Bearing angle from forward axis. Positive = right.
+      horizontalAngleRad: Math.atan2(right, forward),
+      // Elevation angle from horizontal. Positive = above.
+      verticalAngleRad: Math.atan2(upDot, Math.sqrt(forward * forward + right * right)),
+    };
   };
 
   // Apple Vision (on-device) — faces / text / barcodes
@@ -400,7 +573,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     <>
       {/* Shared top tile — live camera OR live LiDAR depth (lidar + map modes) */}
       <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
-        {(visionMode === "lidar" || visionMode === "map") ? (
+        {(visionMode === "lidar" || visionMode === "map" || visionMode === "balls") ? (
           lidarFrame ? (
             <DepthGrid frame={lidarFrame} />
           ) : (
@@ -433,7 +606,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       </View>
 
       {/* Status line under the tile */}
-      {(visionMode === "lidar" || visionMode === "map") && lidarFrame && (
+      {(visionMode === "lidar" || visionMode === "map" || visionMode === "balls") && lidarFrame && (
         <Text style={{ fontSize: 11, color: theme.textMuted, marginBottom: 8, textAlign: "right", paddingHorizontal: 4 }}>
           {lidarFrame.width}×{lidarFrame.height} · {lidarFps} fps · min {lidarFrame.minMeters.toFixed(2)} m · max {lidarFrame.maxMeters.toFixed(2)} m
         </Text>
@@ -466,8 +639,8 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       </View>
 
       {/* Top-tile controls: start/stop the right hardware.
-          Map mode has its own controls inside the per-mode body. */}
-      {visionMode === "map" ? null : visionMode === "lidar" ? (
+          Map / Balls modes have their own controls inside the per-mode body. */}
+      {(visionMode === "map" || visionMode === "balls") ? null : visionMode === "lidar" ? (
         <View style={[styles.card, { padding: 14, marginBottom: 14 }]}>
           <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
             Resolution
@@ -960,6 +1133,118 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               </>
             );
           })()}
+        </>
+      )}
+
+      {visionMode === "balls" && (
+        <>
+          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+            {!lidarAvailable ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>LiDAR native module not in this build.</Text>
+            ) : !lidarSupported ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>No LiDAR sensor on this device.</Text>
+            ) : !yoloAvailable || !yoloReady ? (
+              <Text style={{ fontSize: 13, color: theme.textSubtle }}>YOLO native module not ready.</Text>
+            ) : (
+              <>
+                <Pressable
+                  onPress={lidarOn ? stopLidar : startLidar}
+                  style={{ paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: lidarOn ? theme.destructive : theme.primary, marginBottom: 8 }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>
+                    {lidarOn ? "Stop ARSession" : "Start ARSession (camera + depth)"}
+                  </Text>
+                </Pressable>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={captureAndFindBalls}
+                    disabled={!lidarOn || ballsBusy}
+                    style={{ flex: 2, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: lidarOn ? theme.highlight : theme.surfaceAlt, opacity: ballsBusy ? 0.6 : 1 }}
+                  >
+                    <Text style={{ color: lidarOn ? "#fff" : theme.textSubtle, fontSize: 14, fontWeight: "700" }}>
+                      {ballsBusy ? "Searching…" : "Capture & find balls"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={clearBalls}
+                    disabled={balls.length === 0}
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: balls.length === 0 ? 0.4 : 1 }}
+                  >
+                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>Clear</Text>
+                  </Pressable>
+                </View>
+                <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
+                  Sweep the area and capture from different angles to refine positions. Balls within 15 cm of an existing track are merged.
+                </Text>
+              </>
+            )}
+          </View>
+          {ballsErr && (
+            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 12, color: theme.destructive }}>{ballsErr}</Text>
+            </View>
+          )}
+
+          {ballsLastImage && (
+            <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+              <View style={{ aspectRatio: ballsLastImage.width / ballsLastImage.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
+                <Image source={{ uri: ballsLastImage.uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
+                {ballsLastImage.boxes.map((b, i) => {
+                  const idx = balls.findIndex((x) => x.id === b.ballId);
+                  return (
+                    <View key={i} style={{
+                      position: "absolute",
+                      left: `${b.x * 100}%`, top: `${b.y * 100}%`,
+                      width: `${b.width * 100}%`, height: `${b.height * 100}%`,
+                      borderWidth: 2, borderColor: theme.highlight,
+                    }}>
+                      <View style={{ position: "absolute", top: -16, left: 0, backgroundColor: theme.highlight, paddingHorizontal: 4, paddingVertical: 1 }}>
+                        <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700" }}>#{idx + 1}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+              <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "right" }}>
+                {ballsLastImage.boxes.length} ball{ballsLastImage.boxes.length === 1 ? "" : "s"} in last capture · {balls.length} tracked total
+              </Text>
+            </View>
+          )}
+
+          {balls.length > 0 && (
+            <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+                Tracked balls ({balls.length})
+              </Text>
+              {balls.map((b, i) => {
+                const rel = ballRelative(b, ballsCameraPose);
+                return (
+                  <View key={b.id} style={{ paddingVertical: 8, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>#{i + 1}</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                        seen {b.sightings}× · {Math.round((Date.now() - b.lastSeen) / 1000)} s ago
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
+                      <Text style={{ fontSize: 11, color: theme.textSubtle }}>World (x, y, z)</Text>
+                      <Text style={{ fontSize: 11, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                        {b.worldX.toFixed(2)}, {b.worldY.toFixed(2)}, {b.worldZ.toFixed(2)}
+                      </Text>
+                    </View>
+                    {rel && (
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 2 }}>
+                        <Text style={{ fontSize: 11, color: theme.textSubtle }}>From phone</Text>
+                        <Text style={{ fontSize: 11, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                          {rel.distance.toFixed(2)} m · {((rel.horizontalAngleRad * 180) / Math.PI).toFixed(0)}° h · {((rel.verticalAngleRad * 180) / Math.PI).toFixed(0)}° v
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </>
       )}
     </>

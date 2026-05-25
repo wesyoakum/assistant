@@ -12,6 +12,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v82",
+    title: "Balls: ARKit-tracked ball locations (Phase 1)",
+    notes: [
+      "New Lab → Vision → Balls mode. Start ARSession, sweep the area, tap Capture & find balls",
+      "Each capture filters YOLO to sports balls and computes world XYZ from depth + intrinsics + camera transform",
+      "Balls within 15 cm of an existing track are merged; positions averaged across sightings",
+      "List shows world XYZ, sightings count, and live distance / bearing / elevation from the latest capture's camera pose",
+      "Next phase: continuous detection + AR overlay",
+    ],
+  },
+  {
     version: "v81",
     title: "Object → LiDAR spatial mapping (needs rebuild)",
     notes: [
