@@ -12,6 +12,11 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v73",
+    title: "LiDAR: native bitmap render (smooth at 256×192)",
+    notes: ["Swift colorizes + rotates the depth frame and ships a PNG; JS just draws an <Image>. Full-res no longer chokes the view tree"],
+  },
+  {
     version: "v72",
     title: "LiDAR: selectable resolution + fps counter",
     pr: 66,

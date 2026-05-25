@@ -20,10 +20,10 @@ try {
 export interface DepthFrame {
   width: number;
   height: number;
-  /** Per-pixel depth in meters. Length = width * height. 0 = invalid. */
-  depth: number[];
   minMeters: number;
   maxMeters: number;
+  /** PNG, base64-encoded. Already colorized + rotated to portrait by native. */
+  imageBase64: string;
 }
 
 export const Lidar = {
