@@ -12,6 +12,12 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v67",
+    title: "LiDAR autolinking fix",
+    pr: 61,
+    notes: ["Tells EAS Build where to find local native modules — fixes LiDAR being missing from the binary"],
+  },
+  {
     version: "v66",
     title: "Fix Lab crash from Vision tab",
     pr: 60,
