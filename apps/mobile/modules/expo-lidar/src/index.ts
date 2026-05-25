@@ -8,7 +8,14 @@ interface NativeModule {
   addListener: (event: string, callback: (payload: DepthFrame) => void) => EventSubscription;
 }
 
-const NativeLidar = requireNativeModule<NativeModule>("ExpoLidar");
+// Wrap module load so an OTA that ships this JS to an older binary
+// without the native module doesn't crash the entire screen.
+let NativeLidar: NativeModule | null = null;
+try {
+  NativeLidar = requireNativeModule<NativeModule>("ExpoLidar");
+} catch {
+  NativeLidar = null;
+}
 
 export interface DepthFrame {
   width: number;
@@ -20,20 +27,21 @@ export interface DepthFrame {
 }
 
 export const Lidar = {
+  available(): boolean { return NativeLidar !== null; },
   isSupported(): boolean {
-    try {
-      return NativeLidar.isSupported();
-    } catch {
-      return false;
-    }
+    if (!NativeLidar) return false;
+    try { return NativeLidar.isSupported(); } catch { return false; }
   },
   startSession(opts: { width?: number; height?: number; throttleMs?: number } = {}): Promise<void> {
+    if (!NativeLidar) return Promise.reject(new Error("LiDAR native module not in this build"));
     return NativeLidar.startSession(opts.width ?? 32, opts.height ?? 24, opts.throttleMs ?? 100);
   },
   stopSession(): Promise<void> {
+    if (!NativeLidar) return Promise.resolve();
     return NativeLidar.stopSession();
   },
   addDepthListener(cb: (frame: DepthFrame) => void): EventSubscription {
+    if (!NativeLidar) return { remove: () => {} } as EventSubscription;
     return NativeLidar.addListener("onDepth", cb);
   },
 };

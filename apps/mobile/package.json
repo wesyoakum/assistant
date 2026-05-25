@@ -30,7 +30,7 @@
     "expo-document-picker": "~14.0.8",
     "expo-haptics": "~15.0.8",
     "expo-image-picker": "~17.0.11",
-    "expo-lidar": "file:./modules/expo-lidar",
+    "expo-lidar": "workspace:*",
     "expo-linking": "~8.0.12",
     "expo-location": "~19.0.8",
     "expo-network": "~8.0.8",
