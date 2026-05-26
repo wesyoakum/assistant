@@ -434,6 +434,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     timestamp: number;
     rawDetectionCount: number;
     sportsBallCount: number;
+    /** Every YOLO detection's label + confidence, regardless of class. Useful
+     *  for diagnosing "why isn't my object detected?" when COCO classes
+     *  don't match the actual object (e.g. baseball classified as donut). */
+    rawDetections: { label: string; confidence: number }[];
     perDetection: DetectionReport[];
     revalidation: RevalidationReport[];
   }
@@ -493,6 +497,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       const dataUri = `data:image/jpeg;base64,${cap.imageBase64}`;
       const yoloRes = await Yolo.detect(dataUri, { minConfidence: t.yoloMinConf });
       rawDetectionCount = yoloRes.detections.length;
+      const rawDetections = yoloRes.detections.map((d) => ({ label: d.label, confidence: d.confidence }));
 
       const camT = await arRef.current.currentCameraTransform();
       const camX = camT?.[12] ?? 0, camY = camT?.[13] ?? 0, camZ = camT?.[14] ?? 0;
@@ -643,6 +648,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         timestamp: now,
         rawDetectionCount,
         sportsBallCount,
+        rawDetections,
         perDetection,
         revalidation: revalidationReports,
       });
@@ -1687,6 +1693,29 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                     </Text>
                   </View>
                 ))
+              )}
+              {telemetry.rawDetections.length > 0 && (
+                <>
+                  <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginTop: 8, marginBottom: 4 }}>
+                    Raw YOLO labels ({telemetry.rawDetections.length})
+                  </Text>
+                  {telemetry.rawDetections
+                    .slice()
+                    .sort((a, b) => b.confidence - a.confidence)
+                    .map((rd, i) => (
+                      <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 1 }}>
+                        <Text
+                          style={{ fontSize: 11, color: rd.label === "sports ball" ? theme.primary : theme.text, flex: 1 }}
+                          numberOfLines={1}
+                        >
+                          {rd.label}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                          {(rd.confidence * 100).toFixed(0)}%
+                        </Text>
+                      </View>
+                    ))}
+                </>
               )}
               {telemetry.revalidation.length > 0 && (
                 <>
