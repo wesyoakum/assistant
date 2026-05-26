@@ -23,11 +23,12 @@ Pod::Spec.new do |s|
 
   s.source_files = '**/*.{h,m,mm,swift}'
 
-  # The .mlmodel gets compiled to .mlmodelc by Xcode's build phase and
-  # bundled into the app. We resource_bundle it so the compiled output
-  # ships in its own bundle and we can locate it deterministically.
+  # .mlpackage (Core ML's modern bundle format) gets compiled to .mlmodelc
+  # by Xcode's build phase and bundled into the app. We resource_bundle it
+  # so the compiled output ships in its own bundle and we can locate it
+  # deterministically.
   s.resource_bundles = {
-    'ExpoYoloModels' => ['*.mlmodel']
+    'ExpoYoloModels' => ['*.mlpackage', '*.mlmodel']
   }
 
   s.frameworks = 'Vision', 'CoreML', 'UIKit'

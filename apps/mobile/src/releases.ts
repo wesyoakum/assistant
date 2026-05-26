@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v85",
+    title: "YOLOv8n + continuous detection (needs rebuild)",
+    notes: [
+      "Swapped YOLOv3-Tiny for YOLOv8n (newer model, similar size). Meaningfully better at small/distant objects",
+      "Balls mode has a Live button now — continuous capture loop at ~2 fps; balls accumulate / auto-confirm as you sweep",
+      "Snapshot button still there for single-shot",
+    ],
+  },
+  {
     version: "v84",
     title: "Balls: candidate / confirmed lifecycle + farther detection (needs rebuild)",
     notes: [
