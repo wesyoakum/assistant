@@ -12,6 +12,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v88",
+    title: "Balls: three tiers + distance-aware confidence + auto-revalidation (needs rebuild)",
+    notes: [
+      "Spheres now color-coded: candidate (yellow), probable (cyan), confirmed (fuchsia)",
+      "Distance-tiered YOLO confidence: strict ≥0.45 within 2 m, looser ≥0.15 at 6–8 m, skip past 8 m",
+      "Close-up high-confidence detections (< 2 m, ≥0.45) skip straight to confirmed in one shot",
+      "Auto-revalidation: a tracked ball that's in view and within 3 m but not detected on 3 consecutive captures gets removed",
+      "New Reset AR button wipes ARKit's world map and every anchor",
+    ],
+  },
+  {
     version: "v87",
     title: "Balls: AR overlays — planes / mesh / feature points (needs rebuild)",
     notes: [

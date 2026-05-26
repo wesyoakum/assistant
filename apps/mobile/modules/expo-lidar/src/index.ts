@@ -110,7 +110,15 @@ export interface LidarARViewRef {
   currentCameraTransform: () => Promise<number[] | null>;
   /** Capture the current camera image (rotated to portrait, JPEG base64). */
   captureViewImage: (jpegQuality?: number) => Promise<{ imageBase64: string; imageWidth: number; imageHeight: number } | null>;
+  /** Wipe the ARKit world map + every anchor (planes, mesh, balls). Use to start fresh. */
+  resetSession: () => Promise<void>;
+  /** Project a world point to view-bounds-normalized screen coords + a "behind camera" flag. */
+  projectWorldPoint: (worldX: number, worldY: number, worldZ: number) => Promise<{ screenX: number; screenY: number; isInFront: boolean; depth: number } | null>;
+  /** Update the rendered sphere color for one ball anchor. State = "candidate" | "probable" | "confirmed". */
+  setBallState: (id: string, state: "candidate" | "probable" | "confirmed") => Promise<void>;
 }
+
+export type BallState = "candidate" | "probable" | "confirmed";
 
 let NativeARView: React.ComponentType<ViewProps> | null = null;
 try {
