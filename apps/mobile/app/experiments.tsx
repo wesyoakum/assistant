@@ -430,6 +430,32 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     setBallsLastImage(null);
   };
 
+  // Continuous detection — runs captureAndFindBalls in a loop while active
+  const [ballsLive, setBallsLive] = useState(false);
+  const ballsLiveRef = useRef(false);
+  const startBallsLive = async () => {
+    if (!arRef.current || !yoloReady) return;
+    ballsLiveRef.current = true;
+    setBallsLive(true);
+    while (ballsLiveRef.current) {
+      await captureAndFindBalls();
+      // Small breather so the JS thread + GPU don't melt; bumps to ~2 fps
+      await new Promise<void>((r) => setTimeout(r, 100));
+    }
+  };
+  const stopBallsLive = () => {
+    ballsLiveRef.current = false;
+    setBallsLive(false);
+  };
+  useEffect(() => () => { ballsLiveRef.current = false; }, []);
+  // Auto-stop continuous when leaving Balls tab
+  useEffect(() => {
+    if (visionMode !== "balls" && ballsLiveRef.current) {
+      ballsLiveRef.current = false;
+      setBallsLive(false);
+    }
+  }, [visionMode]);
+
   const confirmBall = (id: string) => {
     setBalls((prev) => prev.map((b) => b.id === id ? { ...b, status: "confirmed" } : b));
   };
@@ -911,7 +937,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   </Pressable>
                 </View>
                 <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-                  YOLOv3-Tiny on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
+                  YOLOv8n on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
                 </Text>
               </>
             )}
@@ -1165,11 +1191,19 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                 <View style={{ flexDirection: "row", gap: 8 }}>
                   <Pressable
                     onPress={captureAndFindBalls}
-                    disabled={ballsBusy}
-                    style={{ flex: 2, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: theme.highlight, opacity: ballsBusy ? 0.6 : 1 }}
+                    disabled={ballsBusy || ballsLive}
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: theme.highlight, opacity: (ballsBusy || ballsLive) ? 0.4 : 1 }}
                   >
-                    <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>
-                      {ballsBusy ? "Searching…" : "Capture & find balls"}
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                      {ballsBusy ? "Searching…" : "Snapshot"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={ballsLive ? stopBallsLive : startBallsLive}
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: ballsLive ? theme.destructive : theme.primary }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                      {ballsLive ? "Stop live" : "Live"}
                     </Text>
                   </Pressable>
                   <Pressable
