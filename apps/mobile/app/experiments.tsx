@@ -308,29 +308,66 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
      *  not matched to any YOLO detection. At 3, the ball is removed. */
     missCount: number;
   }
-  const BALL_NEW_CONF = 0.1;          // YOLO threshold for proposing a ball
-  const BALL_DEDUP_M = 0.25;          // 3D distance threshold for "same ball"
-  // Distance-tiered confidence: YOLO detections below the tier's minimum
-  // are rejected before anchoring. Beyond TIER_MAX m we skip entirely.
-  const TIER_MAX = 8.0;
-  const tierMinConf = (distance: number): number => {
-    if (distance < 2.0) return 0.45;
-    if (distance < 4.0) return 0.30;
-    if (distance < 6.0) return 0.20;
-    if (distance < 8.0) return 0.15;
-    return Infinity;  // skip
+  // ---- Tunable knobs (live-adjustable via Dev panel) ----
+  interface BallTunables {
+    yoloMinConf: number;
+    captureQuality: number;
+    tierMax: number;
+    tier1Dist: number; tier1Conf: number;
+    tier2Dist: number; tier2Conf: number;
+    tier3Dist: number; tier3Conf: number;
+    tier4Dist: number; tier4Conf: number;
+    dedupM: number;
+    probableSightings: number;
+    probableConf: number;
+    confirmedSightings: number;
+    confirmedConf: number;
+    immediateConfirmRange: number;
+    immediateConfirmConf: number;
+    revalidateMaxDist: number;
+    revalidateScreenTolerance: number;
+    revalidateMissLimit: number;
+  }
+  const DEFAULT_TUNABLES: BallTunables = {
+    yoloMinConf: 0.10,
+    captureQuality: 0.90,
+    tierMax: 8.0,
+    tier1Dist: 2.0, tier1Conf: 0.45,
+    tier2Dist: 4.0, tier2Conf: 0.30,
+    tier3Dist: 6.0, tier3Conf: 0.20,
+    tier4Dist: 8.0, tier4Conf: 0.15,
+    dedupM: 0.25,
+    probableSightings: 2,
+    probableConf: 0.30,
+    confirmedSightings: 3,
+    confirmedConf: 0.45,
+    immediateConfirmRange: 2.0,
+    immediateConfirmConf: 0.45,
+    revalidateMaxDist: 3.0,
+    revalidateScreenTolerance: 0.10,
+    revalidateMissLimit: 3,
   };
-  // Promotion thresholds
-  const PROBABLE_SIGHTINGS = 2;
-  const PROBABLE_CONF = 0.30;
-  const CONFIRMED_SIGHTINGS = 3;
-  const CONFIRMED_CONF = 0.45;
-  const IMMEDIATE_CONFIRM_RANGE = 2.0;
-  const IMMEDIATE_CONFIRM_CONF = 0.45;
-  // Revalidation: we only trust "didn't see it" within this range.
-  const REVALIDATE_MAX_DIST = 3.0;
-  const REVALIDATE_SCREEN_TOLERANCE = 0.10;  // 10% of view bounds
-  const REVALIDATE_MISS_LIMIT = 3;
+  const [tunables, setTunables] = useState<BallTunables>(DEFAULT_TUNABLES);
+  // Hold a ref so the running Live loop always sees the latest values
+  // without restart when the user drags a slider.
+  const tunablesRef = useRef(tunables);
+  useEffect(() => { tunablesRef.current = tunables; }, [tunables]);
+  const [devOpen, setDevOpen] = useState(false);
+
+  const tierMinConf = (distance: number, t = tunablesRef.current): number => {
+    if (distance < t.tier1Dist) return t.tier1Conf;
+    if (distance < t.tier2Dist) return t.tier2Conf;
+    if (distance < t.tier3Dist) return t.tier3Conf;
+    if (distance < t.tier4Dist) return t.tier4Conf;
+    return Infinity;
+  };
+  const tierLabel = (distance: number, t = tunablesRef.current): string => {
+    if (distance < t.tier1Dist) return `<${t.tier1Dist}m`;
+    if (distance < t.tier2Dist) return `${t.tier1Dist}-${t.tier2Dist}m`;
+    if (distance < t.tier3Dist) return `${t.tier2Dist}-${t.tier3Dist}m`;
+    if (distance < t.tier4Dist) return `${t.tier3Dist}-${t.tier4Dist}m`;
+    return `>${t.tier4Dist}m`;
+  };
 
   /** Tier ordering for picking a "keeper" during cluster merge / dedup. */
   const stateRank = (s: BallState): number =>
@@ -341,15 +378,38 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     sightings: number,
     lastConfidence: number,
     captureDistance: number,
+    t = tunablesRef.current,
   ): BallState => {
-    // Once you're confirmed, you stay confirmed (this run, anyway).
     if (current === "confirmed") return "confirmed";
-    if (captureDistance < IMMEDIATE_CONFIRM_RANGE && lastConfidence >= IMMEDIATE_CONFIRM_CONF) return "confirmed";
-    if (sightings >= CONFIRMED_SIGHTINGS && lastConfidence >= CONFIRMED_CONF) return "confirmed";
+    if (captureDistance < t.immediateConfirmRange && lastConfidence >= t.immediateConfirmConf) return "confirmed";
+    if (sightings >= t.confirmedSightings && lastConfidence >= t.confirmedConf) return "confirmed";
     if (current === "probable") return "probable";
-    if (sightings >= PROBABLE_SIGHTINGS && lastConfidence >= PROBABLE_CONF) return "probable";
+    if (sightings >= t.probableSightings && lastConfidence >= t.probableConf) return "probable";
     return "candidate";
   };
+
+  // Diagnostic telemetry for the last capture
+  interface DetectionReport {
+    confidence: number;
+    distance: number | null;
+    decision: string;
+    ballNumber?: number;
+    state?: BallState;
+  }
+  interface RevalidationReport {
+    ballNumber: number;
+    outcome: "still" | "miss" | "deleted" | "out-of-range" | "off-screen";
+    missCount: number;
+    distance: number;
+  }
+  interface CaptureTelemetry {
+    timestamp: number;
+    rawDetectionCount: number;
+    sportsBallCount: number;
+    perDetection: DetectionReport[];
+    revalidation: RevalidationReport[];
+  }
+  const [telemetry, setTelemetry] = useState<CaptureTelemetry | null>(null);
   interface CameraPose {
     worldX: number;
     worldY: number;
@@ -394,19 +454,23 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     if (!yoloReady) { setBallsErr("YOLO model not ready"); return; }
     setBallsBusy(true);
     setBallsErr(null);
+    const t = tunablesRef.current;
+    const perDetection: DetectionReport[] = [];
+    const revalidationReports: RevalidationReport[] = [];
+    let sportsBallCount = 0;
+    let rawDetectionCount = 0;
     try {
-      const cap = await arRef.current.captureViewImage(0.9);
+      const cap = await arRef.current.captureViewImage(t.captureQuality);
       if (!cap) { setBallsErr("No frame yet — give ARKit a moment to start"); return; }
       const dataUri = `data:image/jpeg;base64,${cap.imageBase64}`;
-      const yoloRes = await Yolo.detect(dataUri, { minConfidence: BALL_NEW_CONF });
+      const yoloRes = await Yolo.detect(dataUri, { minConfidence: t.yoloMinConf });
+      rawDetectionCount = yoloRes.detections.length;
 
-      // Camera pose at capture time, for distance + revalidation projection.
       const camT = await arRef.current.currentCameraTransform();
       const camX = camT?.[12] ?? 0, camY = camT?.[13] ?? 0, camZ = camT?.[14] ?? 0;
       const distFromCamera = (wx: number, wy: number, wz: number) =>
         Math.sqrt((wx - camX) ** 2 + (wy - camY) ** 2 + (wz - camZ) ** 2);
 
-      // Refresh tracked-ball positions from ARKit; drop any ARKit removed.
       const liveAnchors = await arRef.current.listBalls().catch(() => [] as BallAnchor[]);
       const liveById = new Map(liveAnchors.map((a) => [a.id, a]));
       let newBalls: TrackedBall[] = balls
@@ -421,27 +485,38 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       const yoloBallDetections: { nx: number; ny: number; confidence: number }[] = [];
       const now = Date.now();
 
-      // --- Detection + anchoring + dedup ---------------------------------
       for (const d of yoloRes.detections) {
         if (d.label !== "sports ball") continue;
+        sportsBallCount++;
         const nx = d.box.x + d.box.width / 2;
         const ny = d.box.y + d.box.height / 2;
         yoloBallDetections.push({ nx, ny, confidence: d.confidence });
 
-        // Probe with a raycast first to find out where the ball would land.
         const added = await arRef.current.addBallAtScreenPoint(nx, ny, 0.035);
-        if (!added) continue;  // raycast missed
-
-        // Distance-tier confidence gate
-        const dist = distFromCamera(added.worldX, added.worldY, added.worldZ);
-        if (dist > TIER_MAX || d.confidence < tierMinConf(dist)) {
-          await arRef.current.removeBall(added.id).catch(() => {});
+        if (!added) {
+          perDetection.push({ confidence: d.confidence, distance: null, decision: "raycast missed (no floor below)" });
           continue;
         }
 
-        // Dedup against tracked balls
+        const dist = distFromCamera(added.worldX, added.worldY, added.worldZ);
+        if (dist > t.tierMax) {
+          await arRef.current.removeBall(added.id).catch(() => {});
+          perDetection.push({ confidence: d.confidence, distance: dist, decision: `beyond tierMax (${t.tierMax.toFixed(1)}m)` });
+          continue;
+        }
+        const tierFloor = tierMinConf(dist, t);
+        if (d.confidence < tierFloor) {
+          await arRef.current.removeBall(added.id).catch(() => {});
+          perDetection.push({
+            confidence: d.confidence,
+            distance: dist,
+            decision: `conf < tier ${tierLabel(dist, t)} floor (${tierFloor.toFixed(2)})`,
+          });
+          continue;
+        }
+
         let matchedIdx = -1;
-        let bestDist = BALL_DEDUP_M;
+        let bestDist = t.dedupM;
         for (let i = 0; i < newBalls.length; i++) {
           const b = newBalls[i]!;
           const dx = b.worldX - added.worldX;
@@ -452,90 +527,91 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         }
 
         if (matchedIdx >= 0) {
-          // Duplicate of an existing tracked ball — drop the new anchor,
-          // update the existing track's stats and possibly promote its state.
           await arRef.current.removeBall(added.id).catch(() => {});
           const b = newBalls[matchedIdx]!;
           const sightings = b.sightings + 1;
-          const newStatus = promotedState(b.status, sightings, d.confidence, dist);
+          const newStatus = promotedState(b.status, sightings, d.confidence, dist, t);
           if (newStatus !== b.status) {
             await arRef.current.setBallState(b.id, newStatus).catch(() => {});
           }
           newBalls[matchedIdx] = {
-            ...b,
-            sightings,
-            lastSeen: now,
-            lastConfidence: d.confidence,
-            status: newStatus,
-            missCount: 0,
+            ...b, sightings, lastSeen: now, lastConfidence: d.confidence, status: newStatus, missCount: 0,
           };
           matchedIds.add(b.id);
           drawBoxes.push({ ...d.box, number: b.number });
+          perDetection.push({
+            confidence: d.confidence, distance: dist,
+            decision: `merged into #${b.number} (${newStatus})`, ballNumber: b.number, state: newStatus,
+          });
         } else {
-          // Brand new ball.
-          const startStatus = promotedState("candidate", 1, d.confidence, dist);
+          const startStatus = promotedState("candidate", 1, d.confidence, dist, t);
           if (startStatus !== "candidate") {
             await arRef.current.setBallState(added.id, startStatus).catch(() => {});
           }
           newBalls.push({
-            id: added.id,
-            number: added.number,
-            worldX: added.worldX,
-            worldY: added.worldY,
-            worldZ: added.worldZ,
-            firstSeen: now,
-            lastSeen: now,
-            sightings: 1,
-            lastConfidence: d.confidence,
-            status: startStatus,
-            missCount: 0,
+            id: added.id, number: added.number,
+            worldX: added.worldX, worldY: added.worldY, worldZ: added.worldZ,
+            firstSeen: now, lastSeen: now, sightings: 1, lastConfidence: d.confidence,
+            status: startStatus, missCount: 0,
           });
           matchedIds.add(added.id);
           drawBoxes.push({ ...d.box, number: added.number });
+          perDetection.push({
+            confidence: d.confidence, distance: dist,
+            decision: `new #${added.number} (${startStatus})`, ballNumber: added.number, state: startStatus,
+          });
         }
       }
 
-      // --- Revalidation: delete balls we should have seen but didn't -----
+      // --- Revalidation -------------------------------------------------
       const stillTracked: TrackedBall[] = [];
       for (const b of newBalls) {
         if (matchedIds.has(b.id)) { stillTracked.push(b); continue; }
 
         const ballDist = distFromCamera(b.worldX, b.worldY, b.worldZ);
-        if (ballDist > REVALIDATE_MAX_DIST) { stillTracked.push(b); continue; }
-
-        const proj = await arRef.current.projectWorldPoint(b.worldX, b.worldY, b.worldZ).catch(() => null);
-        if (!proj || !proj.isInFront) { stillTracked.push(b); continue; }
-        if (proj.screenX < 0 || proj.screenX > 1 || proj.screenY < 0 || proj.screenY > 1) {
+        if (ballDist > t.revalidateMaxDist) {
           stillTracked.push(b);
+          revalidationReports.push({ ballNumber: b.number, outcome: "out-of-range", missCount: b.missCount, distance: ballDist });
           continue;
         }
-
-        // In view + within range + not matched. Did any YOLO detection land near?
-        const tol = REVALIDATE_SCREEN_TOLERANCE;
+        const proj = await arRef.current.projectWorldPoint(b.worldX, b.worldY, b.worldZ).catch(() => null);
+        const onScreen = proj && proj.isInFront && proj.screenX >= 0 && proj.screenX <= 1 && proj.screenY >= 0 && proj.screenY <= 1;
+        if (!onScreen) {
+          stillTracked.push(b);
+          revalidationReports.push({ ballNumber: b.number, outcome: "off-screen", missCount: b.missCount, distance: ballDist });
+          continue;
+        }
+        const tol = t.revalidateScreenTolerance;
         const found = yoloBallDetections.some(
-          (det) => Math.abs(det.nx - proj.screenX) <= tol && Math.abs(det.ny - proj.screenY) <= tol
+          (det) => Math.abs(det.nx - proj!.screenX) <= tol && Math.abs(det.ny - proj!.screenY) <= tol
         );
-
         if (found) {
-          // Sanity hit — though it should have matched above. Reset miss count.
           stillTracked.push({ ...b, missCount: 0 });
+          revalidationReports.push({ ballNumber: b.number, outcome: "still", missCount: 0, distance: ballDist });
         } else {
           const missCount = b.missCount + 1;
-          if (missCount >= REVALIDATE_MISS_LIMIT) {
-            // It's gone. Drop the anchor + the row.
+          if (missCount >= t.revalidateMissLimit) {
             await arRef.current.removeBall(b.id).catch(() => {});
+            revalidationReports.push({ ballNumber: b.number, outcome: "deleted", missCount, distance: ballDist });
           } else {
             stillTracked.push({ ...b, missCount });
+            revalidationReports.push({ ballNumber: b.number, outcome: "miss", missCount, distance: ballDist });
           }
         }
       }
       newBalls = stillTracked;
 
-      // --- Cluster-merge pass --------------------------------------------
       newBalls = await mergeBallClusters(newBalls);
 
       setBalls(newBalls);
       setBallsLastImage({ uri: dataUri, width: cap.imageWidth, height: cap.imageHeight, boxes: drawBoxes });
+      setTelemetry({
+        timestamp: now,
+        rawDetectionCount,
+        sportsBallCount,
+        perDetection,
+        revalidation: revalidationReports,
+      });
     } catch (err) {
       setBallsErr((err as Error).message);
     } finally {
@@ -543,8 +619,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     }
   };
 
-  /** Merge any pair of tracked balls within BALL_DEDUP_M of each other. */
+  /** Merge any pair of tracked balls within tunables.dedupM of each other. */
   const mergeBallClusters = async (input: TrackedBall[]): Promise<TrackedBall[]> => {
+    const dedupM = tunablesRef.current.dedupM;
     const arr = [...input];
     let changed = true;
     while (changed) {
@@ -556,7 +633,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           const dy = a.worldY - b.worldY;
           const dz = a.worldZ - b.worldZ;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (dist >= BALL_DEDUP_M) continue;
+          if (dist >= dedupM) continue;
           // Higher-tier state wins; ties broken by more sightings.
           const aWins =
             stateRank(a.status) > stateRank(b.status) ||
@@ -1425,6 +1502,132 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               </View>
             </View>
           )}
+
+          {/* Dev panel: tunables + telemetry */}
+          <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
+            <Pressable
+              onPress={() => setDevOpen((v) => !v)}
+              style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase" }}>
+                Dev panel
+              </Text>
+              <Text style={{ fontSize: 11, color: theme.textSubtle }}>{devOpen ? "Hide ▾" : "Show ▸"}</Text>
+            </Pressable>
+            {devOpen && (
+              <View style={{ marginTop: 8 }}>
+                {/* Detection */}
+                <DevSection label="Detection" theme={theme} styles={styles}>
+                  <Stepper label="YOLO min conf" value={tunables.yoloMinConf} step={0.01} min={0.01} max={0.50} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, yoloMinConf: v }))} theme={theme} />
+                  <Stepper label="Capture JPEG quality" value={tunables.captureQuality} step={0.05} min={0.3} max={1.0} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, captureQuality: v }))} theme={theme} />
+                </DevSection>
+
+                <DevSection label="Distance tiers" theme={theme} styles={styles}>
+                  <Stepper label="Tier max (m)" value={tunables.tierMax} step={0.5} min={2} max={15} decimals={1}
+                    onChange={(v) => setTunables((p) => ({ ...p, tierMax: v }))} theme={theme} />
+                  <Stepper label="Tier 1 ≤ (m)" value={tunables.tier1Dist} step={0.25} min={0.5} max={5} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier1Dist: v }))} theme={theme} />
+                  <Stepper label="Tier 1 min conf" value={tunables.tier1Conf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier1Conf: v }))} theme={theme} />
+                  <Stepper label="Tier 2 ≤ (m)" value={tunables.tier2Dist} step={0.25} min={1} max={8} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier2Dist: v }))} theme={theme} />
+                  <Stepper label="Tier 2 min conf" value={tunables.tier2Conf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier2Conf: v }))} theme={theme} />
+                  <Stepper label="Tier 3 ≤ (m)" value={tunables.tier3Dist} step={0.25} min={2} max={10} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier3Dist: v }))} theme={theme} />
+                  <Stepper label="Tier 3 min conf" value={tunables.tier3Conf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier3Conf: v }))} theme={theme} />
+                  <Stepper label="Tier 4 ≤ (m)" value={tunables.tier4Dist} step={0.25} min={3} max={15} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier4Dist: v }))} theme={theme} />
+                  <Stepper label="Tier 4 min conf" value={tunables.tier4Conf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, tier4Conf: v }))} theme={theme} />
+                </DevSection>
+
+                <DevSection label="Dedup" theme={theme} styles={styles}>
+                  <Stepper label="Dedup (m)" value={tunables.dedupM} step={0.05} min={0.05} max={1.0} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, dedupM: v }))} theme={theme} />
+                </DevSection>
+
+                <DevSection label="Promotion" theme={theme} styles={styles}>
+                  <Stepper label="Probable sightings" value={tunables.probableSightings} step={1} min={1} max={10} decimals={0}
+                    onChange={(v) => setTunables((p) => ({ ...p, probableSightings: v }))} theme={theme} />
+                  <Stepper label="Probable min conf" value={tunables.probableConf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, probableConf: v }))} theme={theme} />
+                  <Stepper label="Confirmed sightings" value={tunables.confirmedSightings} step={1} min={1} max={10} decimals={0}
+                    onChange={(v) => setTunables((p) => ({ ...p, confirmedSightings: v }))} theme={theme} />
+                  <Stepper label="Confirmed min conf" value={tunables.confirmedConf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, confirmedConf: v }))} theme={theme} />
+                  <Stepper label="Immediate confirm ≤ (m)" value={tunables.immediateConfirmRange} step={0.25} min={0.5} max={5} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, immediateConfirmRange: v }))} theme={theme} />
+                  <Stepper label="Immediate confirm conf" value={tunables.immediateConfirmConf} step={0.02} min={0.05} max={0.80} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, immediateConfirmConf: v }))} theme={theme} />
+                </DevSection>
+
+                <DevSection label="Revalidation (delete)" theme={theme} styles={styles}>
+                  <Stepper label="Max distance (m)" value={tunables.revalidateMaxDist} step={0.25} min={0.5} max={8} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, revalidateMaxDist: v }))} theme={theme} />
+                  <Stepper label="Screen tolerance" value={tunables.revalidateScreenTolerance} step={0.01} min={0.02} max={0.30} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, revalidateScreenTolerance: v }))} theme={theme} />
+                  <Stepper label="Miss limit (captures)" value={tunables.revalidateMissLimit} step={1} min={1} max={20} decimals={0}
+                    onChange={(v) => setTunables((p) => ({ ...p, revalidateMissLimit: v }))} theme={theme} />
+                </DevSection>
+
+                <Pressable
+                  onPress={() => setTunables(DEFAULT_TUNABLES)}
+                  style={{ marginTop: 8, paddingVertical: 8, borderRadius: 6, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                >
+                  <Text style={{ fontSize: 12, color: theme.text, fontWeight: "600" }}>Reset to defaults</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+
+          {/* Telemetry: what just happened on the last capture */}
+          {telemetry && (
+            <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+                Last capture — {telemetry.rawDetectionCount} raw · {telemetry.sportsBallCount} sports ball
+              </Text>
+              {telemetry.perDetection.length === 0 ? (
+                <Text style={{ fontSize: 11, color: theme.textSubtle }}>(no sports-ball detections)</Text>
+              ) : (
+                telemetry.perDetection.map((dr, i) => (
+                  <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 }}>
+                    <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                      conf {dr.confidence.toFixed(2)}
+                      {dr.distance != null ? ` · ${dr.distance.toFixed(2)} m` : ""}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: dr.ballNumber != null ? theme.text : theme.textSubtle, flex: 1, textAlign: "right" }} numberOfLines={1}>
+                      {dr.decision}
+                    </Text>
+                  </View>
+                ))
+              )}
+              {telemetry.revalidation.length > 0 && (
+                <>
+                  <Text style={{ fontSize: 10, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginTop: 8, marginBottom: 4 }}>
+                    Revalidation
+                  </Text>
+                  {telemetry.revalidation.map((rr, i) => {
+                    const color = rr.outcome === "deleted" ? theme.destructive : (rr.outcome === "miss" ? theme.highlight : theme.textSubtle);
+                    return (
+                      <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 1 }}>
+                        <Text style={{ fontSize: 11, color: theme.text, fontVariant: ["tabular-nums"] }}>
+                          #{rr.ballNumber} @ {rr.distance.toFixed(2)} m
+                        </Text>
+                        <Text style={{ fontSize: 11, color, fontVariant: ["tabular-nums"] }}>
+                          {rr.outcome}{rr.outcome === "miss" || rr.outcome === "deleted" ? ` (${rr.missCount}/${tunables.revalidateMissLimit})` : ""}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+            </View>
+          )}
+
           {ballsErr && (
             <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
               <Text style={{ fontSize: 12, color: theme.destructive }}>{ballsErr}</Text>
@@ -1515,6 +1718,50 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         </>
       )}
     </>
+  );
+}
+
+function DevSection({ label, theme, styles, children }: { label: string; theme: Theme; styles: ReturnType<typeof makeStyles>; children: React.ReactNode }) {
+  return (
+    <View style={{ marginBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border, paddingTop: 6 }}>
+      <Text style={{ fontSize: 10, fontWeight: "700", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
+        {label}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function Stepper({ label, value, step, min, max, decimals, onChange, theme }: {
+  label: string; value: number; step: number; min: number; max: number; decimals: number;
+  onChange: (v: number) => void; theme: Theme;
+}) {
+  const fmt = (n: number) => decimals === 0 ? String(Math.round(n)) : n.toFixed(decimals);
+  const apply = (delta: number) => {
+    const next = Math.max(min, Math.min(max, +(value + delta).toFixed(4)));
+    onChange(next);
+  };
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 3 }}>
+      <Text style={{ fontSize: 11, color: theme.textSubtle, flex: 1 }}>{label}</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <Pressable
+          onPress={() => apply(-step)}
+          style={{ width: 26, height: 26, borderRadius: 6, alignItems: "center", justifyContent: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+        >
+          <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>−</Text>
+        </Pressable>
+        <Text style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"], minWidth: 48, textAlign: "center" }}>
+          {fmt(value)}
+        </Text>
+        <Pressable
+          onPress={() => apply(step)}
+          style={{ width: 26, height: 26, borderRadius: 6, alignItems: "center", justifyContent: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+        >
+          <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>+</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
