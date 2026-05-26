@@ -12,6 +12,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v87",
+    title: "Balls: AR overlays — planes / mesh / feature points (needs rebuild)",
+    notes: [
+      "Three new toggles under the Balls AR view: Planes (translucent quads for detected floor/walls — blue=horizontal, purple=vertical), Mesh (LiDAR scene reconstruction as a green wireframe over walls, furniture, everything), Features (ARKit's debug feature-point dots)",
+      "ARSession now also detects vertical planes and runs scene reconstruction (no extra battery if you don't enable the overlays — toggles are purely cosmetic)",
+    ],
+  },
+  {
     version: "v86",
     title: "Balls: dedup that actually dedups",
     notes: [

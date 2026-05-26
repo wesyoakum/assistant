@@ -318,6 +318,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   }
   const arRef = useRef<LidarARViewRef>(null);
   const arViewAvailable = lidarARViewAvailable();
+  // AR visualization toggles for the LidarARView
+  const [showPlanes, setShowPlanes] = useState(false);
+  const [showMesh, setShowMesh] = useState(false);
+  const [showFeaturePoints, setShowFeaturePoints] = useState(false);
   const [balls, setBalls] = useState<TrackedBall[]>([]);
   const [ballsCameraPose, setBallsCameraPose] = useState<CameraPose | null>(null);
   const [ballsBusy, setBallsBusy] = useState(false);
@@ -658,7 +662,13 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         {visionMode === "balls" ? (
           arViewAvailable ? (
             <View style={{ width: "100%", aspectRatio: 3 / 4 }}>
-              <LidarARView ref={arRef} style={{ flex: 1 }} />
+              <LidarARView
+                ref={arRef}
+                style={{ flex: 1 }}
+                showPlanes={showPlanes}
+                showMesh={showMesh}
+                showFeaturePoints={showFeaturePoints}
+              />
             </View>
           ) : (
             <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
@@ -1266,11 +1276,46 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   </Pressable>
                 </View>
                 <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-                  Aim at balls on the ground, tap Capture. ARKit raycasts to the floor plane and pins a sphere. Balls within 15 cm of an existing track are merged.
+                  Aim at balls on the ground, tap Capture. ARKit raycasts to the floor plane and pins a sphere. Balls within 25 cm of an existing track are merged.
                 </Text>
               </>
             )}
           </View>
+          {arViewAvailable && (
+            <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
+              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+                AR overlays
+              </Text>
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                {[
+                  { label: "Planes", value: showPlanes, set: setShowPlanes, hint: "floor/walls" },
+                  { label: "Mesh", value: showMesh, set: setShowMesh, hint: "LiDAR scene" },
+                  { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints, hint: "tracked points" },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.label}
+                    onPress={() => opt.set(!opt.value)}
+                    style={{
+                      flex: 1,
+                      paddingVertical: 8,
+                      borderRadius: 8,
+                      alignItems: "center",
+                      backgroundColor: opt.value ? theme.primary : theme.surfaceAlt,
+                      borderWidth: opt.value ? 0 : StyleSheet.hairlineWidth,
+                      borderColor: theme.border,
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: opt.value ? "#fff" : theme.text }}>
+                      {opt.label}
+                    </Text>
+                    <Text style={{ fontSize: 9, color: opt.value ? "#fff" : theme.textSubtle, marginTop: 1 }}>
+                      {opt.hint}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
           {ballsErr && (
             <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
               <Text style={{ fontSize: 12, color: theme.destructive }}>{ballsErr}</Text>
