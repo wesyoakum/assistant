@@ -102,6 +102,8 @@ export interface LidarARViewRef {
   addBallAtScreenPoint: (nx: number, ny: number, radius?: number) => Promise<BallAnchor | null>;
   /** Current set of ball anchors with their tracked world positions. */
   listBalls: () => Promise<BallAnchor[]>;
+  /** Remove a single ball anchor (and its rendered marker). */
+  removeBall: (id: string) => Promise<void>;
   /** Remove all ball anchors. */
   clearBalls: () => Promise<void>;
   /** Current camera-to-world transform, column-major 16 floats. */
