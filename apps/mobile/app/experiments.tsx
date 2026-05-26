@@ -301,7 +301,13 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     lastSeen: number;
     sightings: number;
     lastConfidence: number;
+    /** "candidate" by default; auto-confirmed at ≥2 sightings + conf ≥ 0.35,
+     *  or set manually via the Confirm button. Rejecting removes the entry. */
+    status: "candidate" | "confirmed";
   }
+  const BALL_NEW_CONF = 0.1;          // YOLO threshold for proposing a ball
+  const BALL_CONFIRM_CONF = 0.35;     // min confidence to auto-confirm
+  const BALL_CONFIRM_SIGHTINGS = 2;   // min sightings to auto-confirm
   interface CameraPose {
     worldX: number;
     worldY: number;
@@ -343,10 +349,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     setBallsBusy(true);
     setBallsErr(null);
     try {
-      const cap = await arRef.current.captureViewImage(0.7);
+      const cap = await arRef.current.captureViewImage(0.9);
       if (!cap) { setBallsErr("No frame yet — give ARKit a moment to start"); return; }
       const dataUri = `data:image/jpeg;base64,${cap.imageBase64}`;
-      const yoloRes = await Yolo.detect(dataUri, { minConfidence: 0.2 });
+      const yoloRes = await Yolo.detect(dataUri, { minConfidence: BALL_NEW_CONF });
 
       const newBalls = [...balls];
       const drawBoxes: { x: number; y: number; width: number; height: number; number: number }[] = [];
@@ -374,18 +380,25 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         }
 
         if (matchedIdx >= 0) {
-          // Duplicate — keep the existing anchor, update its JS metadata.
-          // (ARKit will keep both anchors; the duplicate sphere is hidden
-          // behind the original. Acceptable for v1.)
+          // Duplicate — remove the new native anchor so we don't stack spheres,
+          // then update the existing track's stats. Auto-confirm if criteria met.
+          await arRef.current.removeBall(added.id).catch(() => {});
           const b = newBalls[matchedIdx]!;
+          const sightings = b.sightings + 1;
+          const promote = sightings >= BALL_CONFIRM_SIGHTINGS && d.confidence >= BALL_CONFIRM_CONF;
           newBalls[matchedIdx] = {
             ...b,
-            sightings: b.sightings + 1,
+            sightings,
             lastSeen: now,
             lastConfidence: d.confidence,
+            status: promote ? "confirmed" : b.status,
           };
           drawBoxes.push({ ...d.box, number: b.number });
         } else {
+          // New candidate. Auto-confirm if first sighting already has high conf
+          // AND we configured single-sighting confirmation (we don't, but allow).
+          const startStatus: "candidate" | "confirmed" =
+            (BALL_CONFIRM_SIGHTINGS <= 1 && d.confidence >= BALL_CONFIRM_CONF) ? "confirmed" : "candidate";
           newBalls.push({
             id: added.id,
             number: added.number,
@@ -396,6 +409,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
             lastSeen: now,
             sightings: 1,
             lastConfidence: d.confidence,
+            status: startStatus,
           });
           drawBoxes.push({ ...d.box, number: added.number });
         }
@@ -414,6 +428,20 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     try { await arRef.current?.clearBalls(); } catch {}
     setBalls([]);
     setBallsLastImage(null);
+  };
+
+  const confirmBall = (id: string) => {
+    setBalls((prev) => prev.map((b) => b.id === id ? { ...b, status: "confirmed" } : b));
+  };
+  const rejectBall = async (id: string) => {
+    try { await arRef.current?.removeBall(id); } catch {}
+    setBalls((prev) => prev.filter((b) => b.id !== id));
+    setBallsLastImage((prev) => prev ? { ...prev, boxes: prev.boxes.filter((box) => {
+      // Box's number was assigned to this anchor id at capture; we can't
+      // map id→number from box alone, so just leave drawn boxes as-is.
+      // (Rejecting only removes from the AR scene + tracked list.)
+      return true;
+    })} : prev);
   };
 
   /** Distance + bearing from current camera pose to a ball. */
@@ -1196,12 +1224,25 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               </Text>
               {balls.map((b, i) => {
                 const rel = ballRelative(b, ballsCameraPose);
+                const isCandidate = b.status === "candidate";
                 return (
                   <View key={b.id} style={{ paddingVertical: 8, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                      <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>#{b.number}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>#{b.number}</Text>
+                        <View style={{
+                          paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4,
+                          backgroundColor: isCandidate ? theme.surfaceAlt : theme.primary,
+                          borderWidth: isCandidate ? StyleSheet.hairlineWidth : 0,
+                          borderColor: theme.border,
+                        }}>
+                          <Text style={{ fontSize: 9, fontWeight: "700", color: isCandidate ? theme.textSubtle : "#fff", textTransform: "uppercase" }}>
+                            {b.status}
+                          </Text>
+                        </View>
+                      </View>
                       <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
-                        seen {b.sightings}× · {Math.round((Date.now() - b.lastSeen) / 1000)} s ago
+                        seen {b.sightings}× · conf {(b.lastConfidence * 100).toFixed(0)}%
                       </Text>
                     </View>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 4 }}>
@@ -1218,6 +1259,22 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                         </Text>
                       </View>
                     )}
+                    <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
+                      {isCandidate && (
+                        <Pressable
+                          onPress={() => confirmBall(b.id)}
+                          style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: "center", backgroundColor: theme.primary }}
+                        >
+                          <Text style={{ fontSize: 11, color: "#fff", fontWeight: "600" }}>Confirm</Text>
+                        </Pressable>
+                      )}
+                      <Pressable
+                        onPress={() => rejectBall(b.id)}
+                        style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: "center", backgroundColor: theme.destructive }}
+                      >
+                        <Text style={{ fontSize: 11, color: "#fff", fontWeight: "600" }}>Reject</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 );
               })}

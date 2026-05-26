@@ -102,6 +102,16 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     return out
   }
 
+  /// Remove a single ball anchor by id.
+  func removeBall(id: String) {
+    guard let frame = sceneView.session.currentFrame,
+          let uuid = UUID(uuidString: id) else { return }
+    for anchor in frame.anchors where anchor.identifier == uuid {
+      sceneView.session.remove(anchor: anchor)
+      ballNumbers.removeValue(forKey: anchor.identifier)
+    }
+  }
+
   /// Remove all ball anchors.
   func clearBalls() {
     guard let frame = sceneView.session.currentFrame else { return }

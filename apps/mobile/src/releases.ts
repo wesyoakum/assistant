@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v84",
+    title: "Balls: candidate / confirmed lifecycle + farther detection (needs rebuild)",
+    notes: [
+      "Lower YOLO confidence threshold (0.1) + higher-quality captures so smaller / farther balls turn up as candidates",
+      "Each ball is candidate or confirmed. Reaches confirmed at ≥2 sightings with conf ≥35%, or by tapping Confirm",
+      "Per-ball Reject button removes the anchor + the row",
+      "Capture status badge + confidence shown in each row",
+    ],
+  },
+  {
     version: "v83",
     title: "Balls: real AR view (needs rebuild)",
     notes: [

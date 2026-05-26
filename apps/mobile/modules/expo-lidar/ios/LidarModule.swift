@@ -58,6 +58,9 @@ public final class LidarModule: Module {
       AsyncFunction("listBalls") { (view: LidarARView) -> [[String: Any]] in
         return view.listBalls()
       }
+      AsyncFunction("removeBall") { (view: LidarARView, id: String) in
+        view.removeBall(id: id)
+      }
       AsyncFunction("clearBalls") { (view: LidarARView) in
         view.clearBalls()
       }
