@@ -12,6 +12,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v92",
+    title: "Balls telemetry: show raw YOLO labels",
+    notes: [
+      "Telemetry card now shows every YOLO label found, sorted by confidence — diagnose 'why isn't my baseball detected' by seeing what COCO thinks it actually is (donut, cup, apple, etc.)",
+      "sports ball matches are highlighted",
+    ],
+  },
+  {
     version: "v91",
     title: "Balls: fix leaked anchors (needs rebuild)",
     notes: [
