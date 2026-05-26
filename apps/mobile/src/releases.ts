@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v90",
+    title: "Balls: distance-graded revalidation per state + Clear candidates",
+    notes: [
+      "Miss limit is now a 3×3 matrix: state (candidate/probable/confirmed) × distance bucket (close/mid/far). Close candidates die in 1 miss, far confirmed survive 15. Out-of-view = no change either way",
+      "Clear candidates button bulk-removes all yellow anchors when you're done sweeping",
+      "Telemetry now shows the per-row miss limit so you can see exactly which threshold is in play",
+      "All knobs adjustable in the Dev panel",
+    ],
+  },
+  {
     version: "v89",
     title: "Balls: live-tunable knobs + per-capture telemetry",
     notes: [
