@@ -52,6 +52,15 @@ public final class LidarModule: Module {
     }
 
     View(LidarARView.self) {
+      Prop("showPlanes") { (view: LidarARView, show: Bool) in
+        view.showPlanesProp = show
+      }
+      Prop("showMesh") { (view: LidarARView, show: Bool) in
+        view.showMeshProp = show
+      }
+      Prop("showFeaturePoints") { (view: LidarARView, show: Bool) in
+        view.showFeaturePointsProp = show
+      }
       AsyncFunction("addBallAtScreenPoint") { (view: LidarARView, nx: Double, ny: Double, radius: Double) -> [String: Any]? in
         return view.addBallAtScreenPoint(nx: CGFloat(nx), ny: CGFloat(ny), radius: Float(radius))
       }
