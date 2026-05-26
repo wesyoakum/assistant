@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v91",
+    title: "Balls: fix leaked anchors (needs rebuild)",
+    notes: [
+      "Native ball anchors are now tracked in a dictionary, not looked up via sceneView.currentFrame.anchors (which was stale right after add and silently no-op'd on remove)",
+      "Fixes the bug where yellow spheres accumulated in the view but were invisible to the JS tracked list; Clear candidates couldn't touch them",
+      "Also fixes setBallState being a no-op for just-created anchors — color is now applied when the sphere is first rendered",
+    ],
+  },
+  {
     version: "v90",
     title: "Balls: distance-graded revalidation per state + Clear candidates",
     notes: [

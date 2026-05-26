@@ -13,6 +13,15 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
   private var nextBallNumber: Int = 1
   // anchor id → assigned ball number (so the label stays stable across frames)
   private var ballNumbers: [UUID: Int] = [:]
+  // Strong reference to every ball ARAnchor we've created. We can't trust
+  // sceneView.session.currentFrame.anchors for lookups because that snapshot
+  // doesn't include just-added anchors until the next frame is captured,
+  // which causes remove/list to silently no-op and leak spheres into the
+  // scene.
+  private var ballAnchors: [UUID: ARAnchor] = [:]
+  // Color state requested for an anchor before its SCNNode existed. Applied
+  // when renderer:didAdd:for: creates the sphere.
+  private var pendingBallStates: [UUID: String] = [:]
 
   // Visualization toggles (set via Expo Modules view props).
   public var showPlanesProp: Bool = false {
@@ -88,6 +97,7 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let anchor = ARAnchor(name: "ball-\(number)-r\(radius)", transform: xform)
     sceneView.session.add(anchor: anchor)
     ballNumbers[anchor.identifier] = number
+    ballAnchors[anchor.identifier] = anchor
     return [
       "id": anchor.identifier.uuidString,
       "number": number,
@@ -98,13 +108,11 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
   }
 
   func listBalls() -> [[String: Any]] {
-    guard let frame = sceneView.session.currentFrame else { return [] }
     var out: [[String: Any]] = []
-    for anchor in frame.anchors {
-      guard let name = anchor.name, name.hasPrefix("ball-") else { continue }
-      let number = ballNumbers[anchor.identifier] ?? 0
+    for (uuid, anchor) in ballAnchors {
+      let number = ballNumbers[uuid] ?? 0
       out.append([
-        "id": anchor.identifier.uuidString,
+        "id": uuid.uuidString,
         "number": number,
         "worldX": anchor.transform.columns.3.x,
         "worldY": anchor.transform.columns.3.y,
@@ -116,22 +124,21 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
   }
 
   func removeBall(id: String) {
-    guard let frame = sceneView.session.currentFrame,
-          let uuid = UUID(uuidString: id) else { return }
-    for anchor in frame.anchors where anchor.identifier == uuid {
-      sceneView.session.remove(anchor: anchor)
-      ballNumbers.removeValue(forKey: anchor.identifier)
-    }
+    guard let uuid = UUID(uuidString: id),
+          let anchor = ballAnchors[uuid] else { return }
+    sceneView.session.remove(anchor: anchor)
+    ballAnchors.removeValue(forKey: uuid)
+    ballNumbers.removeValue(forKey: uuid)
+    pendingBallStates.removeValue(forKey: uuid)
   }
 
   func clearBalls() {
-    guard let frame = sceneView.session.currentFrame else { return }
-    for anchor in frame.anchors {
-      if anchor.name?.hasPrefix("ball-") == true {
-        sceneView.session.remove(anchor: anchor)
-      }
+    for (_, anchor) in ballAnchors {
+      sceneView.session.remove(anchor: anchor)
     }
+    ballAnchors.removeAll()
     ballNumbers.removeAll()
+    pendingBallStates.removeAll()
     nextBallNumber = 1
   }
 
@@ -147,7 +154,9 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       config.sceneReconstruction = .mesh
     }
     sceneView.session.run(config, options: [.resetTracking, .removeExistingAnchors])
+    ballAnchors.removeAll()
     ballNumbers.removeAll()
+    pendingBallStates.removeAll()
     nextBallNumber = 1
   }
 
@@ -171,13 +180,22 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
 
   /// Update the rendered sphere color for one ball anchor based on its
   /// current state. JS owns the state machine; this is just visual feedback.
+  ///
+  /// May be called before the sphere has been rendered (the SCNNode is
+  /// created in renderer:didAdd:for: on the next render frame). In that
+  /// case we stash the desired state and apply it when the sphere appears.
   func setBallState(id: String, state: String) {
-    guard let frame = sceneView.session.currentFrame,
-          let uuid = UUID(uuidString: id),
-          let anchor = frame.anchors.first(where: { $0.identifier == uuid }),
-          let node = sceneView.node(for: anchor),
-          let sphereNode = node.childNode(withName: "ball-sphere", recursively: false),
-          let sphere = sphereNode.geometry as? SCNSphere else { return }
+    guard let uuid = UUID(uuidString: id), ballAnchors[uuid] != nil else { return }
+    pendingBallStates[uuid] = state
+    if let anchor = ballAnchors[uuid],
+       let node = sceneView.node(for: anchor),
+       let sphereNode = node.childNode(withName: "ball-sphere", recursively: false),
+       let sphere = sphereNode.geometry as? SCNSphere {
+      applyBallColor(sphere: sphere, state: state)
+    }
+  }
+
+  private func applyBallColor(sphere: SCNSphere, state: String) {
     let color = LidarARView.colorForBallState(state)
     sphere.firstMaterial?.diffuse.contents = color
     sphere.firstMaterial?.emission.contents = color.withAlphaComponent(0.3)
@@ -241,8 +259,9 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       radius = CGFloat(val)
     }
     let sphere = SCNSphere(radius: radius)
-    sphere.firstMaterial?.diffuse.contents = UIColor.systemYellow
-    sphere.firstMaterial?.emission.contents = UIColor.systemYellow.withAlphaComponent(0.3)
+    // Apply any state JS already requested before the sphere existed.
+    let initialState = pendingBallStates[anchor.identifier] ?? "candidate"
+    applyBallColor(sphere: sphere, state: initialState)
     let sphereNode = SCNNode(geometry: sphere)
     sphereNode.name = "ball-sphere"
     sphereNode.position = SCNVector3(0, Float(radius), 0)
