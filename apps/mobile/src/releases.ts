@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v89",
+    title: "Balls: live-tunable knobs + per-capture telemetry",
+    notes: [
+      "New Dev panel under the Balls AR view. Every tuning constant is now a +/- stepper: YOLO confidence, distance tiers, dedup, promotion thresholds, revalidation thresholds",
+      "Per-capture telemetry shows what was detected, why each detection was kept/rejected (\"conf < tier floor\", \"merged into #3\", \"raycast missed\"), and the revalidation outcome for each tracked ball",
+      "Reset-to-defaults button. JS-only — ships via OTA",
+    ],
+  },
+  {
     version: "v88",
     title: "Balls: three tiers + distance-aware confidence + auto-revalidation (needs rebuild)",
     notes: [
