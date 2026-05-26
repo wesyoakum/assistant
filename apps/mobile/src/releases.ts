@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v86",
+    title: "Balls: dedup that actually dedups",
+    notes: [
+      "Tracked-ball positions now refreshed from ARKit at every capture, so dedup compares to ARKit's current anchor positions instead of the stale ones we stored",
+      "Dedup distance bumped from 15 cm → 25 cm to account for raycast jitter",
+      "Post-capture cluster-merge pass walks the list and merges any close pairs that snuck in earlier",
+    ],
+  },
+  {
     version: "v85",
     title: "YOLOv8n + continuous detection (needs rebuild)",
     notes: [
