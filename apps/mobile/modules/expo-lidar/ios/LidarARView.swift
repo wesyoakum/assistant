@@ -135,6 +135,63 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     nextBallNumber = 1
   }
 
+  /// Wipe ARKit's world map + every anchor (planes, mesh, balls) and re-run the
+  /// session from scratch. Used by the "Reset AR" button.
+  func resetSession() {
+    let config = ARWorldTrackingConfiguration()
+    if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+      config.frameSemantics = .sceneDepth
+    }
+    config.planeDetection = [.horizontal, .vertical]
+    if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+      config.sceneReconstruction = .mesh
+    }
+    sceneView.session.run(config, options: [.resetTracking, .removeExistingAnchors])
+    ballNumbers.removeAll()
+    nextBallNumber = 1
+  }
+
+  /// Project a world point onto the view. Returns screen coordinates
+  /// normalized to view bounds (0–1) + whether the point is in front of the
+  /// camera. Used by JS revalidation to check "is this ball in the camera
+  /// view right now?".
+  func projectWorldPoint(_ x: Float, _ y: Float, _ z: Float) -> [String: Any]? {
+    let projected = sceneView.projectPoint(SCNVector3(x, y, z))
+    let w = bounds.width > 0 ? bounds.width : 1
+    let h = bounds.height > 0 ? bounds.height : 1
+    return [
+      "screenX": Double(projected.x) / Double(w),
+      "screenY": Double(projected.y) / Double(h),
+      // SceneKit returns z in normalized [0,1] (or outside if clipped). > 1
+      // means behind the camera in the perspective transform.
+      "isInFront": projected.z >= 0 && projected.z <= 1.0,
+      "depth": Double(projected.z),
+    ]
+  }
+
+  /// Update the rendered sphere color for one ball anchor based on its
+  /// current state. JS owns the state machine; this is just visual feedback.
+  func setBallState(id: String, state: String) {
+    guard let frame = sceneView.session.currentFrame,
+          let uuid = UUID(uuidString: id),
+          let anchor = frame.anchors.first(where: { $0.identifier == uuid }),
+          let node = sceneView.node(for: anchor),
+          let sphereNode = node.childNode(withName: "ball-sphere", recursively: false),
+          let sphere = sphereNode.geometry as? SCNSphere else { return }
+    let color = LidarARView.colorForBallState(state)
+    sphere.firstMaterial?.diffuse.contents = color
+    sphere.firstMaterial?.emission.contents = color.withAlphaComponent(0.3)
+  }
+
+  private static func colorForBallState(_ state: String) -> UIColor {
+    switch state {
+    case "probable":   return UIColor.systemCyan
+    case "confirmed":  return UIColor(red: 1.0, green: 0.0, blue: 1.0, alpha: 1.0)  // fuchsia
+    case "candidate":  fallthrough
+    default:           return UIColor.systemYellow
+    }
+  }
+
   func currentCameraTransform() -> [Float]? {
     guard let frame = sceneView.session.currentFrame else { return nil }
     let xform = frame.camera.transform
@@ -187,6 +244,7 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     sphere.firstMaterial?.diffuse.contents = UIColor.systemYellow
     sphere.firstMaterial?.emission.contents = UIColor.systemYellow.withAlphaComponent(0.3)
     let sphereNode = SCNNode(geometry: sphere)
+    sphereNode.name = "ball-sphere"
     sphereNode.position = SCNVector3(0, Float(radius), 0)
     node.addChildNode(sphereNode)
 

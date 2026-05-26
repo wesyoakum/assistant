@@ -76,6 +76,15 @@ public final class LidarModule: Module {
       AsyncFunction("currentCameraTransform") { (view: LidarARView) -> [Float]? in
         return view.currentCameraTransform()
       }
+      AsyncFunction("resetSession") { (view: LidarARView) in
+        view.resetSession()
+      }
+      AsyncFunction("projectWorldPoint") { (view: LidarARView, x: Double, y: Double, z: Double) -> [String: Any]? in
+        return view.projectWorldPoint(Float(x), Float(y), Float(z))
+      }
+      AsyncFunction("setBallState") { (view: LidarARView, id: String, state: String) in
+        view.setBallState(id: id, state: state)
+      }
       AsyncFunction("captureViewImage") { (view: LidarARView, jpegQuality: Double) -> [String: Any]? in
         // Capture the live camera image from the view's running ARSession,
         // rotated to portrait for display + YOLO use.

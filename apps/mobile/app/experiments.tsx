@@ -19,7 +19,7 @@ import { BleManager, type Device as BleDevice, type State as BleState } from "re
 import LiveAudioStream from "react-native-live-audio-stream";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import type { CameraView as CameraViewType } from "expo-camera";
-import { Lidar, type DepthFrame, type AlignedFrame, type LidarARViewRef, type BallAnchor, decodeDepthBuffer, sampleDepth, LidarARView, lidarARViewAvailable } from "expo-lidar";
+import { Lidar, type DepthFrame, type AlignedFrame, type LidarARViewRef, type BallAnchor, type BallState, decodeDepthBuffer, sampleDepth, LidarARView, lidarARViewAvailable } from "expo-lidar";
 import { GameController, type ControllerInfo, type ControllerInputFrame } from "expo-gamecontroller";
 import { VisionDetect, type DetectResult } from "expo-vision-detect";
 import { Yolo, type YoloResult } from "expo-yolo";
@@ -301,14 +301,55 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     lastSeen: number;
     sightings: number;
     lastConfidence: number;
-    /** "candidate" by default; auto-confirmed at ≥2 sightings + conf ≥ 0.35,
-     *  or set manually via the Confirm button. Rejecting removes the entry. */
-    status: "candidate" | "confirmed";
+    /** Yellow (candidate) → cyan (probable) → fuchsia (confirmed). Promotion
+     *  rules driven by sightings + confidence + close-up shortcut. */
+    status: BallState;
+    /** Consecutive captures where this ball was in view + within range +
+     *  not matched to any YOLO detection. At 3, the ball is removed. */
+    missCount: number;
   }
   const BALL_NEW_CONF = 0.1;          // YOLO threshold for proposing a ball
-  const BALL_CONFIRM_CONF = 0.35;     // min confidence to auto-confirm
   const BALL_DEDUP_M = 0.25;          // 3D distance threshold for "same ball"
-  const BALL_CONFIRM_SIGHTINGS = 2;   // min sightings to auto-confirm
+  // Distance-tiered confidence: YOLO detections below the tier's minimum
+  // are rejected before anchoring. Beyond TIER_MAX m we skip entirely.
+  const TIER_MAX = 8.0;
+  const tierMinConf = (distance: number): number => {
+    if (distance < 2.0) return 0.45;
+    if (distance < 4.0) return 0.30;
+    if (distance < 6.0) return 0.20;
+    if (distance < 8.0) return 0.15;
+    return Infinity;  // skip
+  };
+  // Promotion thresholds
+  const PROBABLE_SIGHTINGS = 2;
+  const PROBABLE_CONF = 0.30;
+  const CONFIRMED_SIGHTINGS = 3;
+  const CONFIRMED_CONF = 0.45;
+  const IMMEDIATE_CONFIRM_RANGE = 2.0;
+  const IMMEDIATE_CONFIRM_CONF = 0.45;
+  // Revalidation: we only trust "didn't see it" within this range.
+  const REVALIDATE_MAX_DIST = 3.0;
+  const REVALIDATE_SCREEN_TOLERANCE = 0.10;  // 10% of view bounds
+  const REVALIDATE_MISS_LIMIT = 3;
+
+  /** Tier ordering for picking a "keeper" during cluster merge / dedup. */
+  const stateRank = (s: BallState): number =>
+    s === "confirmed" ? 2 : s === "probable" ? 1 : 0;
+  /** Compute desired state from sightings + last confidence + close-up rule. */
+  const promotedState = (
+    current: BallState,
+    sightings: number,
+    lastConfidence: number,
+    captureDistance: number,
+  ): BallState => {
+    // Once you're confirmed, you stay confirmed (this run, anyway).
+    if (current === "confirmed") return "confirmed";
+    if (captureDistance < IMMEDIATE_CONFIRM_RANGE && lastConfidence >= IMMEDIATE_CONFIRM_CONF) return "confirmed";
+    if (sightings >= CONFIRMED_SIGHTINGS && lastConfidence >= CONFIRMED_CONF) return "confirmed";
+    if (current === "probable") return "probable";
+    if (sightings >= PROBABLE_SIGHTINGS && lastConfidence >= PROBABLE_CONF) return "probable";
+    return "candidate";
+  };
   interface CameraPose {
     worldX: number;
     worldY: number;
@@ -359,32 +400,46 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       const dataUri = `data:image/jpeg;base64,${cap.imageBase64}`;
       const yoloRes = await Yolo.detect(dataUri, { minConfidence: BALL_NEW_CONF });
 
-      // Refresh tracked-ball positions from ARKit before deduping.
-      // ARKit refines anchor world transforms as it improves its world map;
-      // our stored positions go stale and break the dedup comparison.
+      // Camera pose at capture time, for distance + revalidation projection.
+      const camT = await arRef.current.currentCameraTransform();
+      const camX = camT?.[12] ?? 0, camY = camT?.[13] ?? 0, camZ = camT?.[14] ?? 0;
+      const distFromCamera = (wx: number, wy: number, wz: number) =>
+        Math.sqrt((wx - camX) ** 2 + (wy - camY) ** 2 + (wz - camZ) ** 2);
+
+      // Refresh tracked-ball positions from ARKit; drop any ARKit removed.
       const liveAnchors = await arRef.current.listBalls().catch(() => [] as BallAnchor[]);
       const liveById = new Map(liveAnchors.map((a) => [a.id, a]));
-
-      let newBalls: TrackedBall[] = balls.map((b) => {
-        const live = liveById.get(b.id);
-        return live ? { ...b, worldX: live.worldX, worldY: live.worldY, worldZ: live.worldZ } : b;
-      });
-      // Also drop any tracked balls whose anchor disappeared from ARKit
-      // (e.g. session reset). Keeps state consistent with the AR view.
-      newBalls = newBalls.filter((b) => liveById.has(b.id));
+      let newBalls: TrackedBall[] = balls
+        .map((b) => {
+          const live = liveById.get(b.id);
+          return live ? { ...b, worldX: live.worldX, worldY: live.worldY, worldZ: live.worldZ } : b;
+        })
+        .filter((b) => liveById.has(b.id));
 
       const drawBoxes: { x: number; y: number; width: number; height: number; number: number }[] = [];
+      const matchedIds = new Set<string>();
+      const yoloBallDetections: { nx: number; ny: number; confidence: number }[] = [];
       const now = Date.now();
 
+      // --- Detection + anchoring + dedup ---------------------------------
       for (const d of yoloRes.detections) {
         if (d.label !== "sports ball") continue;
         const nx = d.box.x + d.box.width / 2;
         const ny = d.box.y + d.box.height / 2;
+        yoloBallDetections.push({ nx, ny, confidence: d.confidence });
 
+        // Probe with a raycast first to find out where the ball would land.
         const added = await arRef.current.addBallAtScreenPoint(nx, ny, 0.035);
-        if (!added) continue;  // raycast missed (no plane below)
+        if (!added) continue;  // raycast missed
 
-        // Dedup against fresh tracked positions
+        // Distance-tier confidence gate
+        const dist = distFromCamera(added.worldX, added.worldY, added.worldZ);
+        if (dist > TIER_MAX || d.confidence < tierMinConf(dist)) {
+          await arRef.current.removeBall(added.id).catch(() => {});
+          continue;
+        }
+
+        // Dedup against tracked balls
         let matchedIdx = -1;
         let bestDist = BALL_DEDUP_M;
         for (let i = 0; i < newBalls.length; i++) {
@@ -392,26 +447,36 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           const dx = b.worldX - added.worldX;
           const dy = b.worldY - added.worldY;
           const dz = b.worldZ - added.worldZ;
-          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (dist < bestDist) { bestDist = dist; matchedIdx = i; }
+          const d3 = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (d3 < bestDist) { bestDist = d3; matchedIdx = i; }
         }
 
         if (matchedIdx >= 0) {
+          // Duplicate of an existing tracked ball — drop the new anchor,
+          // update the existing track's stats and possibly promote its state.
           await arRef.current.removeBall(added.id).catch(() => {});
           const b = newBalls[matchedIdx]!;
           const sightings = b.sightings + 1;
-          const promote = sightings >= BALL_CONFIRM_SIGHTINGS && d.confidence >= BALL_CONFIRM_CONF;
+          const newStatus = promotedState(b.status, sightings, d.confidence, dist);
+          if (newStatus !== b.status) {
+            await arRef.current.setBallState(b.id, newStatus).catch(() => {});
+          }
           newBalls[matchedIdx] = {
             ...b,
             sightings,
             lastSeen: now,
             lastConfidence: d.confidence,
-            status: promote ? "confirmed" : b.status,
+            status: newStatus,
+            missCount: 0,
           };
+          matchedIds.add(b.id);
           drawBoxes.push({ ...d.box, number: b.number });
         } else {
-          const startStatus: "candidate" | "confirmed" =
-            (BALL_CONFIRM_SIGHTINGS <= 1 && d.confidence >= BALL_CONFIRM_CONF) ? "confirmed" : "candidate";
+          // Brand new ball.
+          const startStatus = promotedState("candidate", 1, d.confidence, dist);
+          if (startStatus !== "candidate") {
+            await arRef.current.setBallState(added.id, startStatus).catch(() => {});
+          }
           newBalls.push({
             id: added.id,
             number: added.number,
@@ -423,14 +488,50 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
             sightings: 1,
             lastConfidence: d.confidence,
             status: startStatus,
+            missCount: 0,
           });
+          matchedIds.add(added.id);
           drawBoxes.push({ ...d.box, number: added.number });
         }
       }
 
-      // Retroactive cluster-merge pass. Walks the list and merges any pair
-      // within BALL_DEDUP_M of each other. Loser is the one with fewer
-      // sightings (ties broken by ditching the candidate over the confirmed).
+      // --- Revalidation: delete balls we should have seen but didn't -----
+      const stillTracked: TrackedBall[] = [];
+      for (const b of newBalls) {
+        if (matchedIds.has(b.id)) { stillTracked.push(b); continue; }
+
+        const ballDist = distFromCamera(b.worldX, b.worldY, b.worldZ);
+        if (ballDist > REVALIDATE_MAX_DIST) { stillTracked.push(b); continue; }
+
+        const proj = await arRef.current.projectWorldPoint(b.worldX, b.worldY, b.worldZ).catch(() => null);
+        if (!proj || !proj.isInFront) { stillTracked.push(b); continue; }
+        if (proj.screenX < 0 || proj.screenX > 1 || proj.screenY < 0 || proj.screenY > 1) {
+          stillTracked.push(b);
+          continue;
+        }
+
+        // In view + within range + not matched. Did any YOLO detection land near?
+        const tol = REVALIDATE_SCREEN_TOLERANCE;
+        const found = yoloBallDetections.some(
+          (det) => Math.abs(det.nx - proj.screenX) <= tol && Math.abs(det.ny - proj.screenY) <= tol
+        );
+
+        if (found) {
+          // Sanity hit — though it should have matched above. Reset miss count.
+          stillTracked.push({ ...b, missCount: 0 });
+        } else {
+          const missCount = b.missCount + 1;
+          if (missCount >= REVALIDATE_MISS_LIMIT) {
+            // It's gone. Drop the anchor + the row.
+            await arRef.current.removeBall(b.id).catch(() => {});
+          } else {
+            stillTracked.push({ ...b, missCount });
+          }
+        }
+      }
+      newBalls = stillTracked;
+
+      // --- Cluster-merge pass --------------------------------------------
       newBalls = await mergeBallClusters(newBalls);
 
       setBalls(newBalls);
@@ -456,18 +557,20 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           const dz = a.worldZ - b.worldZ;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
           if (dist >= BALL_DEDUP_M) continue;
-          // Pick the loser: confirmed beats candidate; then by sightings; then older.
+          // Higher-tier state wins; ties broken by more sightings.
           const aWins =
-            (a.status === "confirmed" && b.status !== "confirmed") ||
-            (a.status === b.status && a.sightings >= b.sightings);
+            stateRank(a.status) > stateRank(b.status) ||
+            (stateRank(a.status) === stateRank(b.status) && a.sightings >= b.sightings);
           const keep = aWins ? a : b;
           const drop = aWins ? b : a;
-          // Merge stats into the keeper.
           keep.sightings = keep.sightings + drop.sightings;
           keep.lastSeen = Math.max(keep.lastSeen, drop.lastSeen);
           keep.lastConfidence = Math.max(keep.lastConfidence, drop.lastConfidence);
-          if (keep.status !== "confirmed" && drop.status === "confirmed") keep.status = "confirmed";
-          // Drop the loser's native anchor + remove from array.
+          // Take the higher-ranked state across the pair.
+          if (stateRank(drop.status) > stateRank(keep.status)) {
+            keep.status = drop.status;
+            await arRef.current?.setBallState(keep.id, keep.status).catch(() => {});
+          }
           try { await arRef.current?.removeBall(drop.id); } catch {}
           const dropIdx = arr.indexOf(drop);
           if (dropIdx >= 0) arr.splice(dropIdx, 1);
@@ -511,18 +614,16 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     }
   }, [visionMode]);
 
-  const confirmBall = (id: string) => {
-    setBalls((prev) => prev.map((b) => b.id === id ? { ...b, status: "confirmed" } : b));
-  };
   const rejectBall = async (id: string) => {
     try { await arRef.current?.removeBall(id); } catch {}
     setBalls((prev) => prev.filter((b) => b.id !== id));
-    setBallsLastImage((prev) => prev ? { ...prev, boxes: prev.boxes.filter((box) => {
-      // Box's number was assigned to this anchor id at capture; we can't
-      // map id→number from box alone, so just leave drawn boxes as-is.
-      // (Rejecting only removes from the AR scene + tracked list.)
-      return true;
-    })} : prev);
+  };
+
+  const resetAR = async () => {
+    try { await arRef.current?.resetSession(); } catch {}
+    setBalls([]);
+    setBallsLastImage(null);
+    setBallsCameraPose(null);
   };
 
   /** Distance + bearing from current camera pose to a ball. */
@@ -1275,8 +1376,16 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                     <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>Clear</Text>
                   </Pressable>
                 </View>
+                <Pressable
+                  onPress={resetAR}
+                  style={{ marginTop: 8, paddingVertical: 8, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                >
+                  <Text style={{ color: theme.textSubtle, fontSize: 12, fontWeight: "600" }}>
+                    Reset AR (wipe world map + all anchors)
+                  </Text>
+                </Pressable>
                 <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-                  Aim at balls on the ground, tap Capture. ARKit raycasts to the floor plane and pins a sphere. Balls within 25 cm of an existing track are merged.
+                  Candidate (yellow) → probable (cyan) → confirmed (fuchsia). Close-up sightings (&lt; 2 m at high conf) skip straight to confirmed. Balls not seen on 3 close-range captures are deleted.
                 </Text>
               </>
             )}
@@ -1354,7 +1463,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               </Text>
               {balls.map((b, i) => {
                 const rel = ballRelative(b, ballsCameraPose);
-                const isCandidate = b.status === "candidate";
+                const badgeColor =
+                  b.status === "confirmed" ? "#ff00ff" :
+                  b.status === "probable" ? "#00b8d4" :
+                  "#d4a000";
                 return (
                   <View key={b.id} style={{ paddingVertical: 8, borderTopWidth: i === 0 ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -1362,11 +1474,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                         <Text style={{ fontSize: 14, color: theme.text, fontWeight: "700" }}>#{b.number}</Text>
                         <View style={{
                           paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4,
-                          backgroundColor: isCandidate ? theme.surfaceAlt : theme.primary,
-                          borderWidth: isCandidate ? StyleSheet.hairlineWidth : 0,
-                          borderColor: theme.border,
+                          backgroundColor: badgeColor,
                         }}>
-                          <Text style={{ fontSize: 9, fontWeight: "700", color: isCandidate ? theme.textSubtle : "#fff", textTransform: "uppercase" }}>
+                          <Text style={{ fontSize: 9, fontWeight: "700", color: "#fff", textTransform: "uppercase" }}>
                             {b.status}
                           </Text>
                         </View>
@@ -1390,14 +1500,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                       </View>
                     )}
                     <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
-                      {isCandidate && (
-                        <Pressable
-                          onPress={() => confirmBall(b.id)}
-                          style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: "center", backgroundColor: theme.primary }}
-                        >
-                          <Text style={{ fontSize: 11, color: "#fff", fontWeight: "600" }}>Confirm</Text>
-                        </Pressable>
-                      )}
                       <Pressable
                         onPress={() => rejectBall(b.id)}
                         style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: "center", backgroundColor: theme.destructive }}
