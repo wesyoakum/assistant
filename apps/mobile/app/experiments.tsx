@@ -307,6 +307,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   }
   const BALL_NEW_CONF = 0.1;          // YOLO threshold for proposing a ball
   const BALL_CONFIRM_CONF = 0.35;     // min confidence to auto-confirm
+  const BALL_DEDUP_M = 0.25;          // 3D distance threshold for "same ball"
   const BALL_CONFIRM_SIGHTINGS = 2;   // min sightings to auto-confirm
   interface CameraPose {
     worldX: number;
@@ -354,7 +355,20 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       const dataUri = `data:image/jpeg;base64,${cap.imageBase64}`;
       const yoloRes = await Yolo.detect(dataUri, { minConfidence: BALL_NEW_CONF });
 
-      const newBalls = [...balls];
+      // Refresh tracked-ball positions from ARKit before deduping.
+      // ARKit refines anchor world transforms as it improves its world map;
+      // our stored positions go stale and break the dedup comparison.
+      const liveAnchors = await arRef.current.listBalls().catch(() => [] as BallAnchor[]);
+      const liveById = new Map(liveAnchors.map((a) => [a.id, a]));
+
+      let newBalls: TrackedBall[] = balls.map((b) => {
+        const live = liveById.get(b.id);
+        return live ? { ...b, worldX: live.worldX, worldY: live.worldY, worldZ: live.worldZ } : b;
+      });
+      // Also drop any tracked balls whose anchor disappeared from ARKit
+      // (e.g. session reset). Keeps state consistent with the AR view.
+      newBalls = newBalls.filter((b) => liveById.has(b.id));
+
       const drawBoxes: { x: number; y: number; width: number; height: number; number: number }[] = [];
       const now = Date.now();
 
@@ -366,10 +380,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         const added = await arRef.current.addBallAtScreenPoint(nx, ny, 0.035);
         if (!added) continue;  // raycast missed (no plane below)
 
-        // Dedup against existing balls (3D distance threshold)
-        const THRESHOLD_M = 0.15;
+        // Dedup against fresh tracked positions
         let matchedIdx = -1;
-        let bestDist = THRESHOLD_M;
+        let bestDist = BALL_DEDUP_M;
         for (let i = 0; i < newBalls.length; i++) {
           const b = newBalls[i]!;
           const dx = b.worldX - added.worldX;
@@ -380,8 +393,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         }
 
         if (matchedIdx >= 0) {
-          // Duplicate — remove the new native anchor so we don't stack spheres,
-          // then update the existing track's stats. Auto-confirm if criteria met.
           await arRef.current.removeBall(added.id).catch(() => {});
           const b = newBalls[matchedIdx]!;
           const sightings = b.sightings + 1;
@@ -395,8 +406,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           };
           drawBoxes.push({ ...d.box, number: b.number });
         } else {
-          // New candidate. Auto-confirm if first sighting already has high conf
-          // AND we configured single-sighting confirmation (we don't, but allow).
           const startStatus: "candidate" | "confirmed" =
             (BALL_CONFIRM_SIGHTINGS <= 1 && d.confidence >= BALL_CONFIRM_CONF) ? "confirmed" : "candidate";
           newBalls.push({
@@ -415,6 +424,11 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         }
       }
 
+      // Retroactive cluster-merge pass. Walks the list and merges any pair
+      // within BALL_DEDUP_M of each other. Loser is the one with fewer
+      // sightings (ties broken by ditching the candidate over the confirmed).
+      newBalls = await mergeBallClusters(newBalls);
+
       setBalls(newBalls);
       setBallsLastImage({ uri: dataUri, width: cap.imageWidth, height: cap.imageHeight, boxes: drawBoxes });
     } catch (err) {
@@ -422,6 +436,43 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     } finally {
       setBallsBusy(false);
     }
+  };
+
+  /** Merge any pair of tracked balls within BALL_DEDUP_M of each other. */
+  const mergeBallClusters = async (input: TrackedBall[]): Promise<TrackedBall[]> => {
+    const arr = [...input];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      outer: for (let i = 0; i < arr.length; i++) {
+        for (let j = i + 1; j < arr.length; j++) {
+          const a = arr[i]!, b = arr[j]!;
+          const dx = a.worldX - b.worldX;
+          const dy = a.worldY - b.worldY;
+          const dz = a.worldZ - b.worldZ;
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (dist >= BALL_DEDUP_M) continue;
+          // Pick the loser: confirmed beats candidate; then by sightings; then older.
+          const aWins =
+            (a.status === "confirmed" && b.status !== "confirmed") ||
+            (a.status === b.status && a.sightings >= b.sightings);
+          const keep = aWins ? a : b;
+          const drop = aWins ? b : a;
+          // Merge stats into the keeper.
+          keep.sightings = keep.sightings + drop.sightings;
+          keep.lastSeen = Math.max(keep.lastSeen, drop.lastSeen);
+          keep.lastConfidence = Math.max(keep.lastConfidence, drop.lastConfidence);
+          if (keep.status !== "confirmed" && drop.status === "confirmed") keep.status = "confirmed";
+          // Drop the loser's native anchor + remove from array.
+          try { await arRef.current?.removeBall(drop.id); } catch {}
+          const dropIdx = arr.indexOf(drop);
+          if (dropIdx >= 0) arr.splice(dropIdx, 1);
+          changed = true;
+          break outer;
+        }
+      }
+    }
+    return arr;
   };
 
   const clearBalls = async () => {
