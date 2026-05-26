@@ -324,9 +324,16 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     confirmedConf: number;
     immediateConfirmRange: number;
     immediateConfirmConf: number;
-    revalidateMaxDist: number;
     revalidateScreenTolerance: number;
-    revalidateMissLimit: number;
+    // Per-state × per-distance miss limits for revalidation. Distance
+    // buckets re-use the detection tier1/2/3 distances: close = < tier1Dist,
+    // mid = tier1Dist..tier2Dist, far = tier2Dist..tier3Dist. Beyond
+    // tier3Dist we skip revalidation entirely (insufficient signal).
+    missLimits: {
+      candidate: { close: number; mid: number; far: number };
+      probable:  { close: number; mid: number; far: number };
+      confirmed: { close: number; mid: number; far: number };
+    };
   }
   const DEFAULT_TUNABLES: BallTunables = {
     yoloMinConf: 0.10,
@@ -343,9 +350,12 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     confirmedConf: 0.45,
     immediateConfirmRange: 2.0,
     immediateConfirmConf: 0.45,
-    revalidateMaxDist: 3.0,
     revalidateScreenTolerance: 0.10,
-    revalidateMissLimit: 3,
+    missLimits: {
+      candidate: { close: 1, mid: 3,  far: 5 },
+      probable:  { close: 2, mid: 5,  far: 10 },
+      confirmed: { close: 3, mid: 8,  far: 15 },
+    },
   };
   const [tunables, setTunables] = useState<BallTunables>(DEFAULT_TUNABLES);
   // Hold a ref so the running Live loop always sees the latest values
@@ -367,6 +377,21 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     if (distance < t.tier3Dist) return `${t.tier2Dist}-${t.tier3Dist}m`;
     if (distance < t.tier4Dist) return `${t.tier3Dist}-${t.tier4Dist}m`;
     return `>${t.tier4Dist}m`;
+  };
+
+  /** Revalidation distance bucket — derived from the detection tier boundaries. */
+  type RevalBucket = "close" | "mid" | "far" | "skip";
+  const revalBucket = (distance: number, t = tunablesRef.current): RevalBucket => {
+    if (distance < t.tier1Dist) return "close";
+    if (distance < t.tier2Dist) return "mid";
+    if (distance < t.tier3Dist) return "far";
+    return "skip";
+  };
+  /** Miss limit before deletion, for a tracked ball with the given state +
+   *  bucket. Returns Infinity to mean "never delete via missCount". */
+  const missLimitFor = (state: BallState, bucket: RevalBucket, t = tunablesRef.current): number => {
+    if (bucket === "skip") return Infinity;
+    return t.missLimits[state][bucket];
   };
 
   /** Tier ordering for picking a "keeper" during cluster merge / dedup. */
@@ -398,9 +423,12 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   }
   interface RevalidationReport {
     ballNumber: number;
+    state: BallState;
     outcome: "still" | "miss" | "deleted" | "out-of-range" | "off-screen";
     missCount: number;
+    missLimit: number;
     distance: number;
+    bucket: RevalBucket;
   }
   interface CaptureTelemetry {
     timestamp: number;
@@ -563,22 +591,28 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         }
       }
 
-      // --- Revalidation -------------------------------------------------
+      // --- Revalidation (state × distance miss matrix) -----------------
       const stillTracked: TrackedBall[] = [];
       for (const b of newBalls) {
         if (matchedIds.has(b.id)) { stillTracked.push(b); continue; }
 
         const ballDist = distFromCamera(b.worldX, b.worldY, b.worldZ);
-        if (ballDist > t.revalidateMaxDist) {
+        const bucket = revalBucket(ballDist, t);
+        const limit = missLimitFor(b.status, bucket, t);
+
+        // No revalidation if the ball is in the "skip" bucket (beyond
+        // tier3Dist): not enough signal to declare it gone.
+        if (bucket === "skip") {
           stillTracked.push(b);
-          revalidationReports.push({ ballNumber: b.number, outcome: "out-of-range", missCount: b.missCount, distance: ballDist });
+          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "out-of-range", missCount: b.missCount, missLimit: limit, distance: ballDist, bucket });
           continue;
         }
         const proj = await arRef.current.projectWorldPoint(b.worldX, b.worldY, b.worldZ).catch(() => null);
         const onScreen = proj && proj.isInFront && proj.screenX >= 0 && proj.screenX <= 1 && proj.screenY >= 0 && proj.screenY <= 1;
         if (!onScreen) {
+          // Out of view: no information, missCount unchanged
           stillTracked.push(b);
-          revalidationReports.push({ ballNumber: b.number, outcome: "off-screen", missCount: b.missCount, distance: ballDist });
+          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "off-screen", missCount: b.missCount, missLimit: limit, distance: ballDist, bucket });
           continue;
         }
         const tol = t.revalidateScreenTolerance;
@@ -587,15 +621,15 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         );
         if (found) {
           stillTracked.push({ ...b, missCount: 0 });
-          revalidationReports.push({ ballNumber: b.number, outcome: "still", missCount: 0, distance: ballDist });
+          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "still", missCount: 0, missLimit: limit, distance: ballDist, bucket });
         } else {
           const missCount = b.missCount + 1;
-          if (missCount >= t.revalidateMissLimit) {
+          if (missCount >= limit) {
             await arRef.current.removeBall(b.id).catch(() => {});
-            revalidationReports.push({ ballNumber: b.number, outcome: "deleted", missCount, distance: ballDist });
+            revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "deleted", missCount, missLimit: limit, distance: ballDist, bucket });
           } else {
             stillTracked.push({ ...b, missCount });
-            revalidationReports.push({ ballNumber: b.number, outcome: "miss", missCount, distance: ballDist });
+            revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "miss", missCount, missLimit: limit, distance: ballDist, bucket });
           }
         }
       }
@@ -657,6 +691,14 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       }
     }
     return arr;
+  };
+
+  const clearCandidates = async () => {
+    const toDrop = balls.filter((b) => b.status === "candidate");
+    for (const b of toDrop) {
+      try { await arRef.current?.removeBall(b.id); } catch {}
+    }
+    setBalls((prev) => prev.filter((b) => b.status !== "candidate"));
   };
 
   const clearBalls = async () => {
@@ -1453,6 +1495,20 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                     <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>Clear</Text>
                   </Pressable>
                 </View>
+                {(() => {
+                  const candCount = balls.filter((b) => b.status === "candidate").length;
+                  return (
+                    <Pressable
+                      onPress={clearCandidates}
+                      disabled={candCount === 0}
+                      style={{ marginTop: 8, paddingVertical: 8, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: candCount === 0 ? 0.4 : 1 }}
+                    >
+                      <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
+                        Clear candidates ({candCount})
+                      </Text>
+                    </Pressable>
+                  );
+                })()}
                 <Pressable
                   onPress={resetAR}
                   style={{ marginTop: 8, paddingVertical: 8, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
@@ -1566,12 +1622,39 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                 </DevSection>
 
                 <DevSection label="Revalidation (delete)" theme={theme} styles={styles}>
-                  <Stepper label="Max distance (m)" value={tunables.revalidateMaxDist} step={0.25} min={0.5} max={8} decimals={2}
-                    onChange={(v) => setTunables((p) => ({ ...p, revalidateMaxDist: v }))} theme={theme} />
                   <Stepper label="Screen tolerance" value={tunables.revalidateScreenTolerance} step={0.01} min={0.02} max={0.30} decimals={2}
                     onChange={(v) => setTunables((p) => ({ ...p, revalidateScreenTolerance: v }))} theme={theme} />
-                  <Stepper label="Miss limit (captures)" value={tunables.revalidateMissLimit} step={1} min={1} max={20} decimals={0}
-                    onChange={(v) => setTunables((p) => ({ ...p, revalidateMissLimit: v }))} theme={theme} />
+                  <Text style={{ fontSize: 10, color: theme.textSubtle, marginTop: 6, marginBottom: 2 }}>
+                    Miss limit per state × distance bucket. Buckets reuse tier 1/2/3 distances. Beyond tier 3, no revalidation.
+                  </Text>
+                  {(["candidate", "probable", "confirmed"] as const).map((st) => (
+                    <View key={st} style={{ marginTop: 4 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "600", color: theme.text, marginBottom: 2, textTransform: "capitalize" }}>
+                        {st}
+                      </Text>
+                      {(["close", "mid", "far"] as const).map((bk) => {
+                        const label = bk === "close" ? `<${tunables.tier1Dist}m`
+                                    : bk === "mid"   ? `${tunables.tier1Dist}-${tunables.tier2Dist}m`
+                                    :                  `${tunables.tier2Dist}-${tunables.tier3Dist}m`;
+                        return (
+                          <Stepper
+                            key={bk}
+                            label={`  ${bk} (${label})`}
+                            value={tunables.missLimits[st][bk]}
+                            step={1}
+                            min={1}
+                            max={30}
+                            decimals={0}
+                            onChange={(v) => setTunables((p) => ({
+                              ...p,
+                              missLimits: { ...p.missLimits, [st]: { ...p.missLimits[st], [bk]: v } },
+                            }))}
+                            theme={theme}
+                          />
+                        );
+                      })}
+                    </View>
+                  ))}
                 </DevSection>
 
                 <Pressable
@@ -1612,13 +1695,16 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   </Text>
                   {telemetry.revalidation.map((rr, i) => {
                     const color = rr.outcome === "deleted" ? theme.destructive : (rr.outcome === "miss" ? theme.highlight : theme.textSubtle);
+                    const counter = rr.outcome === "miss" || rr.outcome === "deleted"
+                      ? ` (${rr.missCount}/${rr.missLimit === Infinity ? "∞" : rr.missLimit})`
+                      : "";
                     return (
                       <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 1 }}>
                         <Text style={{ fontSize: 11, color: theme.text, fontVariant: ["tabular-nums"] }}>
-                          #{rr.ballNumber} @ {rr.distance.toFixed(2)} m
+                          #{rr.ballNumber} · {rr.state} @ {rr.distance.toFixed(2)} m ({rr.bucket})
                         </Text>
                         <Text style={{ fontSize: 11, color, fontVariant: ["tabular-nums"] }}>
-                          {rr.outcome}{rr.outcome === "miss" || rr.outcome === "deleted" ? ` (${rr.missCount}/${tunables.revalidateMissLimit})` : ""}
+                          {rr.outcome}{counter}
                         </Text>
                       </View>
                     );
