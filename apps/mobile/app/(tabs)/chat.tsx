@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -39,7 +39,6 @@ export default function ChatScreen() {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const flatListRef = useRef<FlatList>(null);
   const theme = useTheme();
   const styles = useStyles(makeStyles);
   const mdStyles = useStyles(makeMdStyles);
@@ -67,11 +66,21 @@ export default function ChatScreen() {
         body: JSON.stringify({ message: text }),
       });
     },
-    onSuccess: async () => {
-      // Server persisted both the user message and the assistant reply.
-      // Refetch history, then clear local pending state.
-      await queryClient.invalidateQueries({ queryKey: ["chat-history"] });
+    onSuccess: (data, text) => {
+      // Optimistically append both messages to the cached history so we
+      // can clear `pending` in the same render — otherwise the user's
+      // message renders twice (once from pending, once from refetched
+      // history) for a frame before pending clears. Refetch in the
+      // background to pick up the canonical server IDs.
+      queryClient.setQueryData<HistoryResponse>(["chat-history"], (old) => ({
+        messages: [
+          ...(old?.messages ?? []),
+          { id: `local-user-${Date.now()}`, role: "user", content: text },
+          { id: `local-assistant-${Date.now() + 1}`, role: "assistant", content: data.reply },
+        ],
+      }));
       setPending([]);
+      queryClient.invalidateQueries({ queryKey: ["chat-history"] });
     },
     onError: (err: Error) => {
       setPending((prev) => [
@@ -115,27 +124,11 @@ export default function ChatScreen() {
     sendMutation.mutate(text);
   }, [input, sendMutation]);
 
-  // Scroll to the last message when the keyboard opens — otherwise it covers
-  // the bottom of the conversation.
-  useEffect(() => {
-    const sub = Keyboard.addListener("keyboardDidShow", () => {
-      requestAnimationFrame(() =>
-        flatListRef.current?.scrollToEnd({ animated: true })
-      );
-    });
-    return () => sub.remove();
-  }, []);
-
-  // Belt-and-suspenders: scroll to bottom whenever the message list grows
-  // (history load, announce post). onContentSizeChange covers most cases,
-  // but on slow layouts it sometimes fires before items mount.
-  useEffect(() => {
-    if (messages.length === 0) return;
-    const t = setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: false });
-    }, 50);
-    return () => clearTimeout(t);
-  }, [messages.length]);
+  // Inverted FlatList: newest first. The list naturally pins to the visual
+  // bottom, so new messages, history loads, and keyboard show/hide don't
+  // require any imperative scrolling — and the user can scroll up to read
+  // history without getting yanked back.
+  const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
@@ -145,18 +138,12 @@ export default function ChatScreen() {
         keyboardVerticalOffset={90}
       >
         <FlatList
-          ref={flatListRef}
-          data={messages}
+          data={reversedMessages}
+          inverted
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           contentContainerStyle={styles.messageList}
-          onContentSizeChange={() => {
-            // Snap to bottom on every content change (history load, new
-            // message, announce post). No animation — feels like the chat
-            // was always there.
-            flatListRef.current?.scrollToEnd({ animated: false });
-          }}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <ActivityIndicator size="small" color="#999" />
