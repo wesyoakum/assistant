@@ -26,7 +26,7 @@ import { Yolo, type YoloResult } from "expo-yolo";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { computeFieldFrame, type LandmarkPositions, type Vec3 } from "../src/field/coordinateFrame";
-import { generateDirtBoundary, FIELD_TEMPLATES } from "../src/field/templates";
+import { generateDirtBoundary, computeLandmarkPositions, FIELD_TEMPLATES } from "../src/field/templates";
 import { classifyBall } from "../src/field/classify";
 import { useFields, type FieldRegistration } from "../src/state/fields";
 import { useAuth } from "../src/state/auth";
@@ -1878,33 +1878,93 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
   arViewAvailable: boolean;
 }) {
   const { fields, addField, removeField, activeFieldId, setActiveField } = useFields();
-  const [placingKind, setPlacingKind] = useState<FieldLandmarkKind | null>(null);
   const [placedLandmarks, setPlacedLandmarks] = useState<FieldLandmarkAnchor[]>([]);
-  const [fieldName, setFieldName] = useState("");
   const [fieldType, setFieldType] = useState("regulation");
   const [frameResult, setFrameResult] = useState<string | null>(null);
+  // "placing" = tap-to-place mode. null = not placing, "home_plate" = initial placement, or a kind for repositioning
+  const [placingKind, setPlacingKind] = useState<FieldLandmarkKind | null>(null);
+  const [isRepositioning, setIsRepositioning] = useState(false);
 
-  const LANDMARK_KINDS: { key: FieldLandmarkKind; label: string }[] = [
-    { key: "home_plate", label: "HP" },
-    { key: "first_base", label: "1B" },
-    { key: "second_base", label: "2B" },
-    { key: "third_base", label: "3B" },
-    { key: "rubber", label: "R" },
-  ];
+  const LANDMARK_LABELS: Record<string, string> = {
+    home_plate: "HP", first_base: "1B", second_base: "2B", third_base: "3B", rubber: "R",
+  };
 
-  const placeLandmark = async (nx: number, ny: number) => {
+  // Place home plate and auto-place entire field using camera forward direction
+  const placeEntireField = async (nx: number, ny: number) => {
+    if (!arRef.current) return;
+
+    // Clear any existing landmarks
+    await arRef.current.clearFieldLandmarks();
+
+    // Get the raycast hit point for home plate
+    const hp = await arRef.current.addFieldLandmark(nx, ny, "home_plate");
+    if (!hp) { Alert.alert("No surface", "Couldn't find a floor surface. Try pointing at the ground."); return; }
+
+    // Get camera forward direction projected onto ground plane
+    const camT = await arRef.current.currentCameraTransform();
+    if (!camT || camT.length < 16) return;
+    // Camera forward = -Z column of the transform (negated because camera looks along -Z)
+    const fwdX = -camT[8]!;
+    const fwdZ = -camT[10]!;
+
+    // Compute positions for all landmarks
+    const positions = computeLandmarkPositions(hp.worldX, hp.worldY, hp.worldZ, fwdX, fwdZ, fieldType);
+
+    const placed: FieldLandmarkAnchor[] = [hp];
+
+    // Place the other 4 landmarks at computed world positions
+    // We need to use raycast for each to snap to the ground, but if the positions are
+    // far away the raycast might miss. Instead, project the world position to screen
+    // and raycast from there.
+    for (const pos of positions) {
+      if (pos.kind === "home_plate") continue;
+      const proj = await arRef.current.projectWorldPoint(pos.x, pos.y, pos.z);
+      if (proj && proj.isInFront && proj.screenX >= 0 && proj.screenX <= 1 && proj.screenY >= 0 && proj.screenY <= 1) {
+        const anchor = await arRef.current.addFieldLandmark(proj.screenX, proj.screenY, pos.kind as FieldLandmarkKind);
+        if (anchor) placed.push(anchor);
+      }
+    }
+
+    setPlacedLandmarks(placed);
+    setPlacingKind(null);
+  };
+
+  // Reposition a single landmark — next tap moves it
+  const repositionLandmark = async (nx: number, ny: number) => {
     if (!placingKind || !arRef.current) return;
+    // Remove old anchor for this kind
+    const old = placedLandmarks.find((l) => l.kind === placingKind);
+    if (old) await arRef.current.removeFieldLandmark(old.id);
+    // Place new one
     const result = await arRef.current.addFieldLandmark(nx, ny, placingKind);
     if (result) {
       setPlacedLandmarks((prev) => [...prev.filter((l) => l.kind !== placingKind), result]);
-      setPlacingKind(null);
+    }
+    setPlacingKind(null);
+    setIsRepositioning(false);
+  };
+
+  const handleTap = async (nx: number, ny: number) => {
+    if (isRepositioning) {
+      await repositionLandmark(nx, ny);
+    } else {
+      await placeEntireField(nx, ny);
     }
   };
 
-  const removeLandmark = async (id: string) => {
+  const startReposition = (kind: FieldLandmarkKind) => {
+    setPlacingKind(kind);
+    setIsRepositioning(true);
+  };
+
+  const landmarkRotations = useRef<Record<string, number>>({});
+
+  const rotateLandmark = async (id: string, delta: number) => {
     if (!arRef.current) return;
-    await arRef.current.removeFieldLandmark(id);
-    setPlacedLandmarks((prev) => prev.filter((l) => l.id !== id));
+    const current = landmarkRotations.current[id] ?? 0;
+    const next = current + delta;
+    landmarkRotations.current[id] = next;
+    await arRef.current.rotateFieldLandmark(id, next);
   };
 
   const clearAll = async () => {
@@ -1921,7 +1981,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
     const frame = computeFieldFrame(lm);
     if (frame) {
       const boundary = generateDirtBoundary(fieldType);
-      setFrameResult(`Frame OK · foul angle ${frame.foulLineAngleDeg.toFixed(1)}° · ${frame.landmarksUsed.join(", ")} · ${boundary.length} boundary pts`);
+      setFrameResult(`Frame OK · ${frame.foulLineAngleDeg.toFixed(1)}° foul angle · ${boundary.length} boundary pts`);
       return { frame, boundary };
     } else {
       setFrameResult("Need home plate + at least one base");
@@ -1932,7 +1992,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
   const registerField = () => {
     const result = tryComputeFrame();
     if (!result) return;
-    const name = fieldName.trim() || `Field ${fields.length + 1}`;
+    const name = `Field ${fields.length + 1}`;
     const lm: LandmarkPositions = {};
     for (const l of placedLandmarks) {
       lm[l.kind] = { x: l.worldX, y: l.worldY, z: l.worldZ };
@@ -1948,12 +2008,10 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
     };
     addField(reg);
     setActiveField(reg.id);
-    Alert.alert("Registered", `"${name}" saved with ${result.boundary.length}-point boundary.`);
+    Alert.alert("Registered", `"${name}" saved.`);
   };
 
-  const hasHP = placedLandmarks.some((l) => l.kind === "home_plate");
-  const hasBase = placedLandmarks.some((l) => l.kind === "first_base" || l.kind === "third_base");
-  const canRegister = hasHP && hasBase;
+  const hasLandmarks = placedLandmarks.length > 0;
 
   if (!arViewAvailable) {
     return (
@@ -1965,83 +2023,35 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
 
   return (
     <>
-      {/* Tap instruction */}
+      {/* Tap instruction banner */}
       {placingKind && (
         <View style={[styles.card, { padding: 10, marginBottom: 4, backgroundColor: theme.accent }]}>
           <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600", textAlign: "center" }}>
-            Tap the AR view to place {LANDMARK_KINDS.find((k) => k.key === placingKind)?.label ?? placingKind}
+            {isRepositioning
+              ? `Tap to reposition ${LANDMARK_LABELS[placingKind] ?? placingKind}`
+              : "Tap the field to place home plate — the entire field will be laid out from there"}
           </Text>
+          <Pressable onPress={() => { setPlacingKind(null); setIsRepositioning(false); }} style={{ marginTop: 6, alignItems: "center" }}>
+            <Text style={{ fontSize: 12, color: theme.textMuted }}>Cancel</Text>
+          </Pressable>
         </View>
       )}
 
-      {/* AR view tap handler — overlay a Pressable on top */}
+      {/* AR view tap overlay — only active when placing */}
       <Pressable
         style={{ position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 3 / 4, zIndex: placingKind ? 10 : -1 }}
         onPress={(e) => {
           if (!placingKind) return;
           const { locationX, locationY } = e.nativeEvent;
           const layout = e.currentTarget;
-          // @ts-ignore - measure is available on pressable
+          // @ts-ignore
           layout.measure?.((_x: number, _y: number, w: number, h: number) => {
-            if (w > 0 && h > 0) {
-              placeLandmark(locationX / w, locationY / h);
-            }
+            if (w > 0 && h > 0) handleTap(locationX / w, locationY / h);
           });
         }}
       />
 
-      {/* Landmark picker */}
-      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 8 }}>Place Landmarks</Text>
-        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-          {LANDMARK_KINDS.map((k) => {
-            const placed = placedLandmarks.some((l) => l.kind === k.key);
-            const active = placingKind === k.key;
-            return (
-              <Pressable
-                key={k.key}
-                onPress={() => setPlacingKind(active ? null : k.key)}
-                style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                  backgroundColor: active ? theme.accent : placed ? theme.primary : theme.surfaceAlt,
-                  borderWidth: 1,
-                  borderColor: active ? theme.accent : placed ? theme.primary : theme.border,
-                }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: active ? theme.text : placed ? "#fff" : theme.text }}>
-                  {k.label}{placed ? " ✓" : ""}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-        {placedLandmarks.length > 0 && (
-          <Pressable onPress={clearAll} style={{ marginTop: 8 }}>
-            <Text style={{ fontSize: 12, color: theme.destructive }}>Clear all landmarks</Text>
-          </Pressable>
-        )}
-      </View>
-
-      {/* Placed landmarks list */}
-      {placedLandmarks.length > 0 && (
-        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-          <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 6 }}>Placed</Text>
-          {placedLandmarks.map((l) => (
-            <View key={l.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}>
-              <Text style={{ fontSize: 12, color: theme.text, fontVariant: ["tabular-nums"] }}>
-                {LANDMARK_KINDS.find((k) => k.key === l.kind)?.label} · ({l.worldX.toFixed(2)}, {l.worldY.toFixed(2)}, {l.worldZ.toFixed(2)})
-              </Text>
-              <Pressable onPress={() => removeLandmark(l.id)}>
-                <Text style={{ fontSize: 11, color: theme.destructive }}>Remove</Text>
-              </Pressable>
-            </View>
-          ))}
-        </View>
-      )}
-
-      {/* Field type + name + register */}
+      {/* Field type selector + place button (before any landmarks placed) */}
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 8 }}>Field Type</Text>
         <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
@@ -2050,12 +2060,9 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
               key={key}
               onPress={() => setFieldType(key)}
               style={{
-                paddingHorizontal: 12,
-                paddingVertical: 6,
-                borderRadius: 6,
+                paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
                 backgroundColor: fieldType === key ? theme.primary : theme.surfaceAlt,
-                borderWidth: 1,
-                borderColor: fieldType === key ? theme.primary : theme.border,
+                borderWidth: 1, borderColor: fieldType === key ? theme.primary : theme.border,
               }}
             >
               <Text style={{ fontSize: 12, color: fieldType === key ? "#fff" : theme.text }}>{t.name}</Text>
@@ -2063,33 +2070,87 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
           ))}
         </View>
 
-        <Pressable
-          onPress={() => {
-            tryComputeFrame();
-          }}
-          style={{ marginBottom: 8 }}
-        >
-          <Text style={{ fontSize: 12, color: theme.primary }}>Test coordinate frame</Text>
-        </Pressable>
-        {frameResult && (
-          <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 8 }}>{frameResult}</Text>
+        {!hasLandmarks ? (
+          <Pressable
+            onPress={() => { setPlacingKind("home_plate"); setIsRepositioning(false); }}
+            style={{ paddingVertical: 10, borderRadius: 8, backgroundColor: theme.primary, alignItems: "center" }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>Place Field</Text>
+          </Pressable>
+        ) : (
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              onPress={() => { setPlacingKind("home_plate"); setIsRepositioning(false); }}
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: theme.surfaceAlt, alignItems: "center", borderWidth: 1, borderColor: theme.border }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>Re-place Field</Text>
+            </Pressable>
+            <Pressable
+              onPress={clearAll}
+              style={{ paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: theme.destructive, alignItems: "center" }}
+            >
+              <Text style={{ fontSize: 13, fontWeight: "600", color: "#fff" }}>Clear</Text>
+            </Pressable>
+          </View>
         )}
-
-        <Pressable
-          onPress={registerField}
-          disabled={!canRegister}
-          style={{
-            paddingVertical: 10,
-            borderRadius: 8,
-            backgroundColor: canRegister ? theme.primary : theme.surfaceAlt,
-            alignItems: "center",
-          }}
-        >
-          <Text style={{ fontSize: 14, fontWeight: "600", color: canRegister ? "#fff" : theme.textSubtle }}>
-            Register Field
-          </Text>
-        </Pressable>
       </View>
+
+      {/* Placed landmarks — with reposition + rotate controls */}
+      {hasLandmarks && (
+        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+          <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 6 }}>Landmarks</Text>
+          {placedLandmarks.map((l) => (
+            <View key={l.id} style={{ paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>
+                  {LANDMARK_LABELS[l.kind] ?? l.kind}
+                </Text>
+                <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                  ({l.worldX.toFixed(2)}, {l.worldY.toFixed(2)}, {l.worldZ.toFixed(2)})
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                <Pressable
+                  onPress={() => startReposition(l.kind)}
+                  style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                >
+                  <Text style={{ fontSize: 11, color: theme.text }}>Move</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => rotateLandmark(l.id, -15)}
+                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                >
+                  <Text style={{ fontSize: 11, color: theme.text }}>-15°</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => rotateLandmark(l.id, 15)}
+                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                >
+                  <Text style={{ fontSize: 11, color: theme.text }}>+15°</Text>
+                </Pressable>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Register + frame info */}
+      {hasLandmarks && (
+        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+          <Pressable onPress={() => tryComputeFrame()} style={{ marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, color: theme.primary }}>Test coordinate frame</Text>
+          </Pressable>
+          {frameResult && (
+            <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 8 }}>{frameResult}</Text>
+          )}
+          <Pressable
+            onPress={registerField}
+            style={{ paddingVertical: 10, borderRadius: 8, backgroundColor: theme.primary, alignItems: "center" }}
+          >
+            <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>Register Field</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Saved fields */}
       {fields.length > 0 && (
@@ -2098,9 +2159,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
           {fields.map((f) => (
             <View key={f.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, color: theme.text, fontWeight: activeFieldId === f.id ? "700" : "400" }}>
-                  {f.name}
-                </Text>
+                <Text style={{ fontSize: 13, color: theme.text, fontWeight: activeFieldId === f.id ? "700" : "400" }}>{f.name}</Text>
                 <Text style={{ fontSize: 11, color: theme.textSubtle }}>
                   {FIELD_TEMPLATES[f.fieldType]?.name ?? f.fieldType} · {new Date(f.createdAt).toLocaleDateString()}
                 </Text>

@@ -40,6 +40,55 @@ export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
 };
 
 /**
+ * Compute world positions for all 5 field landmarks given home plate position
+ * and a forward direction (from home plate toward center field / 2nd base).
+ *
+ * The forward direction is typically the camera's forward vector projected
+ * onto the ground plane at the time home plate is placed.
+ */
+export function computeLandmarkPositions(
+  homeX: number, homeY: number, homeZ: number,
+  forwardX: number, forwardZ: number,
+  templateKey: string
+): { kind: string; x: number; y: number; z: number }[] {
+  const t = FIELD_TEMPLATES[templateKey] ?? FIELD_TEMPLATES.regulation;
+  const bp = t.basepathFt * FT_TO_M;
+  const rubberDist = t.rubberDistFt * FT_TO_M;
+
+  // Normalize forward direction on the ground plane (XZ)
+  const fLen = Math.sqrt(forwardX * forwardX + forwardZ * forwardZ);
+  if (fLen < 1e-6) return [];
+  const fwdX = forwardX / fLen;
+  const fwdZ = forwardZ / fLen;
+
+  // Right vector (perpendicular to forward on ground plane, pointing toward 1B)
+  // For a standard field: standing at HP looking toward 2B, 1B is to the right
+  const rightX = fwdZ;   // rotate forward 90° CW on XZ plane
+  const rightZ = -fwdX;
+
+  // Field coordinate axes in world space:
+  // +X (toward 1B) = (forward + right) / sqrt(2)  (45° right of center field)
+  // +Z (toward 3B) = (forward - right) / sqrt(2)  (45° left of center field)
+  const s = 1 / Math.SQRT2;
+  const to1bX = s * (fwdX + rightX);
+  const to1bZ = s * (fwdZ + rightZ);
+  const to3bX = s * (fwdX - rightX);
+  const to3bZ = s * (fwdZ - rightZ);
+
+  // Toward 2B = forward direction (already normalized)
+  const to2bX = fwdX;
+  const to2bZ = fwdZ;
+
+  return [
+    { kind: "home_plate", x: homeX, y: homeY, z: homeZ },
+    { kind: "first_base", x: homeX + to1bX * bp, y: homeY, z: homeZ + to1bZ * bp },
+    { kind: "second_base", x: homeX + to2bX * bp * Math.SQRT2, y: homeY, z: homeZ + to2bZ * bp * Math.SQRT2 },
+    { kind: "third_base", x: homeX + to3bX * bp, y: homeY, z: homeZ + to3bZ * bp },
+    { kind: "rubber", x: homeX + to2bX * rubberDist, y: homeY, z: homeZ + to2bZ * rubberDist },
+  ];
+}
+
+/**
  * Generate the infield dirt boundary polygon in field coordinates (X, Z).
  * Field coords: origin at home plate, +X toward 1B, +Z toward 3B.
  *
