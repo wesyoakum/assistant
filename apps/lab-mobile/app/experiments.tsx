@@ -201,7 +201,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   // Vision sub-mode — tabs under the camera/depth tile
   type VisionMode = "claude" | "applevision" | "yolo" | "lidar" | "map" | "balls" | "field";
-  const [visionMode, setVisionMode] = useState<VisionMode>("claude");
+  const [visionMode, setVisionMode] = useState<VisionMode>("balls");
   const VISION_MODE_TABS: { key: VisionMode; label: string }[] = [
     { key: "claude", label: "Claude" },
     { key: "applevision", label: "Apple" },
@@ -357,9 +357,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     immediateConfirmConf: 0.45,
     revalidateScreenTolerance: 0.10,
     missLimits: {
-      candidate: { close: 1, mid: 3,  far: 5 },
-      probable:  { close: 2, mid: 5,  far: 10 },
-      confirmed: { close: 3, mid: 8,  far: 15 },
+      candidate: { close: 1, mid: 2,  far: 3 },
+      probable:  { close: 2, mid: 3,  far: 5 },
+      confirmed: { close: 2, mid: 4,  far: 5 },
     },
   };
   const [tunables, setTunables] = useState<BallTunables>(DEFAULT_TUNABLES);
@@ -743,6 +743,23 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       setBallsLive(false);
     }
   }, [visionMode]);
+
+  // Background revalidation sweep: every 5s when in Balls mode and NOT in
+  // live capture. Captures a frame, runs YOLO, and revalidates all tracked
+  // balls. Removes stale anchors that YOLO can no longer see.
+  useEffect(() => {
+    if (visionMode !== "balls") return;
+    let cancelled = false;
+    const sweep = async () => {
+      // Skip if live capture is running (it already revalidates every frame)
+      if (ballsLiveRef.current || cancelled) return;
+      if (!arRef.current || !yoloReady) return;
+      // Run a full capture + revalidation cycle
+      await captureAndFindBalls();
+    };
+    const interval = setInterval(sweep, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [visionMode, yoloReady]);
 
   const rejectBall = async (id: string) => {
     try { await arRef.current?.removeBall(id); } catch {}
@@ -1534,41 +1551,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               </>
             )}
           </View>
-          {arViewAvailable && (
-            <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
-              <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
-                AR overlays
-              </Text>
-              <View style={{ flexDirection: "row", gap: 6 }}>
-                {[
-                  { label: "Planes", value: showPlanes, set: setShowPlanes, hint: "floor/walls" },
-                  { label: "Mesh", value: showMesh, set: setShowMesh, hint: "LiDAR scene" },
-                  { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints, hint: "tracked points" },
-                ].map((opt) => (
-                  <Pressable
-                    key={opt.label}
-                    onPress={() => opt.set(!opt.value)}
-                    style={{
-                      flex: 1,
-                      paddingVertical: 8,
-                      borderRadius: 8,
-                      alignItems: "center",
-                      backgroundColor: opt.value ? theme.primary : theme.surfaceAlt,
-                      borderWidth: opt.value ? 0 : StyleSheet.hairlineWidth,
-                      borderColor: theme.border,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: opt.value ? "#fff" : theme.text }}>
-                      {opt.label}
-                    </Text>
-                    <Text style={{ fontSize: 9, color: opt.value ? "#fff" : theme.textSubtle, marginTop: 1 }}>
-                      {opt.hint}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
 
           {/* Dev panel: tunables + telemetry */}
           <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
@@ -1840,6 +1822,43 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
       {visionMode === "field" && (
         <FieldTab arRef={arRef} theme={theme} styles={styles} arViewAvailable={arViewAvailable} />
+      )}
+
+      {/* AR overlay toggles — shared by Balls and Field modes */}
+      {(visionMode === "balls" || visionMode === "field") && arViewAvailable && (
+        <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
+          <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
+            AR overlays
+          </Text>
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            {[
+              { label: "Planes", value: showPlanes, set: setShowPlanes, hint: "floor/walls" },
+              { label: "Mesh", value: showMesh, set: setShowMesh, hint: "LiDAR scene" },
+              { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints, hint: "tracked points" },
+            ].map((opt) => (
+              <Pressable
+                key={opt.label}
+                onPress={() => opt.set(!opt.value)}
+                style={{
+                  flex: 1,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  backgroundColor: opt.value ? theme.primary : theme.surfaceAlt,
+                  borderWidth: opt.value ? 0 : StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: "600", color: opt.value ? "#fff" : theme.text }}>
+                  {opt.label}
+                </Text>
+                <Text style={{ fontSize: 9, color: opt.value ? "#fff" : theme.textSubtle, marginTop: 1 }}>
+                  {opt.hint}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       )}
     </>
   );
@@ -2601,15 +2620,13 @@ export default function ExperimentsScreen() {
   );
 }
 
-export type LabTab = "motion" | "audio" | "vision" | "env" | "device" | "health" | "info";
+export type LabTab = "vision" | "sensors" | "audio" | "device" | "info";
 
 const LAB_TABS: { key: LabTab; label: string }[] = [
-  { key: "motion", label: "Motion" },
-  { key: "audio", label: "Audio" },
   { key: "vision", label: "Vision" },
-  { key: "env", label: "Env" },
+  { key: "sensors", label: "Sensors" },
+  { key: "audio", label: "Audio" },
   { key: "device", label: "Device" },
-  { key: "health", label: "Health" },
   { key: "info", label: "Info" },
 ];
 
@@ -2618,7 +2635,7 @@ export function ExperimentsContent() {
   const styles = useStyles(makeStyles);
   const theme = useTheme();
   const { data: me } = useMe();
-  const [labTab, setLabTab] = useState<LabTab>("motion");
+  const [labTab, setLabTab] = useState<LabTab>("vision");
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [pushPerm, setPushPerm] = useState<string>("?");
   const [clipboardSnap, setClipboardSnap] = useState<string>("");
@@ -3494,7 +3511,7 @@ export function ExperimentsContent() {
       )}
       </>)}
 
-      {labTab === "motion" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>Accelerometer</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <MultiSparkline
@@ -3715,7 +3732,7 @@ export function ExperimentsContent() {
       </View>
       </>)}
 
-      {labTab === "env" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>Weather (Open-Meteo)</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         {weather ? (
@@ -3868,7 +3885,7 @@ export function ExperimentsContent() {
       />
       </>)}
 
-      {labTab === "motion" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>Pedometer</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <BarGauge value={stepsToday ?? 0} max={10000} color={theme.primary} />
@@ -3939,7 +3956,7 @@ export function ExperimentsContent() {
       </View>
       </>)}
 
-      {labTab === "env" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>Location</Text>
       <View style={[styles.card, { padding: 12, marginBottom: 4, flexDirection: "row", justifyContent: "space-around", alignItems: "center" }]}>
         <CompassArrow
@@ -4062,7 +4079,7 @@ export function ExperimentsContent() {
       </View>
       </>)}
 
-      {labTab === "env" && (<>
+      {labTab === "sensors" && (<>
       <Section
         title="Network"
         rows={[
@@ -4121,7 +4138,7 @@ export function ExperimentsContent() {
       </View>
       </>)}
 
-      {labTab === "env" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>Bluetooth (BLE scan)</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         {bleSelectedId ? (() => {
@@ -4233,7 +4250,7 @@ export function ExperimentsContent() {
 
       {labTab === "device" && <GameControllerSection theme={theme} styles={styles} />}
 
-      {labTab === "health" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>HealthKit</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 13, color: theme.textMuted }}>
@@ -4242,7 +4259,7 @@ export function ExperimentsContent() {
       </View>
       </>)}
 
-      {labTab === "env" && (<>
+      {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>NFC</Text>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <Text style={{ fontSize: 13, color: theme.textMuted }}>
