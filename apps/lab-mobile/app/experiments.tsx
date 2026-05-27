@@ -122,7 +122,7 @@ interface DetectedObject {
 /** Colored triangles at screen edges pointing toward off-screen balls. */
 function OffScreenIndicators({ balls }: { balls: { number: number; status: BallState; screenX: number; screenY: number }[] }) {
   const { width } = useWindowDimensions();
-  const viewH = width * (4 / 3);  // matches 3:4 aspect ratio
+  const viewH = width * (16 / 9);  // matches 9:16 aspect ratio
   const margin = 12;
   return (
     <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, width, height: viewH }}>
@@ -972,33 +972,36 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   return (
     <>
-      {/* Shared top tile — live AR (balls), live LiDAR depth (lidar/map), or live camera (claude/apple/yolo) */}
+      {/* AR view — full-width edge-to-edge for balls/field */}
+      {(visionMode === "balls" || visionMode === "field") && (
+        arViewAvailable ? (
+          <View style={{ marginHorizontal: -16, marginTop: -16, marginBottom: 4, aspectRatio: 9 / 16 }}>
+            <View pointerEvents={arEditMode ? "auto" : "none"} style={{ flex: 1 }}>
+              <LidarARView
+                ref={arRef}
+                style={{ flex: 1 }}
+                showPlanes={showPlanes}
+                showMesh={showMesh}
+                showFeaturePoints={showFeaturePoints}
+              />
+            </View>
+            {/* Off-screen ball indicators */}
+            {visionMode === "balls" && offScreenBalls.length > 0 && (
+              <OffScreenIndicators balls={offScreenBalls} />
+            )}
+          </View>
+        ) : (
+          <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
+            <Text style={{ color: theme.textSubtle, fontSize: 13, textAlign: "center", paddingHorizontal: 24 }}>
+              AR view not in this build — rebuild the app
+            </Text>
+          </View>
+        )
+      )}
+      {/* Other vision modes in a card */}
+      {!(visionMode === "balls" || visionMode === "field") && (
       <View style={[styles.card, { padding: 0, marginBottom: 4, overflow: "hidden" }]}>
-        {(visionMode === "balls" || visionMode === "field") ? (
-          arViewAvailable ? (
-            <View style={{ width: "100%", aspectRatio: 3 / 4 }}>
-              <View pointerEvents={arEditMode ? "auto" : "none"} style={{ flex: 1 }}>
-                <LidarARView
-                  ref={arRef}
-                  style={{ flex: 1 }}
-                  showPlanes={showPlanes}
-                  showMesh={showMesh}
-                  showFeaturePoints={showFeaturePoints}
-                />
-              </View>
-              {/* Off-screen ball indicators: colored triangles at screen edges */}
-              {visionMode === "balls" && offScreenBalls.length > 0 && (
-                <OffScreenIndicators balls={offScreenBalls} />
-              )}
-            </View>
-          ) : (
-            <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
-              <Text style={{ color: theme.textSubtle, fontSize: 13, textAlign: "center", paddingHorizontal: 24 }}>
-                AR view not in this build — rebuild the app
-              </Text>
-            </View>
-          )
-        ) : (visionMode === "lidar" || visionMode === "map") ? (
+        {(visionMode === "lidar" || visionMode === "map") ? (
           lidarFrame ? (
             <DepthGrid frame={lidarFrame} />
           ) : (
@@ -1029,6 +1032,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           )
         )}
       </View>
+      )}
 
       {/* Status line under the tile */}
       {(visionMode === "lidar" || visionMode === "map") && lidarFrame && (
@@ -2147,7 +2151,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
       {/* Crosshairs overlay */}
       {fieldActive && (
         <View pointerEvents="none" style={{
-          position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 3 / 4,
+          position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 9 / 16,
           zIndex: 5, justifyContent: "center", alignItems: "center",
         }}>
           <View style={{ position: "absolute", width: 40, height: 2, backgroundColor: "rgba(255,255,255,0.7)", borderRadius: 1 }} />

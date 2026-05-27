@@ -3,6 +3,7 @@ import ARKit
 import UIKit
 import CoreGraphics
 import CoreImage
+import AVFoundation
 import simd
 
 public final class LidarModule: Module {
@@ -12,6 +13,13 @@ public final class LidarModule: Module {
 
   public func definition() -> ModuleDefinition {
     Name("ExpoLidar")
+
+    // Silence the camera shutter sound by setting audio session to playback.
+    // This prevents the system shutter from firing during takePictureAsync.
+    OnCreate {
+      try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+      try? AVAudioSession.sharedInstance().setActive(true)
+    }
 
     Events("onDepth")
 
