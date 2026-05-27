@@ -730,8 +730,8 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     setBallsLive(true);
     while (ballsLiveRef.current) {
       await captureAndFindBalls();
-      // Small breather so the JS thread + GPU don't melt; bumps to ~2 fps
-      await new Promise<void>((r) => setTimeout(r, 100));
+      // Stationary objects don't need high frame rate — ~2 captures/sec is plenty
+      await new Promise<void>((r) => setTimeout(r, 500));
     }
   };
   const stopBallsLive = () => {
