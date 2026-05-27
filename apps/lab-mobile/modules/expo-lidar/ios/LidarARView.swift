@@ -465,18 +465,28 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       vizNode.addChildNode(geoNode)
     } else {
       let geometry: SCNGeometry
+      var useFlat = true  // whether to rotate -90° X to lay flat
+      var yOffset: Float = 0  // lift above ground by half height for 3D geometry
       switch kind {
       case "home_plate":
         geometry = makeHomePlateGeometry()
       case "rubber":
         geometry = makeRubberGeometry()
+        useFlat = false
+        yOffset = 0.1524  // half of 12 inches
       case "batters_box_left", "batters_box_right":
         geometry = makeBattersBoxGeometry()
       default:  // first_base, second_base, third_base
         geometry = makeBaseGeometry()
+        useFlat = false
+        yOffset = 0.381 / 2  // half of 15 inches
       }
       let geoNode = SCNNode(geometry: geometry)
-      geoNode.eulerAngles.x = -.pi / 2  // lay flat on ground
+      if useFlat {
+        geoNode.eulerAngles.x = -.pi / 2  // lay flat on ground
+      } else {
+        geoNode.position.y = yOffset
+      }
       vizNode.addChildNode(geoNode)
     }
 
@@ -557,29 +567,28 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     return geometry
   }
 
-  /// Base: white square, 15" (0.381m) × 15", thin.
+  /// Base: white cube, 15" (0.381m) on each side. For testing visibility at distance.
   private func makeBaseGeometry() -> SCNGeometry {
     let size: CGFloat = 0.381  // 15 inches in meters
-    let plane = SCNPlane(width: size, height: size)
+    let box = SCNBox(width: size, height: size, length: size, chamferRadius: 0)
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.white
     material.isDoubleSided = true
-    material.writesToDepthBuffer = false
-    plane.materials = [material]
-    return plane
+    box.materials = [material]
+    return box
   }
 
-  /// Rubber: white rectangle, 24" (0.6096m) × 6" (0.1524m).
+  /// Rubber: white box, 24" × 6" × 12" tall (0.6096m × 0.1524m × 0.3048m).
   private func makeRubberGeometry() -> SCNGeometry {
     let w: CGFloat = 0.6096   // 24 inches
-    let h: CGFloat = 0.1524   // 6 inches
-    let plane = SCNPlane(width: w, height: h)
+    let d: CGFloat = 0.1524   // 6 inches
+    let h: CGFloat = 0.3048   // 12 inches tall
+    let box = SCNBox(width: w, height: h, length: d, chamferRadius: 0)
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.white
     material.isDoubleSided = true
-    material.writesToDepthBuffer = false
-    plane.materials = [material]
-    return plane
+    box.materials = [material]
+    return box
   }
 
   /// Batter's box: white semi-transparent rectangle, 4ft × 6ft (1.22m × 1.83m).
