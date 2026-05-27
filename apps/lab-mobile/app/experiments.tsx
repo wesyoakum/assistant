@@ -26,6 +26,7 @@ import { Yolo, type YoloResult } from "expo-yolo";
 // HealthKit + NFC deferred — re-add when provisioning profile is sorted.
 import FFT from "fft.js";
 import { computeFieldFrame, type LandmarkPositions, type Vec3 } from "../src/field/coordinateFrame";
+import { detectNotes, identifyChord } from "../src/audio/chords";
 import { generateDirtBoundary, computeLandmarkPositions, recomputeFieldFromBase, foulPoleDistFt, FIELD_TEMPLATES } from "../src/field/templates";
 import { classifyBall } from "../src/field/classify";
 import { useFields, type FieldRegistration } from "../src/state/fields";
@@ -4500,7 +4501,7 @@ export function ExperimentsContent() {
         onPress={() => setSpectrumFullscreen(true)}
         style={[styles.card, { padding: 6, marginBottom: 4 }]}
       >
-        <SpectrumBars samples={spectrum} peaks={peaks} height={90} />
+        <SpectrumBars samples={spectrum} peaks={peaks} height={90} bandEdges={bandEdgesRef.current} sampleRate={SAMPLE_RATE} fftSize={fftSize} />
         <Text style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: "600", color: theme.textSubtle, opacity: 0.7 }}>
           TAP TO FULLSCREEN
         </Text>
@@ -4614,6 +4615,9 @@ export function ExperimentsContent() {
             samples={spectrum}
             peaks={peaks}
             height={Math.max(200, winH - 110)}
+            bandEdges={bandEdgesRef.current}
+            sampleRate={SAMPLE_RATE}
+            fftSize={fftSize}
           />
           <Text style={{ marginTop: 12, fontSize: 12, color: theme.textSubtle, textAlign: "center" }}>
             {fmtHz(freqMin)} – {fmtHz(freqMax)} · dBFS {dbFloor}…{dbCeil} · {spectrumScale}
@@ -4931,51 +4935,98 @@ function rssiColor(rssi: number | null, theme: Theme): string {
   return theme.destructive;
 }
 
-function SpectrumBars({ samples, peaks, height = 90 }: { samples: number[]; peaks?: number[]; height?: number }) {
+function SpectrumBars({ samples, peaks, height = 90, bandEdges, sampleRate, fftSize }: {
+  samples: number[]; peaks?: number[]; height?: number;
+  bandEdges?: Int32Array | null; sampleRate?: number; fftSize?: number;
+}) {
   if (samples.length === 0) {
-    return <View style={{ height, backgroundColor: "transparent" }} />;
+    return <View style={{ height: height + 20, backgroundColor: "transparent" }} />;
   }
-  // Samples are normalized [0..1] dBFS — no auto-scale.
   const peaksArr = peaks && peaks.length === samples.length ? peaks : samples;
+  const noteHeight = 18;  // space for note labels at bottom
+  const chordHeight = 20; // space for chord label at top
+  const totalHeight = height + noteHeight + chordHeight;
   const usable = height - 4;
   const n = samples.length;
+
+  // Detect notes from peaks (which persist + decay like the peak markers)
+  const notes = bandEdges && sampleRate && fftSize
+    ? detectNotes(peaksArr, bandEdges, 0.15, sampleRate, fftSize)
+    : [];
+  const chord = identifyChord(notes);
+
+  // Map detected notes to band indices for labeling
+  const noteBands = new Map<number, string>();
+  if (bandEdges && sampleRate && fftSize) {
+    for (const note of notes) {
+      // Find the band this note falls in
+      for (let i = 0; i < n; i++) {
+        const loFreq = (bandEdges[i]! * sampleRate) / fftSize;
+        const hiFreq = (bandEdges[i + 1]! * sampleRate) / fftSize;
+        if (note.freq >= loFreq && note.freq < hiFreq) {
+          noteBands.set(i, note.name.replace(/\d+$/, "")); // strip octave for compact label
+          break;
+        }
+      }
+    }
+  }
+
   return (
-    <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
-      {samples.map((v, i) => {
-        const barH = Math.max(1, v * usable);
-        const peakH = Math.max(1, peaksArr[i] * usable);
-        const hue = (i / (n - 1)) * 260;
-        const barColor = `hsl(${hue.toFixed(0)}, 75%, 50%)`;
-        const peakColor = `hsl(${hue.toFixed(0)}, 80%, 75%)`;
-        return (
-          <View key={i} style={{ flex: 1, height, position: "relative", marginRight: 1 }}>
-            <View
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: barH,
-                backgroundColor: barColor,
-                borderRadius: 1,
-              }}
-            />
-            {peaks && (
+    <View style={{ height: totalHeight }}>
+      {/* Chord label */}
+      {chord && (
+        <View style={{ height: chordHeight, justifyContent: "center", alignItems: "center" }}>
+          <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>{chord}</Text>
+        </View>
+      )}
+      {!chord && <View style={{ height: chordHeight }} />}
+      {/* Bars */}
+      <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
+        {samples.map((v, i) => {
+          const barH = Math.max(1, v * usable);
+          const peakH = Math.max(1, peaksArr[i]! * usable);
+          const hue = (i / (n - 1)) * 260;
+          const barColor = `hsl(${hue.toFixed(0)}, 75%, 50%)`;
+          const peakColor = `hsl(${hue.toFixed(0)}, 80%, 75%)`;
+          const noteLabel = noteBands.get(i);
+          return (
+            <View key={i} style={{ flex: 1, height, position: "relative", marginRight: 1 }}>
               <View
                 style={{
-                  position: "absolute",
-                  bottom: Math.min(usable - 2, Math.max(0, peakH - 2)),
-                  left: 0,
-                  right: 0,
-                  height: 2,
-                  backgroundColor: peakColor,
-                  borderRadius: 1,
+                  position: "absolute", bottom: 0, left: 0, right: 0,
+                  height: barH, backgroundColor: barColor, borderRadius: 1,
                 }}
               />
-            )}
-          </View>
-        );
-      })}
+              {peaks && (
+                <View
+                  style={{
+                    position: "absolute",
+                    bottom: Math.min(usable - 2, Math.max(0, peakH - 2)),
+                    left: 0, right: 0, height: 2,
+                    backgroundColor: noteLabel ? "#fff" : peakColor,
+                    borderRadius: 1,
+                  }}
+                />
+              )}
+            </View>
+          );
+        })}
+      </View>
+      {/* Note labels at bottom */}
+      <View style={{ height: noteHeight, flexDirection: "row", paddingHorizontal: 2 }}>
+        {samples.map((_, i) => {
+          const noteLabel = noteBands.get(i);
+          return (
+            <View key={i} style={{ flex: 1, marginRight: 1, alignItems: "center" }}>
+              {noteLabel && (
+                <Text style={{ fontSize: 7, fontWeight: "700", color: "#fff" }} numberOfLines={1}>
+                  {noteLabel}
+                </Text>
+              )}
+            </View>
+          );
+        })}
+      </View>
     </View>
   );
 }
