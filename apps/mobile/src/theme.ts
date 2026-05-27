@@ -8,7 +8,7 @@ import { create } from "zustand";
 import { useEffect } from "react";
 
 export const palette = {
-  tealDark: "#1F5961",
+  tealDark: "#143F47",
   teal: "#3D7F94",
   tealLight: "#A1CADB",
   yellow: "#E6B441",
@@ -55,8 +55,8 @@ export const lightTheme: Theme = {
   surfaceAlt: "#f5efe2",
   border: "#dccfb8",
   text: palette.ink,
-  textMuted: "#5b5d61",
-  textSubtle: "#8a8d92",
+  textMuted: "#3d3f44",
+  textSubtle: "#5b5d61",
   headerBg: palette.tealDark,
   headerText: palette.cream,
   tabBarBg: palette.cream,
@@ -77,8 +77,8 @@ export const darkTheme: Theme = {
   surfaceAlt: "#2A2B30",
   border: "#33353b",
   text: palette.cream,
-  textMuted: "#b8b3a6",
-  textSubtle: "#7a766f",
+  textMuted: "#d6d0c2",
+  textSubtle: "#a09b8f",
   headerBg: "#0f1418",
   headerText: palette.cream,
   tabBarBg: "#0f1418",

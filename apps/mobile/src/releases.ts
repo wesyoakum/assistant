@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v95",
+    title: "Higher-contrast text + darker teal buttons",
+    notes: [
+      "Bumped muted and subtle text one tier toward the primary color in both light and dark mode — labels, hints, captions all read more clearly now",
+      "Darkened the teal primary (#1F5961 → #143F47): light-mode buttons and the top header have more presence on cream",
+      "JS-only — ships via OTA",
+    ],
+  },
+  {
     version: "v94",
     title: "YOLO26n at 1280 input (needs rebuild)",
     notes: [
