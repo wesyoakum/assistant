@@ -12,6 +12,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v93",
+    title: "YOLO26n (needs rebuild)",
+    notes: [
+      "Swapped YOLOv8n for YOLO26n — Ultralytics' newest 'n' size (released Jan 2026, 2.4M params, 40.9 COCO mAP vs YOLOv8n's 37.3)",
+      "Same 80 COCO classes, same Vision pipeline, same JS API — Balls / Map / YOLO Live all keep working",
+      "Exported with the one-to-many head + NMS so Vision can still emit VNRecognizedObjectObservation directly",
+    ],
+  },
+  {
     version: "v92",
     title: "Balls telemetry: show raw YOLO labels",
     notes: [

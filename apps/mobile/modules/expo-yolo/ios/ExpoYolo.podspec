@@ -5,7 +5,7 @@ package = JSON.parse(File.read(File.join(__dir__, '..', 'package.json')))
 Pod::Spec.new do |s|
   s.name           = 'ExpoYolo'
   s.version        = package['version']
-  s.summary        = 'On-device YOLOv3-Tiny object detection via Core ML'
+  s.summary        = 'On-device YOLO26n object detection via Core ML'
   s.description    = 'Bounding-box object detection with COCO labels (80 classes).'
   s.author         = 'whyapp'
   s.homepage       = 'https://whyapp.us'
