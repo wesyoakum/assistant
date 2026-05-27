@@ -12,6 +12,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v94",
+    title: "YOLO26n at 1280 input (needs rebuild)",
+    notes: [
+      "Re-exported YOLO26n with imgsz=1280 (was 640). The network now sees 4× the pixels per frame",
+      "Meaningfully better at small / distant objects — a baseball at 8m goes from ~12px to ~24px wide, which is the difference between 'undetected' and 'confirmed'",
+      "Inference is ~3–4× slower. Snapshot still feels instant; Live drops from ~3–5 fps to ~1–2 fps",
+      "Same weights, same 80 COCO classes, same Vision pipeline — only the input tensor shape changed",
+    ],
+  },
+  {
     version: "v93",
     title: "YOLO26n (needs rebuild)",
     notes: [
