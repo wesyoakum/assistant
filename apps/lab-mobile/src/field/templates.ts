@@ -33,12 +33,38 @@ export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
   },
 };
 
+/** Foul pole distance scales proportionally: 60ft→200ft, 90ft→300ft */
+export function foulPoleDistFt(basepathFt: number): number {
+  return basepathFt * 10 / 3;
+}
+
+/** Batter's box offset from HP center along the 1B/3B axis, in meters */
+const BATTERS_BOX_OFFSET_M = 0.381 / 2 + 0.1524 + 1.22 / 2; // half HP width + 6" gap + half box width
+
 /**
- * Compute world positions for all 5 field landmarks given home plate position
+ * Compute the field's forward direction and right vector from HP position
+ * and a forward direction (toward center field / 2B).
+ */
+function fieldAxes(forwardX: number, forwardZ: number) {
+  const fLen = Math.sqrt(forwardX * forwardX + forwardZ * forwardZ);
+  if (fLen < 1e-6) return null;
+  const fwdX = forwardX / fLen;
+  const fwdZ = forwardZ / fLen;
+  // Right vector (perpendicular, pointing toward 1B)
+  const rightX = fwdZ;
+  const rightZ = -fwdX;
+  // Diagonal axes (45° from forward)
+  const s = 1 / Math.SQRT2;
+  return {
+    fwdX, fwdZ, rightX, rightZ,
+    to1bX: s * (fwdX + rightX), to1bZ: s * (fwdZ + rightZ),
+    to3bX: s * (fwdX - rightX), to3bZ: s * (fwdZ - rightZ),
+  };
+}
+
+/**
+ * Compute world positions for all field landmarks given home plate position
  * and a forward direction (from home plate toward center field / 2nd base).
- *
- * The forward direction is typically the camera's forward vector projected
- * onto the ground plane at the time home plate is placed.
  */
 export function computeLandmarkPositions(
   homeX: number, homeY: number, homeZ: number,
@@ -48,46 +74,124 @@ export function computeLandmarkPositions(
   const t = FIELD_TEMPLATES[templateKey] ?? FIELD_TEMPLATES.regulation;
   const bp = t.basepathFt * FT_TO_M;
   const rubberDist = t.rubberDistFt * FT_TO_M;
+  const foulDist = foulPoleDistFt(t.basepathFt) * FT_TO_M;
+  const axes = fieldAxes(forwardX, forwardZ);
+  if (!axes) return [];
 
-  // Normalize forward direction on the ground plane (XZ)
-  const fLen = Math.sqrt(forwardX * forwardX + forwardZ * forwardZ);
-  if (fLen < 1e-6) return [];
-  const fwdX = forwardX / fLen;
-  const fwdZ = forwardZ / fLen;
-
-  // Right vector (perpendicular to forward on ground plane, pointing toward 1B)
-  // For a standard field: standing at HP looking toward 2B, 1B is to the right
-  const rightX = fwdZ;   // rotate forward 90° CW on XZ plane
-  const rightZ = -fwdX;
-
-  // Field coordinate axes in world space:
-  // +X (toward 1B) = (forward + right) / sqrt(2)  (45° right of center field)
-  // +Z (toward 3B) = (forward - right) / sqrt(2)  (45° left of center field)
-  const s = 1 / Math.SQRT2;
-  const to1bX = s * (fwdX + rightX);
-  const to1bZ = s * (fwdZ + rightZ);
-  const to3bX = s * (fwdX - rightX);
-  const to3bZ = s * (fwdZ - rightZ);
-
-  // Toward 2B = forward direction (already normalized)
-  const to2bX = fwdX;
-  const to2bZ = fwdZ;
+  const { fwdX, fwdZ, rightX, rightZ, to1bX, to1bZ, to3bX, to3bZ } = axes;
 
   return [
     { kind: "home_plate", x: homeX, y: homeY, z: homeZ },
     { kind: "first_base", x: homeX + to1bX * bp, y: homeY, z: homeZ + to1bZ * bp },
-    { kind: "second_base", x: homeX + to2bX * bp * Math.SQRT2, y: homeY, z: homeZ + to2bZ * bp * Math.SQRT2 },
+    { kind: "second_base", x: homeX + fwdX * bp * Math.SQRT2, y: homeY, z: homeZ + fwdZ * bp * Math.SQRT2 },
     { kind: "third_base", x: homeX + to3bX * bp, y: homeY, z: homeZ + to3bZ * bp },
-    { kind: "rubber", x: homeX + to2bX * rubberDist, y: homeY, z: homeZ + to2bZ * rubberDist },
+    { kind: "rubber", x: homeX + fwdX * rubberDist, y: homeY, z: homeZ + fwdZ * rubberDist },
+    // Batter's boxes: offset left/right of HP along the 1B-3B axis
+    { kind: "batters_box_right", x: homeX + rightX * BATTERS_BOX_OFFSET_M, y: homeY, z: homeZ + rightZ * BATTERS_BOX_OFFSET_M },
+    { kind: "batters_box_left", x: homeX - rightX * BATTERS_BOX_OFFSET_M, y: homeY, z: homeZ - rightZ * BATTERS_BOX_OFFSET_M },
+    // Foul lines: placed at home plate, rendered extending toward 1B/3B directions
+    // (The Swift viz offsets the geometry to extend from the anchor point outward)
+    { kind: "foul_line_1b", x: homeX, y: homeY, z: homeZ },
+    { kind: "foul_line_3b", x: homeX, y: homeY, z: homeZ },
+    // Foul poles at the far end of each foul line
+    { kind: "foul_pole_right", x: homeX + to1bX * foulDist, y: homeY, z: homeZ + to1bZ * foulDist },
+    { kind: "foul_pole_left", x: homeX + to3bX * foulDist, y: homeY, z: homeZ + to3bZ * foulDist },
   ];
+}
+
+/**
+ * Recompute all field positions after a base is moved.
+ * HP stays fixed; new basepath = dist(HP, movedBase); new field rotation derived from HP→movedBase angle.
+ */
+export function recomputeFieldFromBase(
+  hp: { x: number; y: number; z: number },
+  movedBase: { x: number; y: number; z: number },
+  movedKind: "first_base" | "second_base" | "third_base",
+  templateKey: string,
+  foulPoleRightDist?: number,  // custom foul pole distance if manually moved
+  foulPoleLeftDist?: number,
+): { kind: string; x: number; y: number; z: number }[] {
+  const dx = movedBase.x - hp.x;
+  const dz = movedBase.z - hp.z;
+  const dist = Math.sqrt(dx * dx + dz * dz);
+
+  // Derive basepath from the moved base
+  let newBasepathM: number;
+  if (movedKind === "second_base") {
+    // 2B is at distance basepath * sqrt(2) from HP
+    newBasepathM = dist / Math.SQRT2;
+  } else {
+    // 1B and 3B are at basepath distance from HP
+    newBasepathM = dist;
+  }
+
+  // Derive forward direction (toward center field) from HP→movedBase
+  let forwardX: number, forwardZ: number;
+  if (movedKind === "first_base") {
+    // 1B is 45° right of center field. Rotate HP→1B 45° left to get forward.
+    const cos45 = Math.SQRT1_2;
+    const sin45 = Math.SQRT1_2;
+    forwardX = dx * cos45 + dz * sin45;
+    forwardZ = -dx * sin45 + dz * cos45;
+  } else if (movedKind === "third_base") {
+    // 3B is 45° left of center field. Rotate HP→3B 45° right to get forward.
+    const cos45 = Math.SQRT1_2;
+    const sin45 = Math.SQRT1_2;
+    forwardX = dx * cos45 - dz * sin45;
+    forwardZ = dx * sin45 + dz * cos45;
+  } else {
+    // 2B is straight ahead (center field direction)
+    forwardX = dx;
+    forwardZ = dz;
+  }
+
+  // Create a temporary template with the new basepath
+  const origTemplate = FIELD_TEMPLATES[templateKey] ?? FIELD_TEMPLATES.regulation;
+  const newBasepathFt = newBasepathM / FT_TO_M;
+  const scale = newBasepathFt / origTemplate.basepathFt;
+  const newRubberDistFt = origTemplate.rubberDistFt * scale;
+
+  // Compute all positions with the new scale and rotation
+  const positions = computeLandmarkPositions(hp.x, hp.y, hp.z, forwardX, forwardZ, templateKey);
+
+  // Override basepath-dependent positions with scaled values
+  const axes = fieldAxes(forwardX, forwardZ);
+  if (!axes) return positions;
+
+  const { to1bX, to1bZ, to3bX, to3bZ, fwdX, fwdZ, rightX, rightZ } = axes;
+  const foulDistDefault = foulPoleDistFt(newBasepathFt) * FT_TO_M;
+
+  return positions.map((p) => {
+    switch (p.kind) {
+      case "first_base":
+        return { ...p, x: hp.x + to1bX * newBasepathM, z: hp.z + to1bZ * newBasepathM };
+      case "second_base":
+        return { ...p, x: hp.x + fwdX * newBasepathM * Math.SQRT2, z: hp.z + fwdZ * newBasepathM * Math.SQRT2 };
+      case "third_base":
+        return { ...p, x: hp.x + to3bX * newBasepathM, z: hp.z + to3bZ * newBasepathM };
+      case "rubber":
+        return { ...p, x: hp.x + fwdX * newRubberDistFt * FT_TO_M, z: hp.z + fwdZ * newRubberDistFt * FT_TO_M };
+      case "batters_box_right":
+        return { ...p, x: hp.x + rightX * BATTERS_BOX_OFFSET_M, z: hp.z + rightZ * BATTERS_BOX_OFFSET_M };
+      case "batters_box_left":
+        return { ...p, x: hp.x - rightX * BATTERS_BOX_OFFSET_M, z: hp.z - rightZ * BATTERS_BOX_OFFSET_M };
+      case "foul_pole_right": {
+        const d = foulPoleRightDist ?? foulDistDefault;
+        return { ...p, x: hp.x + to1bX * d, z: hp.z + to1bZ * d };
+      }
+      case "foul_pole_left": {
+        const d = foulPoleLeftDist ?? foulDistDefault;
+        return { ...p, x: hp.x + to3bX * d, z: hp.z + to3bZ * d };
+      }
+      default:
+        return p;
+    }
+  });
 }
 
 /**
  * Generate the infield dirt boundary polygon in field coordinates (X, Z).
  * Field coords: origin at home plate, +X toward 1B, +Z toward 3B.
- *
- * The infield dirt is a diamond + curved arc behind the basepaths.
- * Returns an array of [x, z] points tracing the boundary.
  */
 export function generateDirtBoundary(
   templateKey: string
@@ -96,40 +200,18 @@ export function generateDirtBoundary(
   const bp = t.basepathFt * FT_TO_M;
   const arcR = t.dirtArcRadiusFt * FT_TO_M;
 
-  // Key positions in field coords (feet → meters):
-  // Home plate: (0, 0)
-  // First base: (bp, 0)  — along +X
-  // Third base: (0, bp)  — along +Z
-  // Second base: (bp, bp) — diagonal
-
-  // Pitcher's mound center (along the home→2B diagonal):
-  // The diagonal from home to 2B has length bp * sqrt(2).
-  // Mound is at rubberDistFt along this diagonal.
   const diagDir = { x: 1 / Math.SQRT2, z: 1 / Math.SQRT2 };
   const moundX = t.rubberDistFt * FT_TO_M * diagDir.x;
   const moundZ = t.rubberDistFt * FT_TO_M * diagDir.z;
 
-  // Build the boundary:
-  // Start at home plate, trace along the 1B foul line to just past 1B,
-  // then arc around behind 1B/2B/3B, then back along the 3B foul line to home.
-
   const points: [number, number][] = [];
+  const pastBase = 5 * FT_TO_M;
 
-  // Home plate corner (slightly behind home on the 1B side)
-  points.push([0, -2 * FT_TO_M]);  // small extension behind home
-
-  // Along the first-base foul line to first base area
-  // The dirt extends a bit past the base
-  const pastBase = 5 * FT_TO_M;  // 5 feet past the base
+  points.push([0, -2 * FT_TO_M]);
   points.push([bp + pastBase, 0]);
 
-  // Arc from first base side to third base side, centered on the mound.
-  // The arc goes from approximately the angle of first base to third base,
-  // sweeping through second base.
   const arcSteps = 30;
-  // Angle from mound to first base area
   const startAngle = Math.atan2(0 - moundZ, (bp + pastBase) - moundX);
-  // Angle from mound to third base area
   const endAngle = Math.atan2((bp + pastBase) - moundZ, 0 - moundX);
 
   for (let i = 0; i <= arcSteps; i++) {
@@ -140,9 +222,8 @@ export function generateDirtBoundary(
     points.push([x, z]);
   }
 
-  // Third base area back to home along the third-base foul line
   points.push([0, bp + pastBase]);
-  points.push([-2 * FT_TO_M, 0]);  // small extension behind home on 3B side
+  points.push([-2 * FT_TO_M, 0]);
 
   return points;
 }

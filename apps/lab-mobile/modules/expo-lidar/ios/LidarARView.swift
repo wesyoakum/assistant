@@ -444,19 +444,41 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let vizNode = SCNNode()
     vizNode.name = "field-viz"
 
-    let geometry: SCNGeometry
-    switch kind {
-    case "home_plate":
-      geometry = makeHomePlateGeometry()
-    case "rubber":
-      geometry = makeRubberGeometry()
-    default:  // first_base, second_base, third_base
-      geometry = makeBaseGeometry()
+    // Foul poles are vertical cylinders — different rendering path
+    if kind == "foul_pole_right" || kind == "foul_pole_left" {
+      let geoNode = SCNNode(geometry: makeFoulPoleGeometry())
+      geoNode.position = SCNVector3(0, 1.524, 0)  // half height (3.048m / 2)
+      vizNode.addChildNode(geoNode)
+    } else if kind == "foul_line_1b" || kind == "foul_line_3b" {
+      // Foul lines: extract length from anchor name if encoded, else use 100m default
+      var lineLength: Float = 100.0
+      if let name = anchor.name {
+        let parts = name.split(separator: "-")
+        if parts.count >= 3, let len = Float(parts.last!) {
+          lineLength = len
+        }
+      }
+      let geoNode = SCNNode(geometry: makeFoulLineGeometry(lengthM: lineLength))
+      geoNode.eulerAngles.x = -.pi / 2
+      // Offset so the line starts at the anchor (home plate) and extends outward
+      geoNode.position = SCNVector3(0, Float(lineLength) / 2.0, 0)
+      vizNode.addChildNode(geoNode)
+    } else {
+      let geometry: SCNGeometry
+      switch kind {
+      case "home_plate":
+        geometry = makeHomePlateGeometry()
+      case "rubber":
+        geometry = makeRubberGeometry()
+      case "batters_box_left", "batters_box_right":
+        geometry = makeBattersBoxGeometry()
+      default:  // first_base, second_base, third_base
+        geometry = makeBaseGeometry()
+      }
+      let geoNode = SCNNode(geometry: geometry)
+      geoNode.eulerAngles.x = -.pi / 2  // lay flat on ground
+      vizNode.addChildNode(geoNode)
     }
-
-    let geoNode = SCNNode(geometry: geometry)
-    geoNode.eulerAngles.x = -.pi / 2  // lay flat on ground
-    vizNode.addChildNode(geoNode)
 
     // Apply stored rotation
     if let uuid = fieldLandmarks.first(where: { $0.value.identifier == anchor.identifier })?.key,
@@ -464,29 +486,33 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       vizNode.eulerAngles.y = rotation * .pi / 180.0
     }
 
-    // Floating label
-    let labelText: String
+    // Floating label (only for main landmarks, not decorative elements)
+    let labelText: String?
     switch kind {
-    case "home_plate":   labelText = "HP"
-    case "first_base":   labelText = "1B"
-    case "second_base":  labelText = "2B"
-    case "third_base":   labelText = "3B"
-    case "rubber":       labelText = "R"
-    default:             labelText = "?"
+    case "home_plate":      labelText = "HP"
+    case "first_base":      labelText = "1B"
+    case "second_base":     labelText = "2B"
+    case "third_base":      labelText = "3B"
+    case "rubber":          labelText = "R"
+    case "foul_pole_right": labelText = "RF"
+    case "foul_pole_left":  labelText = "LF"
+    default:                labelText = nil
     }
-    let text = SCNText(string: labelText, extrusionDepth: 0)
-    text.font = UIFont.boldSystemFont(ofSize: 1)
-    text.firstMaterial?.diffuse.contents = UIColor.white
-    text.firstMaterial?.isDoubleSided = true
-    let textNode = SCNNode(geometry: text)
-    textNode.scale = SCNVector3(0.04, 0.04, 0.04)
-    let (tMin, tMax) = text.boundingBox
-    textNode.pivot = SCNMatrix4MakeTranslation((tMin.x + tMax.x) / 2, (tMin.y + tMax.y) / 2, 0)
-    textNode.position = SCNVector3(0, 0.15, 0)
-    let billboard = SCNBillboardConstraint()
-    billboard.freeAxes = [.Y]
-    textNode.constraints = [billboard]
-    vizNode.addChildNode(textNode)
+    if let label = labelText {
+      let text = SCNText(string: label, extrusionDepth: 0)
+      text.font = UIFont.boldSystemFont(ofSize: 1)
+      text.firstMaterial?.diffuse.contents = UIColor.white
+      text.firstMaterial?.isDoubleSided = true
+      let textNode = SCNNode(geometry: text)
+      textNode.scale = SCNVector3(0.04, 0.04, 0.04)
+      let (tMin, tMax) = text.boundingBox
+      textNode.pivot = SCNMatrix4MakeTranslation((tMin.x + tMax.x) / 2, (tMin.y + tMax.y) / 2, 0)
+      textNode.position = SCNVector3(0, kind.hasPrefix("foul_pole") ? 3.2 : 0.15, 0)
+      let billboard = SCNBillboardConstraint()
+      billboard.freeAxes = [.Y]
+      textNode.constraints = [billboard]
+      vizNode.addChildNode(textNode)
+    }
 
     node.addChildNode(vizNode)
   }
@@ -554,6 +580,41 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     material.writesToDepthBuffer = false
     plane.materials = [material]
     return plane
+  }
+
+  /// Batter's box: white semi-transparent rectangle, 4ft × 6ft (1.22m × 1.83m).
+  private func makeBattersBoxGeometry() -> SCNGeometry {
+    let w: CGFloat = 1.22   // 4 feet
+    let h: CGFloat = 1.83   // 6 feet
+    let plane = SCNPlane(width: w, height: h)
+    let material = SCNMaterial()
+    material.diffuse.contents = UIColor.white.withAlphaComponent(0.3)
+    material.isDoubleSided = true
+    material.writesToDepthBuffer = false
+    plane.materials = [material]
+    return plane
+  }
+
+  /// Foul line: thin white plane on the ground, variable length.
+  private func makeFoulLineGeometry(lengthM: Float) -> SCNGeometry {
+    let plane = SCNPlane(width: 0.05, height: CGFloat(lengthM))  // 2 inches wide
+    let material = SCNMaterial()
+    material.diffuse.contents = UIColor.white.withAlphaComponent(0.5)
+    material.isDoubleSided = true
+    material.writesToDepthBuffer = false
+    plane.materials = [material]
+    return plane
+  }
+
+  /// Foul pole: yellow cylinder, 6" (0.1524m) diameter, 10ft (3.048m) tall.
+  private func makeFoulPoleGeometry() -> SCNGeometry {
+    let cylinder = SCNCylinder(radius: 0.0762, height: 3.048)  // 3-inch radius, 10ft tall
+    let material = SCNMaterial()
+    material.diffuse.contents = UIColor.systemYellow
+    material.emission.contents = UIColor.systemYellow.withAlphaComponent(0.3)
+    material.isDoubleSided = true
+    cylinder.materials = [material]
+    return cylinder
   }
 
   // MARK: - Plane viz

@@ -138,7 +138,11 @@ export interface LidarARViewRef {
 
 export type BallState = "candidate" | "probable" | "confirmed";
 
-export type FieldLandmarkKind = "home_plate" | "first_base" | "second_base" | "third_base" | "rubber";
+export type FieldLandmarkKind =
+  | "home_plate" | "first_base" | "second_base" | "third_base" | "rubber"
+  | "batters_box_left" | "batters_box_right"
+  | "foul_line_1b" | "foul_line_3b"
+  | "foul_pole_right" | "foul_pole_left";
 
 export interface FieldLandmarkAnchor {
   id: string;
