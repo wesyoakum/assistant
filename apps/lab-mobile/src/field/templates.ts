@@ -20,10 +20,10 @@ export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
     dirtArcRadiusFt: 95,
   },
   intermediate: {
-    name: "Intermediate (70ft)",
-    basepathFt: 70,
-    rubberDistFt: 50,
-    dirtArcRadiusFt: 75,
+    name: "Intermediate (75ft)",
+    basepathFt: 75,
+    rubberDistFt: 54,
+    dirtArcRadiusFt: 80,
   },
   youth: {
     name: "Youth (60ft)",

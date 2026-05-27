@@ -500,13 +500,14 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let backDepth: Float = 0.1524   // 6 inches (back rectangle depth)
 
     // Pentagon vertices (in XY plane, will be rotated flat).
-    // Tip points in -Y so that after the -90° X rotation it points in +Z
-    // (toward center field when placed from behind the plate).
-    let tip = SCNVector3(0, -frontDepth, 0)
+    // Tip points in +Y so that after the -90° X rotation it points toward
+    // the user (backstop). The flat back edge faces center field / the pitcher.
+    // User places from behind HP looking toward the pitcher.
+    let tip = SCNVector3(0, frontDepth, 0)
     let frontRight = SCNVector3(halfW, 0, 0)
     let frontLeft = SCNVector3(-halfW, 0, 0)
-    let backRight = SCNVector3(halfW, backDepth, 0)
-    let backLeft = SCNVector3(-halfW, backDepth, 0)
+    let backRight = SCNVector3(halfW, -backDepth, 0)
+    let backLeft = SCNVector3(-halfW, -backDepth, 0)
 
     // Build triangles for the pentagon (3 triangles)
     let vertices: [SCNVector3] = [
