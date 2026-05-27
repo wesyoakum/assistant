@@ -1,5 +1,5 @@
-import { ExperimentsContent } from "../experiments";
+import ExperimentsScreen from "../experiments";
 
 export default function LabScreen() {
-  return <ExperimentsContent />;
+  return <ExperimentsScreen />;
 }
