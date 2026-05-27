@@ -10,6 +10,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.1.0",
+    title: "Lab experiments migrated (needs rebuild)",
+    notes: [
+      "All 7 Lab sub-tabs: Motion, Audio, Vision, Env, Device, Health, Info",
+      "Native modules: LiDAR, YOLO, Vision Detect, Game Controller",
+      "Full Balls mode with ARKit ball tracking",
+    ],
+  },
+  {
     version: "v1.0.0",
     title: "WHY Lab scaffold",
     notes: [
