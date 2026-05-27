@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal, useWindowDimensions, Image } from "react-native";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { View, Text, ScrollView, StyleSheet, Pressable, Alert, Platform, Modal, useWindowDimensions, Image, PanResponder, type GestureResponderEvent, type LayoutChangeEvent } from "react-native";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import * as Clipboard from "expo-clipboard";
@@ -2037,6 +2037,68 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
   const hasLandmarks = placedLandmarks.length > 0;
 
+  // Track overlay layout for converting touch coords to normalized 0-1
+  const overlayLayout = useRef({ w: 1, h: 1 });
+  const onOverlayLayout = useCallback((e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    if (width > 0 && height > 0) overlayLayout.current = { w: width, h: height };
+  }, []);
+
+  // Refs for PanResponder callbacks (avoid stale closures)
+  const selectedRef = useRef(selectedLandmark);
+  useEffect(() => { selectedRef.current = selectedLandmark; }, [selectedLandmark]);
+  const placedRef = useRef(placedLandmarks);
+  useEffect(() => { placedRef.current = placedLandmarks; }, [placedLandmarks]);
+  const editModeRef = useRef(arEditMode);
+  useEffect(() => { editModeRef.current = arEditMode; }, [arEditMode]);
+  const placingRef = useRef(placingKind);
+  useEffect(() => { placingRef.current = placingKind; }, [placingKind]);
+
+  // Throttle drag moves to avoid overwhelming the native side
+  const lastDragMove = useRef(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        // On initial touch — treat as tap for placement mode
+        const { locationX, locationY } = evt.nativeEvent;
+        const { w, h } = overlayLayout.current;
+        const nx = locationX / w;
+        const ny = locationY / h;
+        if (placingRef.current) {
+          handleTap(nx, ny);
+        }
+      },
+      onPanResponderMove: (evt) => {
+        // Drag: move selected landmark in edit mode
+        if (!editModeRef.current || !selectedRef.current) return;
+        const now = Date.now();
+        if (now - lastDragMove.current < 150) return; // throttle to ~7fps
+        lastDragMove.current = now;
+        const { locationX, locationY } = evt.nativeEvent;
+        const { w, h } = overlayLayout.current;
+        const nx = locationX / w;
+        const ny = locationY / h;
+        if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return;
+        editMoveToPoint(nx, ny);
+      },
+      onPanResponderRelease: (evt) => {
+        // On release — if it was a short tap (not a drag) in edit mode, move to that point
+        if (editModeRef.current && selectedRef.current) {
+          const { locationX, locationY } = evt.nativeEvent;
+          const { w, h } = overlayLayout.current;
+          const nx = locationX / w;
+          const ny = locationY / h;
+          if (nx >= 0 && nx <= 1 && ny >= 0 && ny <= 1) {
+            editMoveToPoint(nx, ny);
+          }
+        }
+      },
+    })
+  ).current;
+
   if (!arViewAvailable) {
     return (
       <View style={[styles.card, { padding: 14 }]}>
@@ -2061,17 +2123,13 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
         </View>
       )}
 
-      {/* AR view tap overlay — active when placing or in edit mode with selection */}
-      <Pressable
-        style={{ position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 3 / 4, zIndex: (placingKind || (arEditMode && selectedLandmark)) ? 10 : -1 }}
-        onPress={(e) => {
-          if (!placingKind && !(arEditMode && selectedLandmark)) return;
-          const { locationX, locationY } = e.nativeEvent;
-          const layout = e.currentTarget;
-          // @ts-ignore
-          layout.measure?.((_x: number, _y: number, w: number, h: number) => {
-            if (w > 0 && h > 0) handleTap(locationX / w, locationY / h);
-          });
+      {/* AR view gesture overlay — handles tap + drag for placing and edit mode */}
+      <View
+        {...panResponder.panHandlers}
+        onLayout={onOverlayLayout}
+        style={{
+          position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 3 / 4,
+          zIndex: (placingKind || (arEditMode && selectedLandmark)) ? 10 : -1,
         }}
       />
 
