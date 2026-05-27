@@ -116,9 +116,35 @@ export interface LidarARViewRef {
   projectWorldPoint: (worldX: number, worldY: number, worldZ: number) => Promise<{ screenX: number; screenY: number; isInFront: boolean; depth: number } | null>;
   /** Update the rendered sphere color for one ball anchor. State = "candidate" | "probable" | "confirmed". */
   setBallState: (id: string, state: "candidate" | "probable" | "confirmed") => Promise<void>;
+
+  // Field landmark methods
+  /** Place a field landmark at a screen point. Returns anchor info or null if raycast misses. */
+  addFieldLandmark: (nx: number, ny: number, kind: FieldLandmarkKind) => Promise<FieldLandmarkAnchor | null>;
+  /** Move an existing field landmark to a new screen point (re-raycasts to ground). */
+  moveFieldLandmark: (id: string, nx: number, ny: number) => Promise<FieldLandmarkAnchor | null>;
+  /** Rotate a field landmark around its Y axis by the given angle in degrees. */
+  rotateFieldLandmark: (id: string, angleDeg: number) => Promise<void>;
+  /** Remove a single field landmark. */
+  removeFieldLandmark: (id: string) => Promise<void>;
+  /** List all placed field landmarks. */
+  listFieldLandmarks: () => Promise<FieldLandmarkAnchor[]>;
+  /** Remove all field landmarks. */
+  clearFieldLandmarks: () => Promise<void>;
+  /** Raycast from a normalized screen point to the ground. Returns world position or null. */
+  raycastScreenPoint: (nx: number, ny: number) => Promise<{ worldX: number; worldY: number; worldZ: number } | null>;
 }
 
 export type BallState = "candidate" | "probable" | "confirmed";
+
+export type FieldLandmarkKind = "home_plate" | "first_base" | "second_base" | "third_base" | "rubber";
+
+export interface FieldLandmarkAnchor {
+  id: string;
+  kind: FieldLandmarkKind;
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+}
 
 let NativeARView: React.ComponentType<ViewProps> | null = null;
 try {

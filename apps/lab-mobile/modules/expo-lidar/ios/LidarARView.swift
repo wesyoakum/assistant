@@ -158,6 +158,9 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     ballNumbers.removeAll()
     pendingBallStates.removeAll()
     nextBallNumber = 1
+    fieldLandmarks.removeAll()
+    fieldLandmarkKinds.removeAll()
+    fieldLandmarkRotations.removeAll()
   }
 
   /// Project a world point onto the view. Returns screen coordinates
@@ -225,9 +228,15 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
   // MARK: - ARSCNViewDelegate
 
   public func renderer(_ renderer: SCNSceneRenderer, didAdd node: SCNNode, for anchor: ARAnchor) {
-    // Ball anchors: yellow sphere + numbered label
+    // Ball anchors: colored sphere + numbered label
     if let name = anchor.name, name.hasPrefix("ball-") {
       addBallViz(to: node, anchor: anchor, name: name)
+      return
+    }
+    // Field landmark anchors: white geometry on the ground
+    if let name = anchor.name, name.hasPrefix("field-") {
+      let kind = String(name.dropFirst(6))  // drop "field-" prefix
+      addFieldLandmarkViz(to: node, anchor: anchor, kind: kind)
       return
     }
     // Plane anchors: optionally render a colored quad
@@ -282,6 +291,256 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       textNode.constraints = [billboard]
       node.addChildNode(textNode)
     }
+  }
+
+  // MARK: - Imperative methods (field landmarks)
+
+  private var fieldLandmarks: [UUID: ARAnchor] = [:]
+  private var fieldLandmarkKinds: [UUID: String] = [:]
+  private var fieldLandmarkRotations: [UUID: Float] = [:]  // Y-axis rotation in degrees
+
+  /// Raycast from a normalized screen point to the estimated floor plane.
+  /// Returns the world position without creating any anchor.
+  func raycastScreenPoint(nx: CGFloat, ny: CGFloat) -> [String: Any]? {
+    let pt = CGPoint(x: nx * bounds.width, y: ny * bounds.height)
+    guard let query = sceneView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal) else { return nil }
+    let results = sceneView.session.raycast(query)
+    guard let hit = results.first else { return nil }
+    let xform = hit.worldTransform
+    return [
+      "worldX": xform.columns.3.x,
+      "worldY": xform.columns.3.y,
+      "worldZ": xform.columns.3.z,
+    ]
+  }
+
+  /// Place a field landmark (home plate, base, or rubber) at a screen point.
+  func addFieldLandmark(nx: CGFloat, ny: CGFloat, kind: String) -> [String: Any]? {
+    let pt = CGPoint(x: nx * bounds.width, y: ny * bounds.height)
+    guard let query = sceneView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal) else { return nil }
+    let results = sceneView.session.raycast(query)
+    guard let hit = results.first else { return nil }
+    let xform = hit.worldTransform
+    let anchor = ARAnchor(name: "field-\(kind)", transform: xform)
+    sceneView.session.add(anchor: anchor)
+    fieldLandmarks[anchor.identifier] = anchor
+    fieldLandmarkKinds[anchor.identifier] = kind
+    fieldLandmarkRotations[anchor.identifier] = 0
+    return [
+      "id": anchor.identifier.uuidString,
+      "kind": kind,
+      "worldX": xform.columns.3.x,
+      "worldY": xform.columns.3.y,
+      "worldZ": xform.columns.3.z,
+    ]
+  }
+
+  /// Move an existing field landmark to a new screen point (re-raycasts to ground).
+  func moveFieldLandmark(id: String, nx: CGFloat, ny: CGFloat) -> [String: Any]? {
+    guard let uuid = UUID(uuidString: id),
+          let oldAnchor = fieldLandmarks[uuid],
+          let kind = fieldLandmarkKinds[uuid] else { return nil }
+    let pt = CGPoint(x: nx * bounds.width, y: ny * bounds.height)
+    guard let query = sceneView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal) else { return nil }
+    let results = sceneView.session.raycast(query)
+    guard let hit = results.first else { return nil }
+
+    // Remove old anchor and create new one at updated position
+    sceneView.session.remove(anchor: oldAnchor)
+    let rotation = fieldLandmarkRotations[uuid] ?? 0
+    var xform = hit.worldTransform
+    // Apply stored Y rotation
+    if rotation != 0 {
+      let rad = rotation * .pi / 180.0
+      let rotMatrix = simd_float4x4(
+        simd_float4(cos(rad), 0, sin(rad), 0),
+        simd_float4(0, 1, 0, 0),
+        simd_float4(-sin(rad), 0, cos(rad), 0),
+        simd_float4(0, 0, 0, 1)
+      )
+      let translation = xform.columns.3
+      xform = simd_mul(xform, rotMatrix)
+      xform.columns.3 = translation
+    }
+    let newAnchor = ARAnchor(name: "field-\(kind)", transform: xform)
+    sceneView.session.add(anchor: newAnchor)
+
+    // Transfer state from old UUID to new
+    fieldLandmarks.removeValue(forKey: uuid)
+    fieldLandmarkKinds.removeValue(forKey: uuid)
+    let storedRotation = fieldLandmarkRotations.removeValue(forKey: uuid) ?? 0
+    fieldLandmarks[newAnchor.identifier] = newAnchor
+    fieldLandmarkKinds[newAnchor.identifier] = kind
+    fieldLandmarkRotations[newAnchor.identifier] = storedRotation
+
+    return [
+      "id": newAnchor.identifier.uuidString,
+      "kind": kind,
+      "worldX": newAnchor.transform.columns.3.x,
+      "worldY": newAnchor.transform.columns.3.y,
+      "worldZ": newAnchor.transform.columns.3.z,
+    ]
+  }
+
+  /// Rotate a field landmark around its Y axis by the given angle in degrees.
+  func rotateFieldLandmark(id: String, angleDeg: Float) {
+    guard let uuid = UUID(uuidString: id),
+          let anchor = fieldLandmarks[uuid] else { return }
+    fieldLandmarkRotations[uuid] = angleDeg
+    // Update the visual node rotation
+    if let node = sceneView.node(for: anchor),
+       let vizNode = node.childNode(withName: "field-viz", recursively: false) {
+      vizNode.eulerAngles.y = angleDeg * .pi / 180.0
+    }
+  }
+
+  func removeFieldLandmark(id: String) {
+    guard let uuid = UUID(uuidString: id),
+          let anchor = fieldLandmarks[uuid] else { return }
+    sceneView.session.remove(anchor: anchor)
+    fieldLandmarks.removeValue(forKey: uuid)
+    fieldLandmarkKinds.removeValue(forKey: uuid)
+    fieldLandmarkRotations.removeValue(forKey: uuid)
+  }
+
+  func listFieldLandmarks() -> [[String: Any]] {
+    var out: [[String: Any]] = []
+    for (uuid, anchor) in fieldLandmarks {
+      let kind = fieldLandmarkKinds[uuid] ?? "unknown"
+      out.append([
+        "id": uuid.uuidString,
+        "kind": kind,
+        "worldX": anchor.transform.columns.3.x,
+        "worldY": anchor.transform.columns.3.y,
+        "worldZ": anchor.transform.columns.3.z,
+      ])
+    }
+    return out
+  }
+
+  func clearFieldLandmarks() {
+    for (_, anchor) in fieldLandmarks {
+      sceneView.session.remove(anchor: anchor)
+    }
+    fieldLandmarks.removeAll()
+    fieldLandmarkKinds.removeAll()
+    fieldLandmarkRotations.removeAll()
+  }
+
+  // MARK: - Field landmark viz
+
+  private func addFieldLandmarkViz(to node: SCNNode, anchor: ARAnchor, kind: String) {
+    let vizNode = SCNNode()
+    vizNode.name = "field-viz"
+
+    let geometry: SCNGeometry
+    switch kind {
+    case "home_plate":
+      geometry = makeHomePlateGeometry()
+    case "rubber":
+      geometry = makeRubberGeometry()
+    default:  // first_base, second_base, third_base
+      geometry = makeBaseGeometry()
+    }
+
+    let geoNode = SCNNode(geometry: geometry)
+    geoNode.eulerAngles.x = -.pi / 2  // lay flat on ground
+    vizNode.addChildNode(geoNode)
+
+    // Apply stored rotation
+    if let uuid = fieldLandmarks.first(where: { $0.value.identifier == anchor.identifier })?.key,
+       let rotation = fieldLandmarkRotations[uuid], rotation != 0 {
+      vizNode.eulerAngles.y = rotation * .pi / 180.0
+    }
+
+    // Floating label
+    let labelText: String
+    switch kind {
+    case "home_plate":   labelText = "HP"
+    case "first_base":   labelText = "1B"
+    case "second_base":  labelText = "2B"
+    case "third_base":   labelText = "3B"
+    case "rubber":       labelText = "R"
+    default:             labelText = "?"
+    }
+    let text = SCNText(string: labelText, extrusionDepth: 0)
+    text.font = UIFont.boldSystemFont(ofSize: 1)
+    text.firstMaterial?.diffuse.contents = UIColor.white
+    text.firstMaterial?.isDoubleSided = true
+    let textNode = SCNNode(geometry: text)
+    textNode.scale = SCNVector3(0.04, 0.04, 0.04)
+    let (tMin, tMax) = text.boundingBox
+    textNode.pivot = SCNMatrix4MakeTranslation((tMin.x + tMax.x) / 2, (tMin.y + tMax.y) / 2, 0)
+    textNode.position = SCNVector3(0, 0.15, 0)
+    let billboard = SCNBillboardConstraint()
+    billboard.freeAxes = [.Y]
+    textNode.constraints = [billboard]
+    vizNode.addChildNode(textNode)
+
+    node.addChildNode(vizNode)
+  }
+
+  /// Home plate: white pentagon, 17" (0.4318m) wide, regulation shape.
+  /// Points: front tip, two angled sides, two back sides forming the 90° corner.
+  private func makeHomePlateGeometry() -> SCNGeometry {
+    let w: Float = 0.4318   // 17 inches in meters
+    let halfW = w / 2.0
+    let frontDepth: Float = 0.2159  // 8.5 inches (front triangle depth)
+    let backDepth: Float = 0.1524   // 6 inches (back rectangle depth)
+
+    // Pentagon vertices (in XY plane, will be rotated flat)
+    // Origin at center. Front tip points in +Y direction.
+    let tip = SCNVector3(0, frontDepth, 0)
+    let frontRight = SCNVector3(halfW, 0, 0)
+    let frontLeft = SCNVector3(-halfW, 0, 0)
+    let backRight = SCNVector3(halfW, -backDepth, 0)
+    let backLeft = SCNVector3(-halfW, -backDepth, 0)
+
+    // Build triangles for the pentagon (3 triangles)
+    let vertices: [SCNVector3] = [
+      // Triangle 1: tip, frontLeft, frontRight
+      tip, frontLeft, frontRight,
+      // Triangle 2: frontLeft, backLeft, frontRight
+      frontLeft, backLeft, frontRight,
+      // Triangle 3: backLeft, backRight, frontRight
+      backLeft, backRight, frontRight,
+    ]
+
+    let vertexSource = SCNGeometrySource(vertices: vertices)
+    let indices: [UInt16] = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+    let element = SCNGeometryElement(indices: indices, primitiveType: .triangles)
+    let geometry = SCNGeometry(sources: [vertexSource], elements: [element])
+    let material = SCNMaterial()
+    material.diffuse.contents = UIColor.white
+    material.isDoubleSided = true
+    material.writesToDepthBuffer = false
+    geometry.materials = [material]
+    return geometry
+  }
+
+  /// Base: white square, 15" (0.381m) × 15", thin.
+  private func makeBaseGeometry() -> SCNGeometry {
+    let size: CGFloat = 0.381  // 15 inches in meters
+    let plane = SCNPlane(width: size, height: size)
+    let material = SCNMaterial()
+    material.diffuse.contents = UIColor.white
+    material.isDoubleSided = true
+    material.writesToDepthBuffer = false
+    plane.materials = [material]
+    return plane
+  }
+
+  /// Rubber: white rectangle, 24" (0.6096m) × 6" (0.1524m).
+  private func makeRubberGeometry() -> SCNGeometry {
+    let w: CGFloat = 0.6096   // 24 inches
+    let h: CGFloat = 0.1524   // 6 inches
+    let plane = SCNPlane(width: w, height: h)
+    let material = SCNMaterial()
+    material.diffuse.contents = UIColor.white
+    material.isDoubleSided = true
+    material.writesToDepthBuffer = false
+    plane.materials = [material]
+    return plane
   }
 
   // MARK: - Plane viz

@@ -85,6 +85,28 @@ public final class LidarModule: Module {
       AsyncFunction("setBallState") { (view: LidarARView, id: String, state: String) in
         view.setBallState(id: id, state: state)
       }
+      // Field landmark methods
+      AsyncFunction("addFieldLandmark") { (view: LidarARView, nx: Double, ny: Double, kind: String) -> [String: Any]? in
+        return view.addFieldLandmark(nx: CGFloat(nx), ny: CGFloat(ny), kind: kind)
+      }
+      AsyncFunction("moveFieldLandmark") { (view: LidarARView, id: String, nx: Double, ny: Double) -> [String: Any]? in
+        return view.moveFieldLandmark(id: id, nx: CGFloat(nx), ny: CGFloat(ny))
+      }
+      AsyncFunction("rotateFieldLandmark") { (view: LidarARView, id: String, angleDeg: Double) in
+        view.rotateFieldLandmark(id: id, angleDeg: Float(angleDeg))
+      }
+      AsyncFunction("removeFieldLandmark") { (view: LidarARView, id: String) in
+        view.removeFieldLandmark(id: id)
+      }
+      AsyncFunction("listFieldLandmarks") { (view: LidarARView) -> [[String: Any]] in
+        return view.listFieldLandmarks()
+      }
+      AsyncFunction("clearFieldLandmarks") { (view: LidarARView) in
+        view.clearFieldLandmarks()
+      }
+      AsyncFunction("raycastScreenPoint") { (view: LidarARView, nx: Double, ny: Double) -> [String: Any]? in
+        return view.raycastScreenPoint(nx: CGFloat(nx), ny: CGFloat(ny))
+      }
       AsyncFunction("captureViewImage") { (view: LidarARView, jpegQuality: Double) -> [String: Any]? in
         // Capture the live camera image from the view's running ARSession,
         // rotated to portrait for display + YOLO use.
