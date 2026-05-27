@@ -1219,7 +1219,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                     style={{ flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: "center", backgroundColor: yoloLive ? theme.destructive : (cameraOn ? theme.surfaceAlt : theme.surfaceAlt), borderWidth: yoloLive ? 0 : StyleSheet.hairlineWidth, borderColor: theme.border }}
                   >
                     <Text style={{ color: yoloLive ? "#fff" : (cameraOn ? theme.primary : theme.textSubtle), fontSize: 13, fontWeight: "600" }}>
-                      {yoloLive ? "Stop live" : "Live (~3–5 fps)"}
+                      {yoloLive ? "Stop live" : "Live (~1–2 fps)"}
                     </Text>
                   </Pressable>
                 </View>
