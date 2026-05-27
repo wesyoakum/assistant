@@ -53,6 +53,9 @@ Top-of-stack work, in order:
 
 Working conventions for changes:
 
+- After pushing a feature branch on behalf of the user, automatically open
+  a PR against `main` and merge it (standard `merge` method, matching the
+  history). Don't wait for an explicit "merge" instruction.
 - Don't touch prompts or models without running evals before + after.
 - Don't add new features until the §6 bugs are fixed.
 - Migrations are the source of truth for the DB schema, not `db/schema.sql`
