@@ -28,7 +28,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "PLACEHOLDER"
+        "projectId": "e8f6c9f4-f31e-4035-b606-8874142399e0"
       }
     },
     "owner": "wesyoakum",
@@ -36,7 +36,7 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/PLACEHOLDER",
+      "url": "https://u.expo.dev/e8f6c9f4-f31e-4035-b606-8874142399e0",
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 5000
     }
