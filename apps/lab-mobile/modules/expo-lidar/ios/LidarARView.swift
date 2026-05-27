@@ -321,6 +321,17 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let results = sceneView.session.raycast(query)
     guard let hit = results.first else { return nil }
     let xform = hit.worldTransform
+    return addFieldLandmarkWithTransform(xform, kind: kind)
+  }
+
+  /// Place a field landmark directly at a world position (no raycast needed).
+  func addFieldLandmarkAtWorld(x: Float, y: Float, z: Float, kind: String) -> [String: Any] {
+    var xform = simd_float4x4(1) // identity
+    xform.columns.3 = simd_float4(x, y, z, 1)
+    return addFieldLandmarkWithTransform(xform, kind: kind)
+  }
+
+  private func addFieldLandmarkWithTransform(_ xform: simd_float4x4, kind: String) -> [String: Any] {
     let anchor = ARAnchor(name: "field-\(kind)", transform: xform)
     sceneView.session.add(anchor: anchor)
     fieldLandmarks[anchor.identifier] = anchor
@@ -488,13 +499,14 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let frontDepth: Float = 0.2159  // 8.5 inches (front triangle depth)
     let backDepth: Float = 0.1524   // 6 inches (back rectangle depth)
 
-    // Pentagon vertices (in XY plane, will be rotated flat)
-    // Origin at center. Front tip points in +Y direction.
-    let tip = SCNVector3(0, frontDepth, 0)
+    // Pentagon vertices (in XY plane, will be rotated flat).
+    // Tip points in -Y so that after the -90° X rotation it points in +Z
+    // (toward center field when placed from behind the plate).
+    let tip = SCNVector3(0, -frontDepth, 0)
     let frontRight = SCNVector3(halfW, 0, 0)
     let frontLeft = SCNVector3(-halfW, 0, 0)
-    let backRight = SCNVector3(halfW, -backDepth, 0)
-    let backLeft = SCNVector3(-halfW, -backDepth, 0)
+    let backRight = SCNVector3(halfW, backDepth, 0)
+    let backLeft = SCNVector3(-halfW, backDepth, 0)
 
     // Build triangles for the pentagon (3 triangles)
     let vertices: [SCNVector3] = [

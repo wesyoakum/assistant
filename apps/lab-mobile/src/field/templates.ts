@@ -14,25 +14,19 @@ export interface FieldTemplate {
 
 export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
   regulation: {
-    name: "MLB / Regulation",
+    name: "Regulation (90ft)",
     basepathFt: 90,
     rubberDistFt: 60.5,
     dirtArcRadiusFt: 95,
   },
-  college: {
-    name: "College",
-    basepathFt: 90,
-    rubberDistFt: 60.5,
-    dirtArcRadiusFt: 95,
-  },
-  youth70: {
-    name: "Youth 70ft",
+  intermediate: {
+    name: "Intermediate (70ft)",
     basepathFt: 70,
     rubberDistFt: 50,
     dirtArcRadiusFt: 75,
   },
-  youth60: {
-    name: "Youth 60ft",
+  youth: {
+    name: "Youth (60ft)",
     basepathFt: 60,
     rubberDistFt: 46,
     dirtArcRadiusFt: 65,

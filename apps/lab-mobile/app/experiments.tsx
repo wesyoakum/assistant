@@ -1903,6 +1903,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
     // Clear any existing landmarks
     await arRef.current.clearFieldLandmarks();
+    landmarkRotations.current = {};
 
     // Get the raycast hit point for home plate
     const hp = await arRef.current.addFieldLandmark(nx, ny, "home_plate");
@@ -1920,17 +1921,11 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
     const placed: FieldLandmarkAnchor[] = [hp];
 
-    // Place the other 4 landmarks at computed world positions
-    // We need to use raycast for each to snap to the ground, but if the positions are
-    // far away the raycast might miss. Instead, project the world position to screen
-    // and raycast from there.
+    // Place the other 4 landmarks directly at world coordinates
     for (const pos of positions) {
       if (pos.kind === "home_plate") continue;
-      const proj = await arRef.current.projectWorldPoint(pos.x, pos.y, pos.z);
-      if (proj && proj.isInFront && proj.screenX >= 0 && proj.screenX <= 1 && proj.screenY >= 0 && proj.screenY <= 1) {
-        const anchor = await arRef.current.addFieldLandmark(proj.screenX, proj.screenY, pos.kind as FieldLandmarkKind);
-        if (anchor) placed.push(anchor);
-      }
+      const anchor = await arRef.current.addFieldLandmarkAtWorld(pos.x, pos.y, pos.z, pos.kind as FieldLandmarkKind);
+      placed.push(anchor);
     }
 
     setPlacedLandmarks(placed);
