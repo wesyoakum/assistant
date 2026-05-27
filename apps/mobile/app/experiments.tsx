@@ -1224,7 +1224,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   </Pressable>
                 </View>
                 <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-                  YOLOv8n on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
+                  YOLO26n on-device. 80 COCO classes (person, bottle, chair, dog, car, laptop…).
                 </Text>
               </>
             )}

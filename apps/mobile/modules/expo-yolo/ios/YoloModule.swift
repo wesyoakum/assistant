@@ -19,20 +19,20 @@ public final class YoloModule: Module {
 
       do {
         // CocoaPods resource_bundle ships the compiled model as
-        // ExpoYoloModels.bundle/YOLOv8n.mlmodelc next to the main bundle.
+        // ExpoYoloModels.bundle/YOLO26n.mlmodelc next to the main bundle.
         let candidates: [URL?] = [
-          Bundle.main.url(forResource: "YOLOv8n", withExtension: "mlmodelc"),
-          Bundle.main.url(forResource: "YOLOv8n", withExtension: "mlmodelc", subdirectory: "ExpoYoloModels.bundle"),
+          Bundle.main.url(forResource: "YOLO26n", withExtension: "mlmodelc"),
+          Bundle.main.url(forResource: "YOLO26n", withExtension: "mlmodelc", subdirectory: "ExpoYoloModels.bundle"),
           {
             if let bundleURL = Bundle.main.url(forResource: "ExpoYoloModels", withExtension: "bundle"),
                let b = Bundle(url: bundleURL) {
-              return b.url(forResource: "YOLOv8n", withExtension: "mlmodelc")
+              return b.url(forResource: "YOLO26n", withExtension: "mlmodelc")
             }
             return nil
           }(),
         ]
         guard let modelURL = candidates.compactMap({ $0 }).first else {
-          self.loadError = "YOLOv8n.mlmodelc not found in app bundle"
+          self.loadError = "YOLO26n.mlmodelc not found in app bundle"
           return
         }
         let config = MLModelConfiguration()
@@ -62,7 +62,7 @@ public final class YoloModule: Module {
       let minConfidence = (opts["minConfidence"] as? Double).map { Float($0) } ?? 0.25
 
       let request = VNCoreMLRequest(model: vModel)
-      // YOLOv8 was trained with letterbox preprocessing; scaleFit matches.
+      // YOLO was trained with letterbox preprocessing; scaleFit matches.
       request.imageCropAndScaleOption = .scaleFit
 
       let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
