@@ -460,6 +460,12 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   const [showPlanes, setShowPlanes] = useState(false);
   const [showMesh, setShowMesh] = useState(false);
   const [showFeaturePoints, setShowFeaturePoints] = useState(false);
+  const [arEditMode, setArEditMode] = useState(false);
+
+  // Sync edit mode to the scroll-disable mechanism
+  useEffect(() => { setFieldEditMode(arEditMode); return () => setFieldEditMode(false); }, [arEditMode]);
+  // Turn off edit mode when leaving field tab
+  useEffect(() => { if (visionMode !== "field") setArEditMode(false); }, [visionMode]);
   const [balls, setBalls] = useState<TrackedBall[]>([]);
   const ballsRef = useRef<TrackedBall[]>([]);
   // Keep ref in sync so background sweep always sees current balls
@@ -913,7 +919,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         {(visionMode === "balls" || visionMode === "field") ? (
           arViewAvailable ? (
             <View style={{ width: "100%", aspectRatio: 3 / 4 }}>
-              <View pointerEvents="none" style={{ flex: 1 }}>
+              <View pointerEvents={arEditMode ? "auto" : "none"} style={{ flex: 1 }}>
                 <LidarARView
                   ref={arRef}
                   style={{ flex: 1 }}
@@ -1826,7 +1832,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       )}
 
       {visionMode === "field" && (
-        <FieldTab arRef={arRef} theme={theme} styles={styles} arViewAvailable={arViewAvailable} />
+        <FieldTab arRef={arRef} theme={theme} styles={styles} arViewAvailable={arViewAvailable} arEditMode={arEditMode} setArEditMode={setArEditMode} />
       )}
 
       {/* AR overlay toggles — shared by Balls and Field modes */}
@@ -1871,19 +1877,21 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
 // ─── Field Registration Tab ───────────────────────────────────────────────────
 
-function FieldTab({ arRef, theme, styles, arViewAvailable }: {
+function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEditMode }: {
   arRef: React.RefObject<LidarARViewRef | null>;
   theme: Theme;
   styles: ReturnType<typeof makeStyles>;
   arViewAvailable: boolean;
+  arEditMode: boolean;
+  setArEditMode: (v: boolean) => void;
 }) {
   const { fields, addField, removeField, activeFieldId, setActiveField } = useFields();
   const [placedLandmarks, setPlacedLandmarks] = useState<FieldLandmarkAnchor[]>([]);
   const [fieldType, setFieldType] = useState("regulation");
   const [frameResult, setFrameResult] = useState<string | null>(null);
-  // "placing" = tap-to-place mode. null = not placing, "home_plate" = initial placement, or a kind for repositioning
   const [placingKind, setPlacingKind] = useState<FieldLandmarkKind | null>(null);
   const [isRepositioning, setIsRepositioning] = useState(false);
+  const [selectedLandmark, setSelectedLandmark] = useState<string | null>(null); // id of selected landmark for edit
 
   const LANDMARK_LABELS: Record<string, string> = {
     home_plate: "HP", first_base: "1B", second_base: "2B", third_base: "3B", rubber: "R",
@@ -1947,8 +1955,24 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
   const handleTap = async (nx: number, ny: number) => {
     if (isRepositioning) {
       await repositionLandmark(nx, ny);
+    } else if (arEditMode && selectedLandmark) {
+      // In edit mode with a selected landmark: move it to the tap point
+      await editMoveToPoint(nx, ny);
     } else {
       await placeEntireField(nx, ny);
+    }
+  };
+
+  // Edit mode: move the selected landmark to where the user tapped
+  const editMoveToPoint = async (nx: number, ny: number) => {
+    if (!arRef.current || !selectedLandmark) return;
+    const landmark = placedLandmarks.find((l) => l.id === selectedLandmark);
+    if (!landmark) return;
+    const result = await arRef.current.moveFieldLandmark(selectedLandmark, nx, ny);
+    if (result) {
+      setPlacedLandmarks((prev) => prev.map((l) => l.id === selectedLandmark ? result : l));
+      // Update the selected ID since moveFieldLandmark creates a new anchor
+      setSelectedLandmark(result.id);
     }
   };
 
@@ -2037,11 +2061,11 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
         </View>
       )}
 
-      {/* AR view tap overlay — only active when placing */}
+      {/* AR view tap overlay — active when placing or in edit mode with selection */}
       <Pressable
-        style={{ position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 3 / 4, zIndex: placingKind ? 10 : -1 }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, aspectRatio: 3 / 4, zIndex: (placingKind || (arEditMode && selectedLandmark)) ? 10 : -1 }}
         onPress={(e) => {
-          if (!placingKind) return;
+          if (!placingKind && !(arEditMode && selectedLandmark)) return;
           const { locationX, locationY } = e.nativeEvent;
           const layout = e.currentTarget;
           // @ts-ignore
@@ -2095,42 +2119,101 @@ function FieldTab({ arRef, theme, styles, arViewAvailable }: {
         )}
       </View>
 
-      {/* Placed landmarks — with reposition + rotate controls */}
+      {/* Edit mode toggle + landmarks */}
       {hasLandmarks && (
         <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-          <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 6 }}>Landmarks</Text>
-          {placedLandmarks.map((l) => (
-            <View key={l.id} style={{ paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <Text style={{ fontSize: 13, color: theme.text, fontWeight: "600" }}>
-                  {LANDMARK_LABELS[l.kind] ?? l.kind}
-                </Text>
-                <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
-                  ({l.worldX.toFixed(2)}, {l.worldY.toFixed(2)}, {l.worldZ.toFixed(2)})
-                </Text>
-              </View>
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
-                <Pressable
-                  onPress={() => startReposition(l.kind)}
-                  style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
-                >
-                  <Text style={{ fontSize: 11, color: theme.text }}>Move</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => rotateLandmark(l.id, -15)}
-                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
-                >
-                  <Text style={{ fontSize: 11, color: theme.text }}>-15°</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => rotateLandmark(l.id, 15)}
-                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
-                >
-                  <Text style={{ fontSize: 11, color: theme.text }}>+15°</Text>
-                </Pressable>
-              </View>
-            </View>
-          ))}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted }}>Landmarks</Text>
+            <Pressable
+              onPress={() => {
+                const next = !arEditMode;
+                setArEditMode(next);
+                if (!next) setSelectedLandmark(null);
+              }}
+              style={{
+                paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6,
+                backgroundColor: arEditMode ? theme.accent : theme.surfaceAlt,
+                borderWidth: 1, borderColor: arEditMode ? theme.accent : theme.border,
+              }}
+            >
+              <Text style={{ fontSize: 11, fontWeight: "600", color: arEditMode ? theme.text : theme.textMuted }}>
+                {arEditMode ? "Edit Mode ON" : "Edit Mode"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {arEditMode && (
+            <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 8 }}>
+              {selectedLandmark
+                ? "Tap the AR view to move the selected landmark. Use ±° to rotate."
+                : "Tap a landmark below to select it, then tap the AR view to reposition."}
+            </Text>
+          )}
+
+          {placedLandmarks.map((l) => {
+            const isSelected = arEditMode && selectedLandmark === l.id;
+            return (
+              <Pressable
+                key={l.id}
+                onPress={() => {
+                  if (arEditMode) {
+                    setSelectedLandmark(selectedLandmark === l.id ? null : l.id);
+                  }
+                }}
+                style={{
+                  paddingVertical: 8, paddingHorizontal: 8, marginBottom: 4, borderRadius: 8,
+                  backgroundColor: isSelected ? theme.primaryLight + "30" : "transparent",
+                  borderWidth: isSelected ? 1 : 0,
+                  borderColor: isSelected ? theme.primary : "transparent",
+                }}
+              >
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ fontSize: 13, color: isSelected ? theme.primary : theme.text, fontWeight: "600" }}>
+                    {LANDMARK_LABELS[l.kind] ?? l.kind}{isSelected ? " (selected)" : ""}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: theme.textSubtle, fontVariant: ["tabular-nums"] }}>
+                    ({l.worldX.toFixed(2)}, {l.worldY.toFixed(2)}, {l.worldZ.toFixed(2)})
+                  </Text>
+                </View>
+                {(isSelected || !arEditMode) && (
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                    {!arEditMode && (
+                      <Pressable
+                        onPress={() => startReposition(l.kind)}
+                        style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                      >
+                        <Text style={{ fontSize: 11, color: theme.text }}>Move</Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      onPress={() => rotateLandmark(l.id, -15)}
+                      style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                    >
+                      <Text style={{ fontSize: 11, color: theme.text }}>-15°</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => rotateLandmark(l.id, 5)}
+                      style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                    >
+                      <Text style={{ fontSize: 11, color: theme.text }}>+5°</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => rotateLandmark(l.id, -5)}
+                      style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                    >
+                      <Text style={{ fontSize: 11, color: theme.text }}>-5°</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => rotateLandmark(l.id, 15)}
+                      style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+                    >
+                      <Text style={{ fontSize: 11, color: theme.text }}>+15°</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
         </View>
       )}
 
@@ -2675,10 +2758,24 @@ function Sparkline({ samples, color, height = 56, yMin, yMax }: { samples: numbe
   );
 }
 
+// Shared ref so FieldTab can disable scrolling when in edit mode
+const fieldEditModeRef = { current: false };
+const fieldEditModeListeners = new Set<(v: boolean) => void>();
+export function setFieldEditMode(v: boolean) {
+  fieldEditModeRef.current = v;
+  fieldEditModeListeners.forEach((fn) => fn(v));
+}
+
 export default function ExperimentsScreen() {
   const styles = useStyles(makeStyles);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  useEffect(() => {
+    const listener = (editing: boolean) => setScrollEnabled(!editing);
+    fieldEditModeListeners.add(listener);
+    return () => { fieldEditModeListeners.delete(listener); };
+  }, []);
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }} scrollEnabled={scrollEnabled}>
       <ExperimentsContent />
     </ScrollView>
   );
