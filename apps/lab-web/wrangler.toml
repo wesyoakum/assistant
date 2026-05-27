@@ -1,0 +1,7 @@
+name = "whylab-web"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+routes = [
+  { pattern = "lab.whyapp.us", custom_domain = true }
+]

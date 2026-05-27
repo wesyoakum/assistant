@@ -1,0 +1,65 @@
+name: Lab EAS Update (OTA)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/lab-mobile/**'
+      - 'packages/shared/**'
+      - '.github/workflows/eas-update-lab.yml'
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'EAS Update branch (channel) to publish to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+      message:
+        description: 'Update message (defaults to commit subject)'
+        required: false
+        default: ''
+
+concurrency:
+  group: eas-update-lab-${{ github.event.inputs.branch || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Publish Lab OTA update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Publish update
+        working-directory: apps/lab-mobile
+        run: |
+          BRANCH="${{ github.event.inputs.branch || 'production' }}"
+          MSG="${{ github.event.inputs.message }}"
+          if [ -z "$MSG" ]; then
+            MSG=$(git log -1 --pretty=%s)
+          fi
+          eas update --branch "$BRANCH" --message "$MSG" --non-interactive

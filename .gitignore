@@ -13,6 +13,10 @@ android/
 !apps/mobile/modules/**/ios/**
 !apps/mobile/modules/**/android/
 !apps/mobile/modules/**/android/**
+!apps/lab-mobile/modules/**/ios/
+!apps/lab-mobile/modules/**/ios/**
+!apps/lab-mobile/modules/**/android/
+!apps/lab-mobile/modules/**/android/**
 .wrangler/
 .dev.vars
 .env
