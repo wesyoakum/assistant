@@ -1,7 +1,6 @@
 packages:
   - "apps/*"
   - "packages/*"
-  - "apps/mobile/modules/*"
   - "apps/lab-mobile/modules/*"
 onlyBuiltDependencies:
   - esbuild

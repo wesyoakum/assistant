@@ -17,13 +17,35 @@
       "supportsTablet": false,
       "bundleIdentifier": "us.whyapp.lab",
       "infoPlist": {
+        "NSMicrophoneUsageDescription": "Needed for voice memos and microphone visualizer",
+        "NSCameraUsageDescription": "Needed for camera preview, LiDAR depth, and ARKit.",
+        "NSPhotoLibraryUsageDescription": "Needed to select photos",
+        "NSLocationWhenInUseUsageDescription": "Used to show your current location for testing.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Used to keep streaming location in the background.",
+        "NSLocationAlwaysUsageDescription": "Used to keep streaming location in the background.",
+        "NSMotionUsageDescription": "Used to show accelerometer and gyroscope data.",
+        "NSBluetoothAlwaysUsageDescription": "Used to scan nearby Bluetooth devices.",
+        "NSBluetoothPeripheralUsageDescription": "Used to scan nearby Bluetooth devices.",
+        "UIBackgroundModes": ["location"],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-updates"
+      "expo-updates",
+      ["expo-image-picker", {
+        "cameraPermission": "Needed to capture documents and images",
+        "photosPermission": "Needed to select photos"
+      }],
+      ["expo-av", {
+        "microphonePermission": "Needed for voice memos and microphone visualizer"
+      }],
+      ["react-native-ble-plx", {
+        "isBackgroundEnabled": false,
+        "modes": [],
+        "bluetoothAlwaysPermission": "Used to scan nearby Bluetooth devices."
+      }]
     ],
     "extra": {
       "router": {},
