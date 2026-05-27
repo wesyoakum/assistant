@@ -461,6 +461,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   const [showMesh, setShowMesh] = useState(false);
   const [showFeaturePoints, setShowFeaturePoints] = useState(false);
   const [balls, setBalls] = useState<TrackedBall[]>([]);
+  const ballsRef = useRef<TrackedBall[]>([]);
+  // Keep ref in sync so background sweep always sees current balls
+  useEffect(() => { ballsRef.current = balls; }, [balls]);
   const [ballsCameraPose, setBallsCameraPose] = useState<CameraPose | null>(null);
   const [ballsBusy, setBallsBusy] = useState(false);
   const [ballsErr, setBallsErr] = useState<string | null>(null);
@@ -511,7 +514,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
       const liveAnchors = await arRef.current.listBalls().catch(() => [] as BallAnchor[]);
       const liveById = new Map(liveAnchors.map((a) => [a.id, a]));
-      let newBalls: TrackedBall[] = balls
+      let newBalls: TrackedBall[] = ballsRef.current
         .map((b) => {
           const live = liveById.get(b.id);
           return live ? { ...b, worldX: live.worldX, worldY: live.worldY, worldZ: live.worldZ } : b;
