@@ -119,6 +119,37 @@ interface DetectedObject {
   description?: string;
 }
 
+/** Colored triangles at screen edges pointing toward off-screen balls. */
+function OffScreenIndicators({ balls }: { balls: { number: number; status: BallState; screenX: number; screenY: number }[] }) {
+  const { width } = useWindowDimensions();
+  const viewH = width * (4 / 3);  // matches 3:4 aspect ratio
+  const margin = 12;
+  return (
+    <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, width, height: viewH }}>
+      {balls.map((ob) => {
+        const angle = Math.atan2(ob.screenY - 0.5, ob.screenX - 0.5);
+        // Clamp to screen edge with margin
+        const px = Math.max(margin, Math.min(width - margin, ob.screenX * width));
+        const py = Math.max(margin, Math.min(viewH - margin, ob.screenY * viewH));
+        const color = ob.status === "confirmed" ? "#ff00ff" : ob.status === "probable" ? "#00ffff" : "#ffff00";
+        return (
+          <View
+            key={ob.number}
+            style={{
+              position: "absolute", left: px - 8, top: py - 8,
+              width: 0, height: 0,
+              borderLeftWidth: 8, borderRightWidth: 8, borderBottomWidth: 14,
+              borderLeftColor: "transparent", borderRightColor: "transparent",
+              borderBottomColor: color,
+              transform: [{ rotate: `${angle * (180 / Math.PI) + 90}deg` }],
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnType<typeof makeStyles>; pressure: { pressure: number; relativeAltitude?: number | null } | null }) {
   const [cameraPerm, requestCameraPerm] = useCameraPermissions();
   const [cameraOn, setCameraOn] = useState(false);
@@ -309,9 +340,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     /** Yellow (candidate) → cyan (probable) → fuchsia (confirmed). Promotion
      *  rules driven by sightings + confidence + close-up shortcut. */
     status: BallState;
-    /** Consecutive captures where this ball was in view + within range +
-     *  not matched to any YOLO detection. At 3, the ball is removed. */
-    missCount: number;
+    /** Timestamp (ms) when YOLO last matched this ball in a capture. Used
+     *  for time-based revalidation: removed if unseen for too long while on screen. */
+    lastConfirmedAt: number;
   }
   // ---- Tunable knobs (live-adjustable via Dev panel) ----
   interface BallTunables {
@@ -322,7 +353,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     tier2Dist: number; tier2Conf: number;
     tier3Dist: number; tier3Conf: number;
     tier4Dist: number; tier4Conf: number;
-    dedupM: number;
+    dedupM: number;  // legacy fallback
+    dedupConfirmedM: number;
+    dedupProbableM: number;
+    dedupCandidateM: number;
     probableSightings: number;
     probableConf: number;
     confirmedSightings: number;
@@ -330,14 +364,13 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     immediateConfirmRange: number;
     immediateConfirmConf: number;
     revalidateScreenTolerance: number;
-    // Per-state × per-distance miss limits for revalidation. Distance
-    // buckets re-use the detection tier1/2/3 distances: close = < tier1Dist,
-    // mid = tier1Dist..tier2Dist, far = tier2Dist..tier3Dist. Beyond
-    // tier3Dist we skip revalidation entirely (insufficient signal).
-    missLimits: {
-      candidate: { close: number; mid: number; far: number };
-      probable:  { close: number; mid: number; far: number };
-      confirmed: { close: number; mid: number; far: number };
+    // Time-based revalidation: if a ball is on screen but YOLO hasn't
+    // re-detected it for this many ms, it gets removed. Tighter for
+    // confirmed (higher confidence it was real, remove faster if gone).
+    revalTimeoutMs: {
+      candidate: number;
+      probable: number;
+      confirmed: number;
     };
   }
   const DEFAULT_TUNABLES: BallTunables = {
@@ -349,6 +382,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     tier3Dist: 6.0, tier3Conf: 0.20,
     tier4Dist: 8.0, tier4Conf: 0.15,
     dedupM: 0.25,
+    dedupConfirmedM: 0.10,
+    dedupProbableM: 0.15,
+    dedupCandidateM: 0.25,
     probableSightings: 2,
     probableConf: 0.30,
     confirmedSightings: 3,
@@ -356,10 +392,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     immediateConfirmRange: 2.0,
     immediateConfirmConf: 0.45,
     revalidateScreenTolerance: 0.10,
-    missLimits: {
-      candidate: { close: 1, mid: 2,  far: 3 },
-      probable:  { close: 2, mid: 3,  far: 5 },
-      confirmed: { close: 2, mid: 4,  far: 5 },
+    revalTimeoutMs: {
+      confirmed: 1000,
+      probable: 2000,
+      candidate: 3000,
     },
   };
   const [tunables, setTunables] = useState<BallTunables>(DEFAULT_TUNABLES);
@@ -392,11 +428,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     if (distance < t.tier3Dist) return "far";
     return "skip";
   };
-  /** Miss limit before deletion, for a tracked ball with the given state +
-   *  bucket. Returns Infinity to mean "never delete via missCount". */
-  const missLimitFor = (state: BallState, bucket: RevalBucket, t = tunablesRef.current): number => {
-    if (bucket === "skip") return Infinity;
-    return t.missLimits[state][bucket];
+  /** Time-based revalidation timeout for a given state, in ms. */
+  const revalTimeout = (state: BallState, t = tunablesRef.current): number => {
+    return t.revalTimeoutMs[state];
   };
 
   /** Tier ordering for picking a "keeper" during cluster merge / dedup. */
@@ -474,21 +508,33 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   const [ballsBusy, setBallsBusy] = useState(false);
   const [ballsErr, setBallsErr] = useState<string | null>(null);
   const [ballsLastImage, setBallsLastImage] = useState<{ uri: string; width: number; height: number; boxes: { x: number; y: number; width: number; height: number; number: number }[] } | null>(null);
+  // Off-screen ball indicators: projected screen position + status for triangles at screen edges
+  const [offScreenBalls, setOffScreenBalls] = useState<{ number: number; status: BallState; screenX: number; screenY: number }[]>([]);
 
-  // Poll current camera pose while Balls mode is active so the list can show
-  // live distance/bearing without requiring another capture.
+  // Poll current camera pose + off-screen ball projections while Balls mode is active
   useEffect(() => {
     if (visionMode !== "balls") return;
     let cancelled = false;
     const tick = async () => {
-      if (cancelled) return;
-      const t = await arRef.current?.currentCameraTransform().catch(() => null);
+      if (cancelled || !arRef.current) return;
+      const t = await arRef.current.currentCameraTransform().catch(() => null);
       if (cancelled || !t || t.length < 16) return;
       setBallsCameraPose({
         worldX: t[12]!, worldY: t[13]!, worldZ: t[14]!,
         forwardX: -t[8]!, forwardY: -t[9]!, forwardZ: -t[10]!,
         upX: t[4]!, upY: t[5]!, upZ: t[6]!,
       });
+      // Project all balls to screen; collect off-screen ones
+      const offScreen: { number: number; status: BallState; screenX: number; screenY: number }[] = [];
+      for (const b of ballsRef.current) {
+        const proj = await arRef.current?.projectWorldPoint(b.worldX, b.worldY, b.worldZ).catch(() => null);
+        if (!proj) continue;
+        const onScreen = proj.isInFront && proj.screenX >= 0 && proj.screenX <= 1 && proj.screenY >= 0 && proj.screenY <= 1;
+        if (!onScreen) {
+          offScreen.push({ number: b.number, status: b.status, screenX: proj.screenX, screenY: proj.screenY });
+        }
+      }
+      if (!cancelled) setOffScreenBalls(offScreen);
     };
     const interval = setInterval(tick, 500);
     tick();
@@ -562,15 +608,20 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           continue;
         }
 
+        // Per-state dedupe distance: tighter for confirmed (more certain position)
+        const dedupFor = (state: BallState) =>
+          state === "confirmed" ? t.dedupConfirmedM : state === "probable" ? t.dedupProbableM : t.dedupCandidateM;
+
         let matchedIdx = -1;
-        let bestDist = t.dedupM;
+        let bestDist = t.dedupCandidateM;  // start with loosest
         for (let i = 0; i < newBalls.length; i++) {
           const b = newBalls[i]!;
+          const threshold = dedupFor(b.status);
           const dx = b.worldX - added.worldX;
           const dy = b.worldY - added.worldY;
           const dz = b.worldZ - added.worldZ;
           const d3 = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (d3 < bestDist) { bestDist = d3; matchedIdx = i; }
+          if (d3 < threshold && d3 < bestDist) { bestDist = d3; matchedIdx = i; }
         }
 
         if (matchedIdx >= 0) {
@@ -582,7 +633,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
             await arRef.current.setBallState(b.id, newStatus).catch(() => {});
           }
           newBalls[matchedIdx] = {
-            ...b, sightings, lastSeen: now, lastConfidence: d.confidence, status: newStatus, missCount: 0,
+            ...b, sightings, lastSeen: now, lastConfidence: d.confidence, status: newStatus, lastConfirmedAt: now,
           };
           matchedIds.add(b.id);
           drawBoxes.push({ ...d.box, number: b.number });
@@ -599,7 +650,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
             id: added.id, number: added.number,
             worldX: added.worldX, worldY: added.worldY, worldZ: added.worldZ,
             firstSeen: now, lastSeen: now, sightings: 1, lastConfidence: d.confidence,
-            status: startStatus, missCount: 0,
+            status: startStatus, lastConfirmedAt: now,
           });
           matchedIds.add(added.id);
           drawBoxes.push({ ...d.box, number: added.number });
@@ -610,28 +661,30 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         }
       }
 
-      // --- Revalidation (state × distance miss matrix) -----------------
+      // --- Revalidation (time-based: remove if unseen for timeout while on screen) ---
       const stillTracked: TrackedBall[] = [];
       for (const b of newBalls) {
-        if (matchedIds.has(b.id)) { stillTracked.push(b); continue; }
+        if (matchedIds.has(b.id)) {
+          // YOLO matched it this frame — update lastConfirmedAt
+          stillTracked.push({ ...b, lastConfirmedAt: now });
+          continue;
+        }
 
         const ballDist = distFromCamera(b.worldX, b.worldY, b.worldZ);
         const bucket = revalBucket(ballDist, t);
-        const limit = missLimitFor(b.status, bucket, t);
+        const timeout = revalTimeout(b.status, t);
 
-        // No revalidation if the ball is in the "skip" bucket (beyond
-        // tier3Dist): not enough signal to declare it gone.
         if (bucket === "skip") {
           stillTracked.push(b);
-          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "out-of-range", missCount: b.missCount, missLimit: limit, distance: ballDist, bucket });
+          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "out-of-range", missCount: 0, missLimit: 0, distance: ballDist, bucket });
           continue;
         }
         const proj = await arRef.current.projectWorldPoint(b.worldX, b.worldY, b.worldZ).catch(() => null);
         const onScreen = proj && proj.isInFront && proj.screenX >= 0 && proj.screenX <= 1 && proj.screenY >= 0 && proj.screenY <= 1;
         if (!onScreen) {
-          // Out of view: no information, missCount unchanged
+          // Off screen: preserve, don't count against it
           stillTracked.push(b);
-          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "off-screen", missCount: b.missCount, missLimit: limit, distance: ballDist, bucket });
+          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "off-screen", missCount: 0, missLimit: 0, distance: ballDist, bucket });
           continue;
         }
         const tol = t.revalidateScreenTolerance;
@@ -639,16 +692,16 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           (det) => Math.abs(det.nx - proj!.screenX) <= tol && Math.abs(det.ny - proj!.screenY) <= tol
         );
         if (found) {
-          stillTracked.push({ ...b, missCount: 0 });
-          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "still", missCount: 0, missLimit: limit, distance: ballDist, bucket });
+          stillTracked.push({ ...b, lastConfirmedAt: now });
+          revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "still", missCount: 0, missLimit: 0, distance: ballDist, bucket });
         } else {
-          const missCount = b.missCount + 1;
-          if (missCount >= limit) {
+          const elapsed = now - b.lastConfirmedAt;
+          if (elapsed >= timeout) {
             await arRef.current.removeBall(b.id).catch(() => {});
-            revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "deleted", missCount, missLimit: limit, distance: ballDist, bucket });
+            revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "deleted", missCount: 0, missLimit: 0, distance: ballDist, bucket });
           } else {
-            stillTracked.push({ ...b, missCount });
-            revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "miss", missCount, missLimit: limit, distance: ballDist, bucket });
+            stillTracked.push(b);
+            revalidationReports.push({ ballNumber: b.number, state: b.status, outcome: "miss", missCount: 0, missLimit: 0, distance: ballDist, bucket });
           }
         }
       }
@@ -673,9 +726,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     }
   };
 
-  /** Merge any pair of tracked balls within tunables.dedupM of each other. */
+  /** Merge any pair of tracked balls within their per-state dedupe distance. */
   const mergeBallClusters = async (input: TrackedBall[]): Promise<TrackedBall[]> => {
-    const dedupM = tunablesRef.current.dedupM;
+    const t = tunablesRef.current;
     const arr = [...input];
     let changed = true;
     while (changed) {
@@ -687,7 +740,12 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           const dy = a.worldY - b.worldY;
           const dz = a.worldZ - b.worldZ;
           const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (dist >= dedupM) continue;
+          // Use the looser (larger) dedupe of the two balls
+          const threshold = Math.max(
+            a.status === "confirmed" ? t.dedupConfirmedM : a.status === "probable" ? t.dedupProbableM : t.dedupCandidateM,
+            b.status === "confirmed" ? t.dedupConfirmedM : b.status === "probable" ? t.dedupProbableM : t.dedupCandidateM,
+          );
+          if (dist >= threshold) continue;
           // Higher-tier state wins; ties broken by more sightings.
           const aWins =
             stateRank(a.status) > stateRank(b.status) ||
@@ -928,6 +986,10 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   showFeaturePoints={showFeaturePoints}
                 />
               </View>
+              {/* Off-screen ball indicators: colored triangles at screen edges */}
+              {visionMode === "balls" && offScreenBalls.length > 0 && (
+                <OffScreenIndicators balls={offScreenBalls} />
+              )}
             </View>
           ) : (
             <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
@@ -1605,9 +1667,13 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                     onChange={(v) => setTunables((p) => ({ ...p, tier4Conf: v }))} theme={theme} />
                 </DevSection>
 
-                <DevSection label="Dedup" theme={theme} styles={styles}>
-                  <Stepper label="Dedup (m)" value={tunables.dedupM} step={0.05} min={0.05} max={1.0} decimals={2}
-                    onChange={(v) => setTunables((p) => ({ ...p, dedupM: v }))} theme={theme} />
+                <DevSection label="Dedup (per state)" theme={theme} styles={styles}>
+                  <Stepper label="Confirmed (m)" value={tunables.dedupConfirmedM} step={0.01} min={0.02} max={0.5} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, dedupConfirmedM: v }))} theme={theme} />
+                  <Stepper label="Probable (m)" value={tunables.dedupProbableM} step={0.01} min={0.02} max={0.5} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, dedupProbableM: v }))} theme={theme} />
+                  <Stepper label="Candidate (m)" value={tunables.dedupCandidateM} step={0.01} min={0.02} max={0.5} decimals={2}
+                    onChange={(v) => setTunables((p) => ({ ...p, dedupCandidateM: v }))} theme={theme} />
                 </DevSection>
 
                 <DevSection label="Promotion" theme={theme} styles={styles}>
@@ -1629,35 +1695,23 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   <Stepper label="Screen tolerance" value={tunables.revalidateScreenTolerance} step={0.01} min={0.02} max={0.30} decimals={2}
                     onChange={(v) => setTunables((p) => ({ ...p, revalidateScreenTolerance: v }))} theme={theme} />
                   <Text style={{ fontSize: 10, color: theme.textSubtle, marginTop: 6, marginBottom: 2 }}>
-                    Miss limit per state × distance bucket. Buckets reuse tier 1/2/3 distances. Beyond tier 3, no revalidation.
+                    Time-based revalidation: remove if on screen but unseen for this long.
                   </Text>
-                  {(["candidate", "probable", "confirmed"] as const).map((st) => (
-                    <View key={st} style={{ marginTop: 4 }}>
-                      <Text style={{ fontSize: 11, fontWeight: "600", color: theme.text, marginBottom: 2, textTransform: "capitalize" }}>
-                        {st}
-                      </Text>
-                      {(["close", "mid", "far"] as const).map((bk) => {
-                        const label = bk === "close" ? `<${tunables.tier1Dist}m`
-                                    : bk === "mid"   ? `${tunables.tier1Dist}-${tunables.tier2Dist}m`
-                                    :                  `${tunables.tier2Dist}-${tunables.tier3Dist}m`;
-                        return (
-                          <Stepper
-                            key={bk}
-                            label={`  ${bk} (${label})`}
-                            value={tunables.missLimits[st][bk]}
-                            step={1}
-                            min={1}
-                            max={30}
-                            decimals={0}
-                            onChange={(v) => setTunables((p) => ({
-                              ...p,
-                              missLimits: { ...p.missLimits, [st]: { ...p.missLimits[st], [bk]: v } },
-                            }))}
-                            theme={theme}
-                          />
-                        );
-                      })}
-                    </View>
+                  {(["confirmed", "probable", "candidate"] as const).map((st) => (
+                    <Stepper
+                      key={st}
+                      label={`${st} timeout (ms)`}
+                      value={tunables.revalTimeoutMs[st]}
+                      step={500}
+                      min={500}
+                      max={10000}
+                      decimals={0}
+                      onChange={(v) => setTunables((p) => ({
+                        ...p,
+                        revalTimeoutMs: { ...p.revalTimeoutMs, [st]: v },
+                      }))}
+                      theme={theme}
+                    />
                   ))}
                 </DevSection>
 
