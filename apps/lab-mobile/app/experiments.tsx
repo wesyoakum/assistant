@@ -750,14 +750,14 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   // Background revalidation sweep: every 5s when in Balls mode and NOT in
   // live capture. Captures a frame, runs YOLO, and revalidates all tracked
   // balls. Removes stale anchors that YOLO can no longer see.
+  // (Live capture already revalidates on every frame, so skip during live.)
   useEffect(() => {
     if (visionMode !== "balls") return;
     let cancelled = false;
     const sweep = async () => {
-      // Skip if live capture is running (it already revalidates every frame)
       if (ballsLiveRef.current || cancelled) return;
       if (!arRef.current || !yoloReady) return;
-      // Run a full capture + revalidation cycle
+      if (ballsRef.current.length === 0) return;
       await captureAndFindBalls();
     };
     const interval = setInterval(sweep, 5000);
@@ -913,13 +913,15 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         {(visionMode === "balls" || visionMode === "field") ? (
           arViewAvailable ? (
             <View style={{ width: "100%", aspectRatio: 3 / 4 }}>
-              <LidarARView
-                ref={arRef}
-                style={{ flex: 1 }}
-                showPlanes={showPlanes}
-                showMesh={showMesh}
-                showFeaturePoints={showFeaturePoints}
-              />
+              <View pointerEvents="none" style={{ flex: 1 }}>
+                <LidarARView
+                  ref={arRef}
+                  style={{ flex: 1 }}
+                  showPlanes={showPlanes}
+                  showMesh={showMesh}
+                  showFeaturePoints={showFeaturePoints}
+                />
+              </View>
             </View>
           ) : (
             <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
