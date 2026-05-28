@@ -2315,75 +2315,6 @@ function FieldTab({ arRef, theme, styles, cardStyle, arViewAvailable, arEditMode
         </View>
       )}
 
-      {/* Controls */}
-      <View style={[cardStyle, { padding: 14, marginBottom: 4 }]}>
-        {/* Field type selector */}
-        <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 8 }}>Field Type</Text>
-        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
-          {Object.entries(FIELD_TEMPLATES).map(([key, t]) => (
-            <Pressable
-              key={key}
-              onPress={() => setFieldType(key)}
-              style={{
-                paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
-                backgroundColor: fieldType === key ? theme.primary : theme.surfaceAlt,
-                borderWidth: 1, borderColor: fieldType === key ? theme.primary : theme.border,
-              }}
-            >
-              <Text style={{ fontSize: 12, color: fieldType === key ? "#fff" : theme.text }}>{t.name}</Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Main action button */}
-        {!fieldActive ? (
-          <Pressable
-            onPress={() => { setFieldActive(true); setArEditMode(true); }}
-            style={{ paddingVertical: 10, borderRadius: 8, backgroundColor: theme.primary, alignItems: "center" }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>Place Field</Text>
-          </Pressable>
-        ) : nearestLandmark ? (
-          <View style={{ gap: 8 }}>
-            <Pressable
-              onPressIn={() => setIsMoving(true)}
-              onPressOut={() => { setIsMoving(false); isMovingRef.current = false; }}
-              style={{ paddingVertical: 12, borderRadius: 8, backgroundColor: theme.accent, alignItems: "center" }}
-            >
-              <Text style={{ fontSize: 14, fontWeight: "600", color: theme.text }}>
-                Hold to Move {LANDMARK_LABELS[nearestLandmark.kind] ?? nearestLandmark.kind}
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => setShowItemPicker(true)}
-            style={{ paddingVertical: 10, borderRadius: 8, backgroundColor: theme.primary, alignItems: "center" }}
-          >
-            <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>Add Item</Text>
-          </Pressable>
-        )}
-
-        {/* Done / Clear row */}
-        {fieldActive && (
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-            <Pressable
-              onPress={() => { setFieldActive(false); setArEditMode(false); }}
-              style={{ flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: theme.surfaceAlt, alignItems: "center", borderWidth: 1, borderColor: theme.border }}
-            >
-              <Text style={{ fontSize: 13, fontWeight: "600", color: theme.text }}>Done</Text>
-            </Pressable>
-            {hasLandmarks && (
-              <Pressable
-                onPress={clearAll}
-                style={{ paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8, backgroundColor: theme.destructive, alignItems: "center" }}
-              >
-                <Text style={{ fontSize: 13, fontWeight: "600", color: "#fff" }}>Clear</Text>
-              </Pressable>
-            )}
-          </View>
-        )}
-      </View>
 
       {/* Item picker modal */}
       {showItemPicker && (
@@ -2986,11 +2917,11 @@ export default function ExperimentsScreen() {
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [arBg, setArBg] = useState<ArBgState>({ show: false, planes: false, mesh: false, features: false });
   const arRef = useRef<LidarARViewRef>(null);
-  // Keep shared ref in sync
-  useEffect(() => {
-    const node = arRef.current;
+  // Keep shared ref in sync — use a callback ref for immediate updates
+  const arRefCallback = useCallback((node: LidarARViewRef | null) => {
+    (arRef as React.MutableRefObject<LidarARViewRef | null>).current = node;
     sharedArViewRef.current = node;
-  });
+  }, []);
   useEffect(() => {
     const listener = (editing: boolean) => setScrollEnabled(!editing);
     fieldEditModeListeners.add(listener);
@@ -3006,7 +2937,7 @@ export default function ExperimentsScreen() {
       {/* Fixed AR view behind ScrollView */}
       {arBg.show && arAvailable && (
         <LidarARView
-          ref={arRef}
+          ref={arRefCallback}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           showPlanes={arBg.planes}
           showMesh={arBg.mesh}
