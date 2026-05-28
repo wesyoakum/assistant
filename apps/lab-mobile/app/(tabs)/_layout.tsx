@@ -26,10 +26,20 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
+        name="ar"
+        options={{
+          title: "AR",
+          headerShown: false,
+          tabBarStyle: { display: "none" },
+          tabBarIcon: tabIcon("scan-outline"),
+        }}
+      />
+      <Tabs.Screen
         name="lab"
         options={{
           title: "Lab",
           tabBarIcon: tabIcon("flask-outline"),
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -37,6 +47,7 @@ export default function TabsLayout() {
         options={{
           title: "Chat",
           tabBarIcon: tabIcon("chatbubble-ellipses-outline"),
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -44,6 +55,7 @@ export default function TabsLayout() {
         options={{
           title: "Settings",
           tabBarIcon: tabIcon("settings-outline"),
+          href: null,
         }}
       />
     </Tabs>
