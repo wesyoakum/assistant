@@ -15,6 +15,13 @@ export interface FieldTemplate {
 }
 
 export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
+  tball: {
+    name: "T-Ball (40ft)",
+    basepathFt: 40,
+    rubberDistFt: 30,
+    dirtArcRadiusFt: 45,
+    outfieldFenceFt: 135,
+  },
   youth: {
     name: "Youth (60ft)",
     basepathFt: 60,
