@@ -643,7 +643,7 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let yellowCapHeight: Float = 0.1016 // 4 inches
     let greenHeight = wallHeight - yellowCapHeight
     let segments = 40
-    let arcAngle: Float = .pi           // 180° arc
+    let arcAngle: Float = 100.0 * .pi / 180.0  // 100° arc (-50° to +50°)
     let containerNode = SCNNode()
 
     for i in 0..<segments {
