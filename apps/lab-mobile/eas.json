@@ -4,17 +4,25 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "base": {
+      "ios": {
+        "prebuildCommand": "bash scripts/convert-baseball-model.sh"
+      }
+    },
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "extends": "base"
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "extends": "base"
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "extends": "base"
     }
   },
   "submit": {
