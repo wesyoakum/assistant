@@ -494,7 +494,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   // Redirect .current to the shared ref
   Object.defineProperty(arRef, "current", { get: () => sharedArViewRef.current });
   const arViewAvailable = lidarARViewAvailable();
-  const { height: screenH } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   // Use glass (semi-transparent) cards when AR view is filling the screen
   const isArFullscreen = (visionMode === "balls" || visionMode === "field") && arViewAvailable;
 
@@ -514,6 +514,8 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     return () => setArBackground(false);
   }, [isArFullscreen, showPlanes, showMesh, showFeaturePoints]);
   const [arEditMode, setArEditMode] = useState(false);
+  const [showSubTabs, setShowSubTabs] = useState(true);
+  const [fieldType, setFieldType] = useState("regulation");
 
   // Sync edit mode to the scroll-disable mechanism
   useEffect(() => { setFieldEditMode(arEditMode); return () => setFieldEditMode(false); }, [arEditMode]);
@@ -991,30 +993,47 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   return (
     <>
-      {/* AR mode: full-screen AR view is behind ScrollView; render bottom sheet controls here */}
+      {/* AR mode: full-screen with overlaid controls */}
       {(visionMode === "balls" || visionMode === "field") && (
         arViewAvailable ? (
           <>
-            {/* Spacer: enough height so AR view shows through, bottom sheet sits at bottom.
-                Controls start below this and can be scrolled up over the AR view. */}
-            <View style={{ height: screenH - 250 }} />
-            {/* Off-screen ball indicators overlaid on AR view */}
-            {visionMode === "balls" && offScreenBalls.length > 0 && (
-              <View style={{ position: "absolute", top: 0, left: -16, right: -16, height: screenH - 250 }} pointerEvents="none">
-                <OffScreenIndicators balls={offScreenBalls} />
-              </View>
-            )}
-            {/* Bottom sheet — fixed at bottom of screen */}
-            <View
-              pointerEvents="box-none"
-              style={{
-                position: "absolute", bottom: 0, left: -16, right: -16,
-                paddingBottom: 30, paddingHorizontal: 12,
-              }}
-            >
-              {/* Ball count badge */}
+            {/* Full-screen spacer — AR view is fixed behind */}
+            <View style={{ height: screenH, marginHorizontal: -16, marginTop: -16 }}>
+              {/* Off-screen ball indicators */}
+              {visionMode === "balls" && offScreenBalls.length > 0 && (
+                <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="none">
+                  <OffScreenIndicators balls={offScreenBalls} />
+                </View>
+              )}
+
+              {/* Top: Vision sub-tabs — dismissible */}
+              {showSubTabs && (
+                <View pointerEvents="box-none" style={{ position: "absolute", top: 50, left: 12, right: 12 }}>
+                  <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3 }}>
+                    {VISION_MODE_TABS.map((t) => {
+                      const active = visionMode === t.key;
+                      return (
+                        <Pressable
+                          key={t.key}
+                          onPress={() => setVisionMode(t.key)}
+                          style={{
+                            flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
+                            backgroundColor: active ? "rgba(255,255,255,0.25)" : "transparent",
+                          }}
+                        >
+                          <Text style={{ fontSize: 11, fontWeight: "600", color: active ? "#fff" : "rgba(255,255,255,0.6)" }}>
+                            {t.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {/* Middle: ball count badge */}
               {visionMode === "balls" && balls.length > 0 && (
-                <View style={{ alignItems: "center", marginBottom: 8 }}>
+                <View pointerEvents="none" style={{ position: "absolute", top: showSubTabs ? 100 : 50, left: 0, right: 0, alignItems: "center" }}>
                   <View style={{ backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 }}>
                     <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
                       {balls.filter((b) => b.status === "confirmed").length} confirmed · {balls.filter((b) => b.status === "probable").length} probable · {balls.filter((b) => b.status === "candidate").length} candidate
@@ -1022,74 +1041,139 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   </View>
                 </View>
               )}
-              {/* Action buttons */}
-              {visionMode === "balls" && yoloReady && (
-                <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-                  <Pressable
-                    onPress={captureAndFindBalls}
-                    disabled={ballsBusy || ballsLive}
-                    style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)", opacity: (ballsBusy || ballsLive) ? 0.4 : 1 }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
-                      {ballsBusy ? "Searching…" : "Snapshot"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={ballsLive ? stopBallsLive : startBallsLive}
-                    style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: ballsLive ? "rgba(255,60,60,0.7)" : "rgba(255,255,255,0.25)" }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
-                      {ballsLive ? "Stop" : "Live"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={clearBalls}
-                    disabled={balls.length === 0}
-                    style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.15)", opacity: balls.length === 0 ? 0.4 : 1 }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>Clear</Text>
-                  </Pressable>
-                </View>
-              )}
-              {/* Mode tabs — transparent pill bar */}
-              <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3 }}>
-                {VISION_MODE_TABS.map((t) => {
-                  const active = visionMode === t.key;
-                  return (
+
+              {/* Bottom: swipeable control strip */}
+              <View pointerEvents="box-none" style={{ position: "absolute", bottom: 30, left: 0, right: 0 }}>
+                {/* Balls action buttons (above the pager) */}
+                {visionMode === "balls" && yoloReady && (
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 10, paddingHorizontal: 16 }}>
                     <Pressable
-                      key={t.key}
-                      onPress={() => setVisionMode(t.key)}
-                      style={{
-                        flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
-                        backgroundColor: active ? "rgba(255,255,255,0.25)" : "transparent",
-                      }}
+                      onPress={captureAndFindBalls}
+                      disabled={ballsBusy || ballsLive}
+                      style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)", opacity: (ballsBusy || ballsLive) ? 0.4 : 1 }}
                     >
-                      <Text style={{ fontSize: 11, fontWeight: "600", color: active ? "#fff" : "rgba(255,255,255,0.6)" }}>
-                        {t.label}
+                      <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                        {ballsBusy ? "…" : "Snap"}
                       </Text>
                     </Pressable>
-                  );
-                })}
+                    <Pressable
+                      onPress={ballsLive ? stopBallsLive : startBallsLive}
+                      style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: ballsLive ? "rgba(255,60,60,0.7)" : "rgba(255,255,255,0.25)" }}
+                    >
+                      <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                        {ballsLive ? "Stop" : "Live"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={clearBalls}
+                      disabled={balls.length === 0}
+                      style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.15)", opacity: balls.length === 0 ? 0.4 : 1 }}
+                    >
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Clear</Text>
+                    </Pressable>
+                  </View>
+                )}
+                {/* Swipeable pages */}
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  style={{ flexGrow: 0 }}
+                  contentContainerStyle={{ paddingHorizontal: 0 }}
+                >
+                  {/* Page 1: Field type */}
+                  <View style={{ width: screenW, paddingHorizontal: 16 }}>
+                    <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                      {Object.entries(FIELD_TEMPLATES).map(([key, t]) => {
+                        const active = fieldType === key;
+                        return (
+                          <Pressable
+                            key={key}
+                            onPress={() => setFieldType(key)}
+                            style={{
+                              paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10,
+                              backgroundColor: active ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
+                            }}
+                          >
+                            <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>
+                              {t.basepathFt}'
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  {/* Page 2: Field items */}
+                  <View style={{ width: screenW, paddingHorizontal: 16 }}>
+                    <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                      <Pressable
+                        onPress={() => {
+                          // Place or re-place home plate at crosshairs
+                          if (arRef.current) {
+                            arRef.current.raycastScreenPoint(0.5, 0.5).then((hit) => {
+                              if (!hit) return;
+                              arRef.current?.clearFieldLandmarks().then(() => {
+                                arRef.current?.currentCameraTransform().then((camT) => {
+                                  if (!camT || camT.length < 16) return;
+                                  const fwdX = -camT[8]!;
+                                  const fwdZ = -camT[10]!;
+                                  const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
+                                  Promise.all(positions.map((p) =>
+                                    arRef.current!.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind)
+                                  ));
+                                });
+                              });
+                            });
+                          }
+                        }}
+                        style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.25)" }}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>Home Plate</Text>
+                      </Pressable>
+                      <Pressable
+                        style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.15)" }}
+                      >
+                        <Text style={{ fontSize: 14, fontWeight: "600", color: "rgba(255,255,255,0.6)" }}>Move</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  {/* Page 3: AR overlays */}
+                  <View style={{ width: screenW, paddingHorizontal: 16 }}>
+                    <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
+                      {[
+                        { label: "Planes", value: showPlanes, set: setShowPlanes },
+                        { label: "Mesh", value: showMesh, set: setShowMesh },
+                        { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints },
+                      ].map((opt) => (
+                        <Pressable
+                          key={opt.label}
+                          onPress={() => opt.set(!opt.value)}
+                          style={{
+                            paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10,
+                            backgroundColor: opt.value ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
+                          }}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>{opt.label}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  </View>
+                </ScrollView>
+                {/* Page dots */}
+                <View style={{ flexDirection: "row", justifyContent: "center", gap: 4, marginTop: 8 }}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.5)" }} />
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.3)" }} />
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.3)" }} />
+                </View>
               </View>
-              {/* AR overlay toggles */}
-              <View style={{ flexDirection: "row", gap: 6, justifyContent: "center", marginTop: 8 }}>
-                {[
-                  { label: "Planes", value: showPlanes, set: setShowPlanes },
-                  { label: "Mesh", value: showMesh, set: setShowMesh },
-                  { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints },
-                ].map((opt) => (
-                  <Pressable
-                    key={opt.label}
-                    onPress={() => opt.set(!opt.value)}
-                    style={{
-                      paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
-                      backgroundColor: opt.value ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
-                    }}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: "600", color: "#fff" }}>{opt.label}</Text>
-                  </Pressable>
-                ))}
-              </View>
+
+              {/* Tap to show/hide sub-tabs */}
+              <Pressable
+                onPress={() => setShowSubTabs((v) => !v)}
+                style={{ position: "absolute", top: 12, right: 12, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.3)", alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>{showSubTabs ? "×" : "≡"}</Text>
+              </Pressable>
             </View>
           </>
         ) : (
