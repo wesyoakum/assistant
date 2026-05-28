@@ -489,15 +489,30 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     forwardX: number; forwardY: number; forwardZ: number;
     upX: number; upY: number; upZ: number;
   }
-  const arRef = useRef<LidarARViewRef>(null);
+  // AR view ref comes from ExperimentsScreen (fixed behind ScrollView)
+  const arRef = useRef(sharedArViewRef) as unknown as React.RefObject<LidarARViewRef | null>;
+  // Redirect .current to the shared ref
+  Object.defineProperty(arRef, "current", { get: () => sharedArViewRef.current });
   const arViewAvailable = lidarARViewAvailable();
+  const { height: screenH } = useWindowDimensions();
   // Use glass (semi-transparent) cards when AR view is filling the screen
   const isArFullscreen = (visionMode === "balls" || visionMode === "field") && arViewAvailable;
+
   const cardStyle = isArFullscreen ? styles.glassCard : styles.card;
   // AR visualization toggles for the LidarARView
   const [showPlanes, setShowPlanes] = useState(false);
   const [showMesh, setShowMesh] = useState(false);
   const [showFeaturePoints, setShowFeaturePoints] = useState(false);
+
+  // Tell ExperimentsScreen when to show/hide the AR background
+  useEffect(() => {
+    if (isArFullscreen) {
+      setArBackground(true, showPlanes, showMesh, showFeaturePoints);
+    } else {
+      setArBackground(false);
+    }
+    return () => setArBackground(false);
+  }, [isArFullscreen, showPlanes, showMesh, showFeaturePoints]);
   const [arEditMode, setArEditMode] = useState(false);
 
   // Sync edit mode to the scroll-disable mechanism
@@ -976,25 +991,20 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   return (
     <>
-      {/* AR view — full-screen with overlaid controls for balls/field */}
+      {/* AR mode: transparent spacer (AR view is fixed behind ScrollView) + overlaid controls */}
       {(visionMode === "balls" || visionMode === "field") && (
         arViewAvailable ? (
-          <View style={{ marginHorizontal: -16, marginTop: -16, marginBottom: 4, aspectRatio: 9 / 16 }}>
-            <View pointerEvents={arEditMode ? "auto" : "none"} style={{ flex: 1 }}>
-              <LidarARView
-                ref={arRef}
-                style={{ flex: 1 }}
-                showPlanes={showPlanes}
-                showMesh={showMesh}
-                showFeaturePoints={showFeaturePoints}
-              />
-            </View>
+          <>
+            {/* Spacer pushes content below the visible area so AR shows through */}
+            <View style={{ marginHorizontal: -16, marginTop: -16, height: screenH - 120 }} />
             {/* Off-screen ball indicators */}
             {visionMode === "balls" && offScreenBalls.length > 0 && (
-              <OffScreenIndicators balls={offScreenBalls} />
+              <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: screenH - 120, marginLeft: -16 }} pointerEvents="none">
+                <OffScreenIndicators balls={offScreenBalls} />
+              </View>
             )}
-            {/* Overlaid controls at bottom */}
-            <View pointerEvents="box-none" style={{ position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: 12, paddingHorizontal: 12 }}>
+            {/* Sticky controls bar */}
+            <View style={{ marginHorizontal: -16, marginBottom: 4 }}>
               {/* Ball count badge */}
               {visionMode === "balls" && balls.length > 0 && (
                 <View style={{ alignItems: "center", marginBottom: 8 }}>
@@ -1007,7 +1017,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
               )}
               {/* Action buttons */}
               {visionMode === "balls" && arViewAvailable && yoloReady && (
-                <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, paddingHorizontal: 12 }}>
                   <Pressable
                     onPress={captureAndFindBalls}
                     disabled={ballsBusy || ballsLive}
@@ -1035,7 +1045,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                 </View>
               )}
               {/* Mode tabs — transparent pill bar */}
-              <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3 }}>
+              <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3, marginHorizontal: 12 }}>
                 {VISION_MODE_TABS.map((t) => {
                   const active = visionMode === t.key;
                   return (
@@ -1054,27 +1064,27 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   );
                 })}
               </View>
+              {/* Overlay toggle row */}
+              <View style={{ flexDirection: "row", gap: 6, justifyContent: "center", marginTop: 8 }}>
+                {[
+                  { label: "Planes", value: showPlanes, set: setShowPlanes },
+                  { label: "Mesh", value: showMesh, set: setShowMesh },
+                  { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints },
+                ].map((opt) => (
+                  <Pressable
+                    key={opt.label}
+                    onPress={() => opt.set(!opt.value)}
+                    style={{
+                      paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+                      backgroundColor: opt.value ? "rgba(255,255,255,0.3)" : "rgba(0,0,0,0.3)",
+                    }}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: "600", color: "#fff" }}>{opt.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
-            {/* Top-left overlay toggles */}
-            <View pointerEvents="box-none" style={{ position: "absolute", top: 12, left: 12, flexDirection: "row", gap: 6 }}>
-              {[
-                { label: "P", value: showPlanes, set: setShowPlanes },
-                { label: "M", value: showMesh, set: setShowMesh },
-                { label: "F", value: showFeaturePoints, set: setShowFeaturePoints },
-              ].map((opt) => (
-                <Pressable
-                  key={opt.label}
-                  onPress={() => opt.set(!opt.value)}
-                  style={{
-                    width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center",
-                    backgroundColor: opt.value ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)",
-                  }}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: "700", color: "#fff" }}>{opt.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
+          </>
         ) : (
           <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
             <Text style={{ color: theme.textSubtle, fontSize: 13, textAlign: "center", paddingHorizontal: 24 }}>
@@ -2822,18 +2832,58 @@ export function setFieldEditMode(v: boolean) {
   fieldEditModeListeners.forEach((fn) => fn(v));
 }
 
+// Shared state: VisionTab tells ExperimentsScreen whether to show the AR background
+const arBgListeners = new Set<(v: boolean) => void>();
+let arBgShowPlanes = false, arBgShowMesh = false, arBgShowFeatures = false;
+function setArBackground(show: boolean, planes = false, mesh = false, features = false) {
+  arBgShowPlanes = planes; arBgShowMesh = mesh; arBgShowFeatures = features;
+  arBgListeners.forEach((fn) => fn(show));
+}
+
+// Shared AR view ref — created in ExperimentsScreen, used by VisionTab
+const sharedArViewRef = { current: null as LidarARViewRef | null };
+
 export default function ExperimentsScreen() {
   const styles = useStyles(makeStyles);
+  const theme = useTheme();
   const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [showArBg, setShowArBg] = useState(false);
+  const arRef = useRef<LidarARViewRef>(null);
+  // Keep shared ref in sync
+  useEffect(() => {
+    const node = arRef.current;
+    sharedArViewRef.current = node;
+  });
   useEffect(() => {
     const listener = (editing: boolean) => setScrollEnabled(!editing);
     fieldEditModeListeners.add(listener);
     return () => { fieldEditModeListeners.delete(listener); };
   }, []);
+  useEffect(() => {
+    arBgListeners.add(setShowArBg);
+    return () => { arBgListeners.delete(setShowArBg); };
+  }, []);
+  const arAvailable = lidarARViewAvailable();
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ padding: 16, paddingBottom: 60 }} scrollEnabled={scrollEnabled}>
-      <ExperimentsContent />
-    </ScrollView>
+    <View style={[styles.container, { flex: 1 }]}>
+      {/* Fixed AR view behind ScrollView */}
+      {showArBg && arAvailable && (
+        <LidarARView
+          ref={arRef}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+          showPlanes={arBgShowPlanes}
+          showMesh={arBgShowMesh}
+          showFeaturePoints={arBgShowFeatures}
+        />
+      )}
+      <ScrollView
+        style={{ flex: 1, backgroundColor: showArBg ? "transparent" : theme.background }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
+        scrollEnabled={scrollEnabled}
+      >
+        <ExperimentsContent />
+      </ScrollView>
+    </View>
   );
 }
 
