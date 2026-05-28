@@ -325,8 +325,13 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
   }
 
   /// Place a field landmark directly at a world position (no raycast needed).
-  func addFieldLandmarkAtWorld(x: Float, y: Float, z: Float, kind: String) -> [String: Any] {
+  func addFieldLandmarkAtWorld(x: Float, y: Float, z: Float, kind: String, yRotationDeg: Float = 0) -> [String: Any] {
     var xform = simd_float4x4(1) // identity
+    if yRotationDeg != 0 {
+      let rad = yRotationDeg * .pi / 180.0
+      xform.columns.0 = simd_float4(cos(rad), 0, -sin(rad), 0)
+      xform.columns.2 = simd_float4(sin(rad), 0, cos(rad), 0)
+    }
     xform.columns.3 = simd_float4(x, y, z, 1)
     return addFieldLandmarkWithTransform(xform, kind: kind)
   }
@@ -460,18 +465,17 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       }
       let wallNode = makeOutfieldWallGeometry(radiusM: radius)
       vizNode.addChildNode(wallNode)
-    } else if kind == "foul_line_1b" || kind == "foul_line_3b" {
-      // Foul lines: extract length from anchor name if encoded, else use 100m default
+    } else if kind.hasPrefix("foul_line") {
+      // Foul lines: extract length from kind name (e.g. "foul_line_1b-60.9")
       var lineLength: Float = 100.0
-      if let name = anchor.name {
-        let parts = name.split(separator: "-")
-        if parts.count >= 3, let len = Float(parts.last!) {
-          lineLength = len
-        }
+      let parts = kind.split(separator: "-")
+      if parts.count >= 2, let len = Float(parts.last!) {
+        lineLength = len
       }
       let geoNode = SCNNode(geometry: makeFoulLineGeometry(lengthM: lineLength))
       geoNode.eulerAngles.x = -.pi / 2
-      // Offset so the line starts at the anchor (home plate) and extends outward
+      // Offset so the line starts at the anchor and extends outward in local -Z
+      // (the anchor's Y rotation from the transform points -Z toward the foul pole)
       geoNode.position = SCNVector3(0, Float(lineLength) / 2.0, 0)
       vizNode.addChildNode(geoNode)
     } else {
@@ -608,9 +612,9 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     return plane
   }
 
-  /// Foul line: thin white plane on the ground, variable length.
+  /// Foul line: white plane on the ground, 3 inches wide, variable length.
   private func makeFoulLineGeometry(lengthM: Float) -> SCNGeometry {
-    let plane = SCNPlane(width: 0.05, height: CGFloat(lengthM))  // 2 inches wide
+    let plane = SCNPlane(width: 0.0762, height: CGFloat(lengthM))  // 3 inches wide
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.white.withAlphaComponent(0.5)
     material.isDoubleSided = true
