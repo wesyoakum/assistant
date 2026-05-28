@@ -447,8 +447,19 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     // Foul poles are vertical cylinders — different rendering path
     if kind == "foul_pole_right" || kind == "foul_pole_left" {
       let geoNode = SCNNode(geometry: makeFoulPoleGeometry())
-      geoNode.position = SCNVector3(0, 1.524, 0)  // half height (3.048m / 2)
+      geoNode.position = SCNVector3(0, 4.572, 0)  // half height (9.144m / 2)
       vizNode.addChildNode(geoNode)
+    } else if kind.hasPrefix("outfield_wall") {
+      // Extract radius from anchor name: "field-outfield_wall-<radius>"
+      var radius: Float = 60.0
+      if let name = anchor.name {
+        let parts = name.split(separator: "-")
+        if parts.count >= 3, let r = Float(parts.last!) {
+          radius = r
+        }
+      }
+      let wallNode = makeOutfieldWallGeometry(radiusM: radius)
+      vizNode.addChildNode(wallNode)
     } else if kind == "foul_line_1b" || kind == "foul_line_3b" {
       // Foul lines: extract length from anchor name if encoded, else use 100m default
       var lineLength: Float = 100.0
@@ -471,21 +482,25 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       case "home_plate":
         geometry = makeHomePlateGeometry()
         useFlat = false
-        yOffset = 0.1524  // half of 12 inches
+        yOffset = 0  // SCNShape sits at origin, rotate to lay flat
       case "rubber":
         geometry = makeRubberGeometry()
         useFlat = false
-        yOffset = 0.1524  // half of 12 inches
+        yOffset = 0.0254  // half of 2 inches
       case "batters_box_left", "batters_box_right":
         geometry = makeBattersBoxGeometry()
       default:  // first_base, second_base, third_base
         geometry = makeBaseGeometry()
         useFlat = false
-        yOffset = 0.381 / 2  // half of 15 inches
+        yOffset = 0.0254  // half of 2 inches
       }
       let geoNode = SCNNode(geometry: geometry)
       if useFlat {
         geoNode.eulerAngles.x = -.pi / 2  // lay flat on ground
+      } else if kind == "home_plate" {
+        // SCNShape extrudes along Z; rotate -90° X so extrusion goes up (Y)
+        geoNode.eulerAngles.x = -.pi / 2
+        geoNode.position.y = 0.0508 // extrusion depth = 2 inches
       } else {
         geoNode.position.y = yOffset
       }
@@ -519,7 +534,7 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       textNode.scale = SCNVector3(0.04, 0.04, 0.04)
       let (tMin, tMax) = text.boundingBox
       textNode.pivot = SCNMatrix4MakeTranslation((tMin.x + tMax.x) / 2, (tMin.y + tMax.y) / 2, 0)
-      textNode.position = SCNVector3(0, kind.hasPrefix("foul_pole") ? 3.2 : 0.15, 0)
+      textNode.position = SCNVector3(0, kind.hasPrefix("foul_pole") ? 9.5 : 0.15, 0)
       let billboard = SCNBillboardConstraint()
       billboard.freeAxes = [.Y]
       textNode.constraints = [billboard]
@@ -529,22 +544,22 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     node.addChildNode(vizNode)
   }
 
-  /// Home plate: white extruded pentagon, 17" (0.4318m) wide, 12" (0.3048m) tall.
-  /// Tip points toward the user/backstop.
+  /// Home plate: white extruded pentagon, 17" wide, 2" tall.
+  /// SCNShape extrudes along Z; we rotate so it sits flat with the pentagon shape on top.
   private func makeHomePlateGeometry() -> SCNGeometry {
     let w: CGFloat = 0.4318   // 17 inches
     let halfW = w / 2.0
     let frontDepth: CGFloat = 0.2159  // 8.5 inches (front triangle depth)
     let backDepth: CGFloat = 0.1524   // 6 inches (back rectangle depth)
-    let height: CGFloat = 0.3048      // 12 inches tall
+    let height: CGFloat = 0.0508      // 2 inches tall
 
-    // Build pentagon path in XZ plane (Y is up after extrusion)
+    // Pentagon path: tip at +Y (toward backstop after rotation)
     let path = UIBezierPath()
-    path.move(to: CGPoint(x: 0, y: frontDepth))          // tip (toward backstop)
-    path.addLine(to: CGPoint(x: halfW, y: 0))             // front right
-    path.addLine(to: CGPoint(x: halfW, y: -backDepth))    // back right
-    path.addLine(to: CGPoint(x: -halfW, y: -backDepth))   // back left
-    path.addLine(to: CGPoint(x: -halfW, y: 0))            // front left
+    path.move(to: CGPoint(x: 0, y: frontDepth))
+    path.addLine(to: CGPoint(x: halfW, y: 0))
+    path.addLine(to: CGPoint(x: halfW, y: -backDepth))
+    path.addLine(to: CGPoint(x: -halfW, y: -backDepth))
+    path.addLine(to: CGPoint(x: -halfW, y: 0))
     path.close()
 
     let shape = SCNShape(path: path, extrusionDepth: height)
@@ -555,10 +570,11 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     return shape
   }
 
-  /// Base: white cube, 15" (0.381m) on each side. For testing visibility at distance.
+  /// Base: white box, 15" × 15" × 2" tall.
   private func makeBaseGeometry() -> SCNGeometry {
-    let size: CGFloat = 0.381  // 15 inches in meters
-    let box = SCNBox(width: size, height: size, length: size, chamferRadius: 0)
+    let size: CGFloat = 0.381  // 15 inches
+    let h: CGFloat = 0.0508    // 2 inches tall
+    let box = SCNBox(width: size, height: h, length: size, chamferRadius: 0)
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.white
     material.isDoubleSided = true
@@ -566,11 +582,11 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     return box
   }
 
-  /// Rubber: white box, 24" × 6" × 12" tall (0.6096m × 0.1524m × 0.3048m).
+  /// Rubber: white box, 24" × 6" × 2" tall.
   private func makeRubberGeometry() -> SCNGeometry {
     let w: CGFloat = 0.6096   // 24 inches
     let d: CGFloat = 0.1524   // 6 inches
-    let h: CGFloat = 0.3048   // 12 inches tall
+    let h: CGFloat = 0.0508   // 2 inches tall
     let box = SCNBox(width: w, height: h, length: d, chamferRadius: 0)
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.white
@@ -603,15 +619,66 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     return plane
   }
 
-  /// Foul pole: yellow cylinder, 6" (0.1524m) diameter, 10ft (3.048m) tall.
+  /// Foul pole: yellow cylinder, 8" (0.2032m) diameter, 30ft (9.144m) tall.
   private func makeFoulPoleGeometry() -> SCNGeometry {
-    let cylinder = SCNCylinder(radius: 0.0762, height: 3.048)  // 3-inch radius, 10ft tall
+    let cylinder = SCNCylinder(radius: 0.1016, height: 9.144)  // 4-inch radius, 30ft tall
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.systemYellow
     material.emission.contents = UIColor.systemYellow.withAlphaComponent(0.3)
     material.isDoubleSided = true
     cylinder.materials = [material]
     return cylinder
+  }
+
+  /// Outfield wall: dark green circular arc, 5ft (1.524m) tall, top 4" (0.1016m) yellow.
+  /// The wall is built as a series of flat segments approximating the arc.
+  /// The arc spans from the 1B foul line to the 3B foul line (180° around center field).
+  /// Radius and arc center are encoded in the anchor name: "field-outfield_wall-<radius>".
+  private func makeOutfieldWallGeometry(radiusM: Float) -> SCNNode {
+    let wallHeight: Float = 1.524       // 5 feet
+    let yellowCapHeight: Float = 0.1016 // 4 inches
+    let greenHeight = wallHeight - yellowCapHeight
+    let segments = 40
+    let arcAngle: Float = .pi           // 180° arc
+    let containerNode = SCNNode()
+
+    for i in 0..<segments {
+      let a1 = -arcAngle / 2 + arcAngle * Float(i) / Float(segments)
+      let a2 = -arcAngle / 2 + arcAngle * Float(i + 1) / Float(segments)
+      let segWidth = Float(radiusM) * (a2 - a1)
+
+      // Green section
+      let greenBox = SCNBox(width: CGFloat(segWidth), height: CGFloat(greenHeight), length: 0.05, chamferRadius: 0)
+      let greenMat = SCNMaterial()
+      greenMat.diffuse.contents = UIColor(red: 0.1, green: 0.3, blue: 0.1, alpha: 1.0)
+      greenMat.isDoubleSided = true
+      greenBox.materials = [greenMat]
+      let greenNode = SCNNode(geometry: greenBox)
+
+      // Yellow cap
+      let yellowBox = SCNBox(width: CGFloat(segWidth), height: CGFloat(yellowCapHeight), length: 0.05, chamferRadius: 0)
+      let yellowMat = SCNMaterial()
+      yellowMat.diffuse.contents = UIColor.systemYellow
+      yellowMat.isDoubleSided = true
+      yellowBox.materials = [yellowMat]
+      let yellowNode = SCNNode(geometry: yellowBox)
+      yellowNode.position.y = (greenHeight + yellowCapHeight) / 2
+
+      let segNode = SCNNode()
+      segNode.addChildNode(greenNode)
+      segNode.addChildNode(yellowNode)
+
+      let midAngle = (a1 + a2) / 2
+      segNode.position = SCNVector3(
+        radiusM * sin(midAngle),
+        greenHeight / 2,  // bottom on ground
+        radiusM * cos(midAngle)
+      )
+      segNode.eulerAngles.y = midAngle
+
+      containerNode.addChildNode(segNode)
+    }
+    return containerNode
   }
 
   // MARK: - Plane viz

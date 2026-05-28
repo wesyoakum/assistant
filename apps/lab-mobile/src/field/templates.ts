@@ -10,26 +10,31 @@ export interface FieldTemplate {
   rubberDistFt: number;
   /** Radius of the infield dirt arc in feet (from pitcher's mound center). */
   dirtArcRadiusFt: number;
+  /** Distance from home plate to outfield fence in feet. */
+  outfieldFenceFt: number;
 }
 
 export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
-  regulation: {
-    name: "Regulation (90ft)",
-    basepathFt: 90,
-    rubberDistFt: 60.5,
-    dirtArcRadiusFt: 95,
+  youth: {
+    name: "Youth (60ft)",
+    basepathFt: 60,
+    rubberDistFt: 46,
+    dirtArcRadiusFt: 65,
+    outfieldFenceFt: 200,
   },
   intermediate: {
     name: "Intermediate (75ft)",
     basepathFt: 75,
     rubberDistFt: 54,
     dirtArcRadiusFt: 80,
+    outfieldFenceFt: 275,
   },
-  youth: {
-    name: "Youth (60ft)",
-    basepathFt: 60,
-    rubberDistFt: 46,
-    dirtArcRadiusFt: 65,
+  regulation: {
+    name: "Regulation (90ft)",
+    basepathFt: 90,
+    rubberDistFt: 60.5,
+    dirtArcRadiusFt: 95,
+    outfieldFenceFt: 330,
   },
 };
 
@@ -96,6 +101,8 @@ export function computeLandmarkPositions(
     // Foul poles at the far end of each foul line
     { kind: "foul_pole_right", x: homeX + to1bX * foulDist, y: homeY, z: homeZ + to1bZ * foulDist },
     { kind: "foul_pole_left", x: homeX + to3bX * foulDist, y: homeY, z: homeZ + to3bZ * foulDist },
+    // Outfield wall: semicircular arc centered at HP. Radius encoded in kind name for Swift.
+    { kind: `outfield_wall-${(t.outfieldFenceFt * FT_TO_M).toFixed(1)}`, x: homeX, y: homeY, z: homeZ },
   ];
 }
 
