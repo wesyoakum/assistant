@@ -97,8 +97,8 @@ public final class LidarModule: Module {
       AsyncFunction("addFieldLandmark") { (view: LidarARView, nx: Double, ny: Double, kind: String) -> [String: Any]? in
         return view.addFieldLandmark(nx: CGFloat(nx), ny: CGFloat(ny), kind: kind)
       }
-      AsyncFunction("addFieldLandmarkAtWorld") { (view: LidarARView, x: Double, y: Double, z: Double, kind: String) -> [String: Any] in
-        return view.addFieldLandmarkAtWorld(x: Float(x), y: Float(y), z: Float(z), kind: kind)
+      AsyncFunction("addFieldLandmarkAtWorld") { (view: LidarARView, x: Double, y: Double, z: Double, kind: String, yRotationDeg: Double) -> [String: Any] in
+        return view.addFieldLandmarkAtWorld(x: Float(x), y: Float(y), z: Float(z), kind: kind, yRotationDeg: Float(yRotationDeg))
       }
       AsyncFunction("moveFieldLandmark") { (view: LidarARView, id: String, nx: Double, ny: Double) -> [String: Any]? in
         return view.moveFieldLandmark(id: id, nx: CGFloat(nx), ny: CGFloat(ny))

@@ -15,6 +15,13 @@ export interface FieldTemplate {
 }
 
 export const FIELD_TEMPLATES: Record<string, FieldTemplate> = {
+  micro: {
+    name: "Micro (20ft)",
+    basepathFt: 20,
+    rubberDistFt: 15,
+    dirtArcRadiusFt: 25,
+    outfieldFenceFt: 75,
+  },
   tball: {
     name: "T-Ball (40ft)",
     basepathFt: 40,
@@ -82,7 +89,7 @@ export function computeLandmarkPositions(
   homeX: number, homeY: number, homeZ: number,
   forwardX: number, forwardZ: number,
   templateKey: string
-): { kind: string; x: number; y: number; z: number }[] {
+): { kind: string; x: number; y: number; z: number; yRotDeg?: number }[] {
   const t = FIELD_TEMPLATES[templateKey] ?? FIELD_TEMPLATES.regulation;
   const bp = t.basepathFt * FT_TO_M;
   const rubberDist = t.rubberDistFt * FT_TO_M;
@@ -93,7 +100,11 @@ export function computeLandmarkPositions(
   const { fwdX, fwdZ, rightX, rightZ, to1bX, to1bZ, to3bX, to3bZ } = axes;
 
   return [
-    { kind: "home_plate", x: homeX, y: homeY, z: homeZ },
+    // HP tip points toward backstop (opposite of forward/center field direction)
+    // SCNShape's +Y in the path = tip direction. After -90° X rotation, +Y maps to -Z in world.
+    // So we rotate Y axis so -Z points away from center field = toward the user.
+    { kind: "home_plate", x: homeX, y: homeY, z: homeZ,
+      yRotDeg: Math.atan2(-fwdX, -fwdZ) * (180 / Math.PI) },
     { kind: "first_base", x: homeX + to1bX * bp, y: homeY, z: homeZ + to1bZ * bp },
     { kind: "second_base", x: homeX + fwdX * bp * Math.SQRT2, y: homeY, z: homeZ + fwdZ * bp * Math.SQRT2 },
     { kind: "third_base", x: homeX + to3bX * bp, y: homeY, z: homeZ + to3bZ * bp },
@@ -101,15 +112,22 @@ export function computeLandmarkPositions(
     // Batter's boxes: offset left/right of HP along the 1B-3B axis
     { kind: "batters_box_right", x: homeX + rightX * BATTERS_BOX_OFFSET_M, y: homeY, z: homeZ + rightZ * BATTERS_BOX_OFFSET_M },
     { kind: "batters_box_left", x: homeX - rightX * BATTERS_BOX_OFFSET_M, y: homeY, z: homeZ - rightZ * BATTERS_BOX_OFFSET_M },
-    // Foul lines: placed at home plate, rendered extending toward 1B/3B directions
-    // (The Swift viz offsets the geometry to extend from the anchor point outward)
-    { kind: "foul_line_1b", x: homeX, y: homeY, z: homeZ },
-    { kind: "foul_line_3b", x: homeX, y: homeY, z: homeZ },
+    // Foul lines: originate from HP tip, extend through 1B/3B to foul poles.
+    // Anchor at HP with rotation pointing toward the foul pole direction.
+    // Swift viz offsets geometry by half-length so it extends from anchor outward.
+    { kind: `foul_line_1b-${foulDist.toFixed(1)}`,
+      x: homeX, y: homeY, z: homeZ,
+      yRotDeg: Math.atan2(to1bX, to1bZ) * (180 / Math.PI) },
+    { kind: `foul_line_3b-${foulDist.toFixed(1)}`,
+      x: homeX, y: homeY, z: homeZ,
+      yRotDeg: Math.atan2(to3bX, to3bZ) * (180 / Math.PI) },
     // Foul poles at the far end of each foul line
     { kind: "foul_pole_right", x: homeX + to1bX * foulDist, y: homeY, z: homeZ + to1bZ * foulDist },
     { kind: "foul_pole_left", x: homeX + to3bX * foulDist, y: homeY, z: homeZ + to3bZ * foulDist },
     // Outfield wall: semicircular arc centered at HP. Radius encoded in kind name for Swift.
-    { kind: `outfield_wall-${(t.outfieldFenceFt * FT_TO_M).toFixed(1)}`, x: homeX, y: homeY, z: homeZ },
+    // Rotated so the arc faces center field (forward direction).
+    { kind: `outfield_wall-${(t.outfieldFenceFt * FT_TO_M).toFixed(1)}`, x: homeX, y: homeY, z: homeZ,
+      yRotDeg: Math.atan2(fwdX, fwdZ) * (180 / Math.PI) },
   ];
 }
 

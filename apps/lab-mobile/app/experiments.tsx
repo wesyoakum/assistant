@@ -532,7 +532,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     const fwdZ = -camT[10]!;
     const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
     for (const p of positions) {
-      await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind);
+      await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind, p.yRotDeg ?? 0);
     }
     setFieldPlaced(true);
   };
@@ -554,7 +554,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         await arRef.current.clearFieldLandmarks();
         const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
         for (const p of positions) {
-          await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind);
+          await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind, p.yRotDeg ?? 0);
         }
         await new Promise<void>((r) => setTimeout(r, 150));
       }

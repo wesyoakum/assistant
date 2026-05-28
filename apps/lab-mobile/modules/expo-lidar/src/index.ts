@@ -120,8 +120,8 @@ export interface LidarARViewRef {
   // Field landmark methods
   /** Place a field landmark at a screen point. Returns anchor info or null if raycast misses. */
   addFieldLandmark: (nx: number, ny: number, kind: FieldLandmarkKind) => Promise<FieldLandmarkAnchor | null>;
-  /** Place a field landmark directly at world coordinates (no raycast). */
-  addFieldLandmarkAtWorld: (x: number, y: number, z: number, kind: FieldLandmarkKind) => Promise<FieldLandmarkAnchor>;
+  /** Place a field landmark directly at world coordinates (no raycast). Optional Y rotation in degrees. */
+  addFieldLandmarkAtWorld: (x: number, y: number, z: number, kind: FieldLandmarkKind, yRotationDeg?: number) => Promise<FieldLandmarkAnchor>;
   /** Move an existing field landmark to a new screen point (re-raycasts to ground). */
   moveFieldLandmark: (id: string, nx: number, ny: number) => Promise<FieldLandmarkAnchor | null>;
   /** Rotate a field landmark around its Y axis by the given angle in degrees. */
