@@ -14,7 +14,10 @@
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "ios": {
+        "prebuildCommand": "bash scripts/convert-baseball-model.sh"
+      }
     }
   },
   "submit": {
