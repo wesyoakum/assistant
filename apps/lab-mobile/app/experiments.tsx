@@ -516,6 +516,52 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   const [arEditMode, setArEditMode] = useState(false);
   const [showSubTabs, setShowSubTabs] = useState(true);
   const [fieldType, setFieldType] = useState("regulation");
+  const [fieldPlaced, setFieldPlaced] = useState(false);
+  const [isMovingField, setIsMovingField] = useState(false);
+  const isMovingFieldRef = useRef(false);
+
+  // Place entire field at screen center
+  const placeFieldAtCenter = async () => {
+    if (!arRef.current) return;
+    const hit = await arRef.current.raycastScreenPoint(0.5, 0.5);
+    if (!hit) return;
+    await arRef.current.clearFieldLandmarks();
+    const camT = await arRef.current.currentCameraTransform();
+    if (!camT || camT.length < 16) return;
+    const fwdX = -camT[8]!;
+    const fwdZ = -camT[10]!;
+    const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
+    for (const p of positions) {
+      await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind);
+    }
+    setFieldPlaced(true);
+  };
+
+  // Move field: continuously reposition home plate to crosshairs center while held
+  useEffect(() => {
+    if (!isMovingField) return;
+    isMovingFieldRef.current = true;
+    let cancelled = false;
+    const moveLoop = async () => {
+      while (isMovingFieldRef.current && !cancelled) {
+        if (!arRef.current) break;
+        const hit = await arRef.current.raycastScreenPoint(0.5, 0.5);
+        if (!hit || cancelled) break;
+        const camT = await arRef.current.currentCameraTransform();
+        if (!camT || camT.length < 16) break;
+        const fwdX = -camT[8]!;
+        const fwdZ = -camT[10]!;
+        await arRef.current.clearFieldLandmarks();
+        const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
+        for (const p of positions) {
+          await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind);
+        }
+        await new Promise<void>((r) => setTimeout(r, 150));
+      }
+    };
+    moveLoop();
+    return () => { cancelled = true; };
+  }, [isMovingField]);
 
   // Sync edit mode to the scroll-disable mechanism
   useEffect(() => { setFieldEditMode(arEditMode); return () => setFieldEditMode(false); }, [arEditMode]);
@@ -1103,38 +1149,38 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                       })}
                     </View>
                   </View>
-                  {/* Page 2: Field items */}
+                  {/* Page 2: Place / Move field */}
                   <View style={{ width: screenW, paddingHorizontal: 16 }}>
                     <View style={{ flexDirection: "row", gap: 8, justifyContent: "center" }}>
-                      <Pressable
-                        onPress={() => {
-                          // Place or re-place home plate at crosshairs
-                          if (arRef.current) {
-                            arRef.current.raycastScreenPoint(0.5, 0.5).then((hit) => {
-                              if (!hit) return;
-                              arRef.current?.clearFieldLandmarks().then(() => {
-                                arRef.current?.currentCameraTransform().then((camT) => {
-                                  if (!camT || camT.length < 16) return;
-                                  const fwdX = -camT[8]!;
-                                  const fwdZ = -camT[10]!;
-                                  const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
-                                  Promise.all(positions.map((p) =>
-                                    arRef.current!.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind)
-                                  ));
-                                });
-                              });
-                            });
-                          }
-                        }}
-                        style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.25)" }}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: "600", color: "#fff" }}>Home Plate</Text>
-                      </Pressable>
-                      <Pressable
-                        style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.15)" }}
-                      >
-                        <Text style={{ fontSize: 14, fontWeight: "600", color: "rgba(255,255,255,0.6)" }}>Move</Text>
-                      </Pressable>
+                      {!fieldPlaced ? (
+                        <Pressable
+                          onPress={placeFieldAtCenter}
+                          style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.25)" }}
+                        >
+                          <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>Place Field</Text>
+                        </Pressable>
+                      ) : (
+                        <>
+                          <Pressable
+                            onPressIn={() => setIsMovingField(true)}
+                            onPressOut={() => { setIsMovingField(false); isMovingFieldRef.current = false; }}
+                            style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, backgroundColor: isMovingField ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.2)" }}
+                          >
+                            <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>
+                              {isMovingField ? "Moving…" : "Hold to Move"}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={async () => {
+                              await arRef.current?.clearFieldLandmarks();
+                              setFieldPlaced(false);
+                            }}
+                            style={{ paddingHorizontal: 16, paddingVertical: 12, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.1)" }}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.6)" }}>Clear</Text>
+                          </Pressable>
+                        </>
+                      )}
                     </View>
                   </View>
                   {/* Page 3: AR overlays */}
@@ -2923,12 +2969,12 @@ export function setFieldEditMode(v: boolean) {
   fieldEditModeListeners.forEach((fn) => fn(v));
 }
 
-// Shared state: VisionTab tells ExperimentsScreen whether to show the AR background
-const arBgListeners = new Set<(v: boolean) => void>();
-let arBgShowPlanes = false, arBgShowMesh = false, arBgShowFeatures = false;
+// Shared state: VisionTab tells ExperimentsScreen whether to show the AR background + props
+interface ArBgState { show: boolean; planes: boolean; mesh: boolean; features: boolean }
+const arBgListeners = new Set<(s: ArBgState) => void>();
 function setArBackground(show: boolean, planes = false, mesh = false, features = false) {
-  arBgShowPlanes = planes; arBgShowMesh = mesh; arBgShowFeatures = features;
-  arBgListeners.forEach((fn) => fn(show));
+  const state = { show, planes, mesh, features };
+  arBgListeners.forEach((fn) => fn(state));
 }
 
 // Shared AR view ref — created in ExperimentsScreen, used by VisionTab
@@ -2938,7 +2984,7 @@ export default function ExperimentsScreen() {
   const styles = useStyles(makeStyles);
   const theme = useTheme();
   const [scrollEnabled, setScrollEnabled] = useState(true);
-  const [showArBg, setShowArBg] = useState(false);
+  const [arBg, setArBg] = useState<ArBgState>({ show: false, planes: false, mesh: false, features: false });
   const arRef = useRef<LidarARViewRef>(null);
   // Keep shared ref in sync
   useEffect(() => {
@@ -2951,24 +2997,24 @@ export default function ExperimentsScreen() {
     return () => { fieldEditModeListeners.delete(listener); };
   }, []);
   useEffect(() => {
-    arBgListeners.add(setShowArBg);
-    return () => { arBgListeners.delete(setShowArBg); };
+    arBgListeners.add(setArBg);
+    return () => { arBgListeners.delete(setArBg); };
   }, []);
   const arAvailable = lidarARViewAvailable();
   return (
     <View style={[styles.container, { flex: 1 }]}>
       {/* Fixed AR view behind ScrollView */}
-      {showArBg && arAvailable && (
+      {arBg.show && arAvailable && (
         <LidarARView
           ref={arRef}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-          showPlanes={arBgShowPlanes}
-          showMesh={arBgShowMesh}
-          showFeaturePoints={arBgShowFeatures}
+          showPlanes={arBg.planes}
+          showMesh={arBg.mesh}
+          showFeaturePoints={arBg.features}
         />
       )}
       <ScrollView
-        style={{ flex: 1, backgroundColor: showArBg ? "transparent" : theme.background }}
+        style={{ flex: 1, backgroundColor: arBg.show ? "transparent" : theme.background }}
         contentContainerStyle={{ padding: 16, paddingBottom: 60 }}
         scrollEnabled={scrollEnabled}
       >
