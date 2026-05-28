@@ -18,8 +18,16 @@ export default {
       return html(triggerPage);
     }
 
+    if (url.pathname === "/segment") {
+      return html(segmentPage);
+    }
+
     if (url.pathname === "/api/trigger" && request.method === "POST") {
       return handleTriggerProxy(request);
+    }
+
+    if (url.pathname === "/api/segment" && request.method === "POST") {
+      return handleSegmentProxy(request);
     }
 
     // Routine posts results here
@@ -82,6 +90,37 @@ async function handleResultGet(sessionId: string, env: Env): Promise<Response> {
     return Response.json({ status: "pending" });
   }
   return Response.json(JSON.parse(data));
+}
+
+async function handleSegmentProxy(request: Request): Promise<Response> {
+  try {
+    const { workflowUrl, apiKey, image, classes } = await request.json() as {
+      workflowUrl?: string;
+      apiKey?: string;
+      image?: { type: string; value: string };
+      classes?: string;
+    };
+    if (!workflowUrl || !apiKey || !image) {
+      return Response.json({ error: "Missing workflowUrl, apiKey, or image" }, { status: 400 });
+    }
+    const res = await fetch(workflowUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        inputs: {
+          image,
+          classes: classes || "",
+        },
+      }),
+    });
+    const text = await res.text();
+    let data: unknown;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return Response.json(data, { status: res.status });
+  } catch (e: any) {
+    return Response.json({ error: e.message || "Proxy error" }, { status: 500 });
+  }
 }
 
 async function handleTriggerProxy(request: Request): Promise<Response> {
@@ -178,6 +217,7 @@ const homePage = `<!DOCTYPE html>
     <a href="/privacy">Privacy</a>
     <a href="/usage">Usage</a>
     <a href="/trigger">Trigger</a>
+    <a href="/segment">Segment</a>
   </nav>
   <div class="container">
     <h1>whyapp</h1>
@@ -801,6 +841,333 @@ const triggerPage = `<!DOCTYPE html>
     }
 
     renderHistory();
+  </script>
+</body>
+</html>`;
+
+const segmentPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roboflow Segmentation — whyapp</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #222; padding: 16px; }
+    .container { max-width: 720px; margin: 0 auto; }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 20px; }
+    nav { max-width: 720px; margin: 0 auto; display: flex; gap: 24px; padding: 16px 0; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
+    .section { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    .section label { display: block; font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }
+    .section input[type=text], .section input[type=password] { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; }
+    .key-row { display: flex; gap: 8px; align-items: center; }
+    .key-row input[type=text] { flex: 1; }
+    .btn-small { padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; background: #fff; font-size: 13px; cursor: pointer; white-space: nowrap; }
+    .btn-small:hover { background: #f5f5f5; }
+    .fire-btn { width: 100%; padding: 14px; border: none; border-radius: 12px; background: #4285F4; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; }
+    .fire-btn:hover { background: #3367d6; }
+    .fire-btn:disabled { background: #a4c2f4; cursor: not-allowed; }
+    .status { margin-top: 12px; font-size: 14px; color: #666; }
+    .status.error { color: #e53e3e; }
+    .status.success { color: #38a169; }
+    .result { background: #fff; border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .result-title { font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; margin-bottom: 8px; }
+    .canvas-wrap { width: 100%; overflow-x: auto; background: #f8f8f8; border-radius: 8px; }
+    canvas { display: block; max-width: 100%; }
+    pre { background: #f8f8f8; border-radius: 8px; padding: 12px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 320px; }
+    .preds-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 8px; }
+    .preds-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; color: #888; font-weight: 600; }
+    .preds-table td { padding: 6px 8px; border-bottom: 1px solid #f5f5f5; }
+    .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: middle; }
+    .saved-badge { font-size: 11px; color: #38a169; margin-left: 8px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/usage">Usage</a>
+    <a href="/trigger">Trigger</a>
+    <a href="/segment" class="active">Segment</a>
+  </nav>
+  <div class="container">
+    <h1>Roboflow Segmentation</h1>
+    <p class="subtitle">Test the general-segmentation workflow</p>
+
+    <div class="section">
+      <label>API Key <span id="savedBadge" class="saved-badge" style="display:none">saved</span></label>
+      <div class="key-row">
+        <input id="apiKey" type="password" placeholder="Roboflow API key" />
+        <button class="btn-small" id="saveBtn">Save</button>
+        <button class="btn-small" id="clearKeyBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <label>Workflow URL</label>
+      <input id="workflowUrl" type="text" value="https://serverless.roboflow.com/wally-yokel/workflows/general-segmentation-api" />
+    </div>
+
+    <div class="section">
+      <label>Image</label>
+      <div class="key-row">
+        <input id="imageUrl" type="text" placeholder="https://example.com/photo.jpg" />
+        <button class="btn-small" id="uploadBtn">Upload file</button>
+        <input id="imageFile" type="file" accept="image/*" style="display:none" />
+      </div>
+      <div id="fileLabel" style="font-size:12px;color:#888;margin-top:6px"></div>
+    </div>
+
+    <div class="section">
+      <label>Classes (comma-separated)</label>
+      <input id="classes" type="text" value="person, dog, cat" />
+    </div>
+
+    <button class="fire-btn" id="runBtn">Run Segmentation</button>
+    <div id="status" class="status"></div>
+    <div id="resultBox"></div>
+  </div>
+
+  <script>
+    const LS_KEY = "whyapp_segment_apikey";
+    const LS_URL = "whyapp_segment_url";
+    const LS_CLASSES = "whyapp_segment_classes";
+    const LS_IMAGE_URL = "whyapp_segment_image_url";
+
+    const apiKeyInput = document.getElementById("apiKey");
+    const workflowUrlInput = document.getElementById("workflowUrl");
+    const imageUrlInput = document.getElementById("imageUrl");
+    const imageFile = document.getElementById("imageFile");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const fileLabel = document.getElementById("fileLabel");
+    const classesInput = document.getElementById("classes");
+    const runBtn = document.getElementById("runBtn");
+    const saveBtn = document.getElementById("saveBtn");
+    const clearKeyBtn = document.getElementById("clearKeyBtn");
+    const savedBadge = document.getElementById("savedBadge");
+    const statusEl = document.getElementById("status");
+    const resultBox = document.getElementById("resultBox");
+
+    let uploadedBase64 = null;
+    let uploadedDataUrl = null;
+
+    // Load saved values
+    const savedKey = localStorage.getItem(LS_KEY);
+    if (savedKey) { apiKeyInput.value = savedKey; savedBadge.style.display = "inline"; }
+    const savedUrl = localStorage.getItem(LS_URL);
+    if (savedUrl) workflowUrlInput.value = savedUrl;
+    const savedClasses = localStorage.getItem(LS_CLASSES);
+    if (savedClasses) classesInput.value = savedClasses;
+    const savedImageUrl = localStorage.getItem(LS_IMAGE_URL);
+    if (savedImageUrl) imageUrlInput.value = savedImageUrl;
+
+    saveBtn.addEventListener("click", () => {
+      const k = apiKeyInput.value.trim();
+      if (k) { localStorage.setItem(LS_KEY, k); savedBadge.style.display = "inline"; }
+      localStorage.setItem(LS_URL, workflowUrlInput.value.trim());
+    });
+    clearKeyBtn.addEventListener("click", () => {
+      localStorage.removeItem(LS_KEY);
+      apiKeyInput.value = "";
+      savedBadge.style.display = "none";
+    });
+    classesInput.addEventListener("change", () => localStorage.setItem(LS_CLASSES, classesInput.value.trim()));
+    imageUrlInput.addEventListener("change", () => localStorage.setItem(LS_IMAGE_URL, imageUrlInput.value.trim()));
+
+    uploadBtn.addEventListener("click", () => imageFile.click());
+    imageFile.addEventListener("change", () => {
+      const f = imageFile.files && imageFile.files[0];
+      if (!f) return;
+      fileLabel.textContent = f.name + " (" + Math.round(f.size / 1024) + " KB)";
+      const reader = new FileReader();
+      reader.onload = () => {
+        uploadedDataUrl = reader.result;
+        uploadedBase64 = uploadedDataUrl.split(",")[1];
+        imageUrlInput.value = "";
+      };
+      reader.readAsDataURL(f);
+    });
+    imageUrlInput.addEventListener("input", () => {
+      if (imageUrlInput.value.trim()) {
+        uploadedBase64 = null;
+        uploadedDataUrl = null;
+        fileLabel.textContent = "";
+        imageFile.value = "";
+      }
+    });
+
+    runBtn.addEventListener("click", run);
+
+    function showStatus(msg, type) {
+      statusEl.textContent = msg;
+      statusEl.className = "status" + (type ? " " + type : "");
+    }
+
+    async function run() {
+      const apiKey = apiKeyInput.value.trim();
+      const workflowUrl = workflowUrlInput.value.trim();
+      const classes = classesInput.value.trim();
+      const url = imageUrlInput.value.trim();
+
+      if (!apiKey) { showStatus("Enter your Roboflow API key", "error"); return; }
+      if (!workflowUrl) { showStatus("Enter the workflow URL", "error"); return; }
+      if (!url && !uploadedBase64) { showStatus("Provide an image URL or upload a file", "error"); return; }
+
+      const image = url
+        ? { type: "url", value: url }
+        : { type: "base64", value: uploadedBase64 };
+      const displaySrc = url || uploadedDataUrl;
+
+      runBtn.disabled = true;
+      runBtn.textContent = "Running...";
+      showStatus("Calling Roboflow...", "");
+      resultBox.innerHTML = "";
+
+      const t0 = performance.now();
+      try {
+        const res = await fetch("/api/segment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workflowUrl, apiKey, image, classes }),
+        });
+        const data = await res.json();
+        const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+
+        if (!res.ok) {
+          showStatus("Error " + res.status + " (" + elapsed + "s)", "error");
+          resultBox.innerHTML = '<div class="result"><div class="result-title">Response</div><pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre></div>';
+          return;
+        }
+        showStatus("Done in " + elapsed + "s", "success");
+        renderResult(data, displaySrc);
+      } catch (e) {
+        showStatus("Request failed: " + e.message, "error");
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = "Run Segmentation";
+      }
+    }
+
+    function findPredictions(node, out) {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) { node.forEach(n => findPredictions(n, out)); return; }
+      if (Array.isArray(node.predictions) && node.predictions.length && typeof node.predictions[0] === "object" && "class" in node.predictions[0]) {
+        out.push(node);
+      }
+      for (const k of Object.keys(node)) {
+        if (k === "predictions") continue;
+        findPredictions(node[k], out);
+      }
+    }
+
+    const PALETTE = ["#4285F4","#EA4335","#FBBC04","#34A853","#7c3aed","#f59e0b","#10b981","#ef4444","#06b6d4","#a855f7"];
+
+    function renderResult(data, displaySrc) {
+      const found = [];
+      findPredictions(data, found);
+
+      let html = '<div class="result"><div class="result-title">Image with predictions</div>';
+      html += '<div class="canvas-wrap"><canvas id="overlayCanvas"></canvas></div>';
+      html += '<div id="predsTable"></div>';
+      html += '</div>';
+      html += '<div class="result"><div class="result-title">Raw response</div><pre>' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre></div>';
+      resultBox.innerHTML = html;
+
+      const canvas = document.getElementById("overlayCanvas");
+      const tableHost = document.getElementById("predsTable");
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => drawOverlay(canvas, img, found, tableHost);
+      img.onerror = () => {
+        canvas.width = 1; canvas.height = 1;
+        tableHost.innerHTML = '<div style="color:#aaa;font-size:13px;margin-top:8px">Could not load image for overlay. (Cross-origin block?) Raw response is below.</div>';
+        if (found.length) renderTable(found[0], tableHost, []);
+      };
+      img.src = displaySrc;
+    }
+
+    function drawOverlay(canvas, img, found, tableHost) {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+
+      if (!found.length) {
+        tableHost.innerHTML = '<div style="color:#aaa;font-size:13px;margin-top:8px">No predictions found in response.</div>';
+        return;
+      }
+
+      const block = found[0];
+      const refW = block.image && block.image.width || W;
+      const refH = block.image && block.image.height || H;
+      const sx = W / refW, sy = H / refH;
+
+      const classColors = {};
+      let palIdx = 0;
+      const colorFor = (c) => {
+        if (!classColors[c]) classColors[c] = PALETTE[palIdx++ % PALETTE.length];
+        return classColors[c];
+      };
+
+      ctx.lineWidth = Math.max(2, Math.round(W / 400));
+      ctx.font = Math.max(14, Math.round(W / 60)) + "px sans-serif";
+
+      for (const p of block.predictions) {
+        const color = colorFor(p.class);
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color + "33";
+
+        if (Array.isArray(p.points) && p.points.length > 2) {
+          ctx.beginPath();
+          p.points.forEach((pt, i) => {
+            const x = pt.x * sx, y = pt.y * sy;
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          });
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        } else if (typeof p.x === "number" && typeof p.width === "number") {
+          const x = (p.x - p.width / 2) * sx, y = (p.y - p.height / 2) * sy;
+          ctx.strokeRect(x, y, p.width * sx, p.height * sy);
+          ctx.fillRect(x, y, p.width * sx, p.height * sy);
+        }
+
+        // Label
+        const lx = (p.x - (p.width || 0) / 2) * sx;
+        const ly = (p.y - (p.height || 0) / 2) * sy;
+        const label = p.class + " " + (p.confidence ? (p.confidence * 100).toFixed(1) + "%" : "");
+        const tw = ctx.measureText(label).width + 8;
+        const th = parseInt(ctx.font, 10) + 6;
+        ctx.fillStyle = color;
+        ctx.fillRect(lx, Math.max(0, ly - th), tw, th);
+        ctx.fillStyle = "#fff";
+        ctx.fillText(label, lx + 4, Math.max(th - 4, ly - 4));
+      }
+
+      renderTable(block, tableHost, classColors);
+    }
+
+    function renderTable(block, host, classColors) {
+      const preds = block.predictions || [];
+      let html = '<table class="preds-table"><thead><tr><th>#</th><th>Class</th><th>Confidence</th><th>Bbox (x,y,w,h)</th><th>Mask pts</th></tr></thead><tbody>';
+      preds.forEach((p, i) => {
+        const color = (classColors && classColors[p.class]) || "#888";
+        const bbox = (typeof p.x === "number") ? Math.round(p.x) + ", " + Math.round(p.y) + ", " + Math.round(p.width || 0) + ", " + Math.round(p.height || 0) : "—";
+        const mask = Array.isArray(p.points) ? p.points.length : 0;
+        html += '<tr><td>' + (i + 1) + '</td><td><span class="swatch" style="background:' + color + '"></span>' + escapeHtml(p.class || "") + '</td><td>' + (p.confidence ? (p.confidence * 100).toFixed(1) + "%" : "—") + '</td><td>' + bbox + '</td><td>' + mask + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      host.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    }
   </script>
 </body>
 </html>`;
