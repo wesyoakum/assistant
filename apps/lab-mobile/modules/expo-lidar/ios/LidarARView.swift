@@ -470,6 +470,8 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       switch kind {
       case "home_plate":
         geometry = makeHomePlateGeometry()
+        useFlat = false
+        yOffset = 0.1524  // half of 12 inches
       case "rubber":
         geometry = makeRubberGeometry()
         useFlat = false
@@ -527,44 +529,30 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     node.addChildNode(vizNode)
   }
 
-  /// Home plate: white pentagon, 17" (0.4318m) wide, regulation shape.
-  /// Points: front tip, two angled sides, two back sides forming the 90° corner.
+  /// Home plate: white extruded pentagon, 17" (0.4318m) wide, 12" (0.3048m) tall.
+  /// Tip points toward the user/backstop.
   private func makeHomePlateGeometry() -> SCNGeometry {
-    let w: Float = 0.4318   // 17 inches in meters
+    let w: CGFloat = 0.4318   // 17 inches
     let halfW = w / 2.0
-    let frontDepth: Float = 0.2159  // 8.5 inches (front triangle depth)
-    let backDepth: Float = 0.1524   // 6 inches (back rectangle depth)
+    let frontDepth: CGFloat = 0.2159  // 8.5 inches (front triangle depth)
+    let backDepth: CGFloat = 0.1524   // 6 inches (back rectangle depth)
+    let height: CGFloat = 0.3048      // 12 inches tall
 
-    // Pentagon vertices (in XY plane, will be rotated flat).
-    // Tip points in +Y so that after the -90° X rotation it points toward
-    // the user (backstop). The flat back edge faces center field / the pitcher.
-    // User places from behind HP looking toward the pitcher.
-    let tip = SCNVector3(0, frontDepth, 0)
-    let frontRight = SCNVector3(halfW, 0, 0)
-    let frontLeft = SCNVector3(-halfW, 0, 0)
-    let backRight = SCNVector3(halfW, -backDepth, 0)
-    let backLeft = SCNVector3(-halfW, -backDepth, 0)
+    // Build pentagon path in XZ plane (Y is up after extrusion)
+    let path = UIBezierPath()
+    path.move(to: CGPoint(x: 0, y: frontDepth))          // tip (toward backstop)
+    path.addLine(to: CGPoint(x: halfW, y: 0))             // front right
+    path.addLine(to: CGPoint(x: halfW, y: -backDepth))    // back right
+    path.addLine(to: CGPoint(x: -halfW, y: -backDepth))   // back left
+    path.addLine(to: CGPoint(x: -halfW, y: 0))            // front left
+    path.close()
 
-    // Build triangles for the pentagon (3 triangles)
-    let vertices: [SCNVector3] = [
-      // Triangle 1: tip, frontLeft, frontRight
-      tip, frontLeft, frontRight,
-      // Triangle 2: frontLeft, backLeft, frontRight
-      frontLeft, backLeft, frontRight,
-      // Triangle 3: backLeft, backRight, frontRight
-      backLeft, backRight, frontRight,
-    ]
-
-    let vertexSource = SCNGeometrySource(vertices: vertices)
-    let indices: [UInt16] = [0, 1, 2, 3, 4, 5, 6, 7, 8]
-    let element = SCNGeometryElement(indices: indices, primitiveType: .triangles)
-    let geometry = SCNGeometry(sources: [vertexSource], elements: [element])
+    let shape = SCNShape(path: path, extrusionDepth: height)
     let material = SCNMaterial()
     material.diffuse.contents = UIColor.white
     material.isDoubleSided = true
-    material.writesToDepthBuffer = false
-    geometry.materials = [material]
-    return geometry
+    shape.materials = [material]
+    return shape
   }
 
   /// Base: white cube, 15" (0.381m) on each side. For testing visibility at distance.
