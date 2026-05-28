@@ -515,7 +515,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   }, [isArFullscreen, showPlanes, showMesh, showFeaturePoints]);
   const [arEditMode, setArEditMode] = useState(false);
   const [showSubTabs, setShowSubTabs] = useState(true);
-  const [fieldType, setFieldType] = useState("regulation");
+  const [fieldType, setFieldType] = useState("youth");
   const [fieldPlaced, setFieldPlaced] = useState(false);
   const [isMovingField, setIsMovingField] = useState(false);
   const isMovingFieldRef = useRef(false);
@@ -2085,7 +2085,7 @@ function FieldTab({ arRef, theme, styles, cardStyle, arViewAvailable, arEditMode
   const [placedLandmarks, setPlacedLandmarks] = useState<FieldLandmarkAnchor[]>([]);
   const placedRef = useRef<FieldLandmarkAnchor[]>([]);
   useEffect(() => { placedRef.current = placedLandmarks; }, [placedLandmarks]);
-  const [fieldType, setFieldType] = useState("regulation");
+  const [fieldType, setFieldType] = useState("youth");
   const [fieldActive, setFieldActive] = useState(false);  // crosshairs visible
   const [nearestLandmark, setNearestLandmark] = useState<{ id: string; kind: string; dist: number } | null>(null);
   const [showItemPicker, setShowItemPicker] = useState(false);
