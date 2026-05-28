@@ -973,7 +973,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   return (
     <>
-      {/* AR view — full-width edge-to-edge for balls/field */}
+      {/* AR view — full-screen with overlaid controls for balls/field */}
       {(visionMode === "balls" || visionMode === "field") && (
         arViewAvailable ? (
           <View style={{ marginHorizontal: -16, marginTop: -16, marginBottom: 4, aspectRatio: 9 / 16 }}>
@@ -990,6 +990,87 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
             {visionMode === "balls" && offScreenBalls.length > 0 && (
               <OffScreenIndicators balls={offScreenBalls} />
             )}
+            {/* Overlaid controls at bottom */}
+            <View pointerEvents="box-none" style={{ position: "absolute", bottom: 0, left: 0, right: 0, paddingBottom: 12, paddingHorizontal: 12 }}>
+              {/* Ball count badge */}
+              {visionMode === "balls" && balls.length > 0 && (
+                <View style={{ alignItems: "center", marginBottom: 8 }}>
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 }}>
+                    <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                      {balls.filter((b) => b.status === "confirmed").length} confirmed · {balls.filter((b) => b.status === "probable").length} probable · {balls.filter((b) => b.status === "candidate").length} candidate
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {/* Action buttons */}
+              {visionMode === "balls" && arViewAvailable && yoloReady && (
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                  <Pressable
+                    onPress={captureAndFindBalls}
+                    disabled={ballsBusy || ballsLive}
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)", opacity: (ballsBusy || ballsLive) ? 0.4 : 1 }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                      {ballsBusy ? "Searching…" : "Snapshot"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={ballsLive ? stopBallsLive : startBallsLive}
+                    style={{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: ballsLive ? "rgba(255,60,60,0.7)" : "rgba(255,255,255,0.25)" }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                      {ballsLive ? "Stop" : "Live"}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={clearBalls}
+                    disabled={balls.length === 0}
+                    style={{ paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.15)", opacity: balls.length === 0 ? 0.4 : 1 }}
+                  >
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>Clear</Text>
+                  </Pressable>
+                </View>
+              )}
+              {/* Mode tabs — transparent pill bar */}
+              <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3 }}>
+                {VISION_MODE_TABS.map((t) => {
+                  const active = visionMode === t.key;
+                  return (
+                    <Pressable
+                      key={t.key}
+                      onPress={() => setVisionMode(t.key)}
+                      style={{
+                        flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
+                        backgroundColor: active ? "rgba(255,255,255,0.25)" : "transparent",
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, fontWeight: "600", color: active ? "#fff" : "rgba(255,255,255,0.6)" }}>
+                        {t.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            {/* Top-left overlay toggles */}
+            <View pointerEvents="box-none" style={{ position: "absolute", top: 12, left: 12, flexDirection: "row", gap: 6 }}>
+              {[
+                { label: "P", value: showPlanes, set: setShowPlanes },
+                { label: "M", value: showMesh, set: setShowMesh },
+                { label: "F", value: showFeaturePoints, set: setShowFeaturePoints },
+              ].map((opt) => (
+                <Pressable
+                  key={opt.label}
+                  onPress={() => opt.set(!opt.value)}
+                  style={{
+                    width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center",
+                    backgroundColor: opt.value ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0.3)",
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: "700", color: "#fff" }}>{opt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
         ) : (
           <View style={{ width: "100%", aspectRatio: 3 / 4, backgroundColor: theme.surfaceAlt, justifyContent: "center", alignItems: "center" }}>
@@ -1042,7 +1123,8 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         </Text>
       )}
 
-      {/* Mode tabs */}
+      {/* Mode tabs — only for non-AR modes (AR modes have overlaid tabs) */}
+      {!(visionMode === "balls" || visionMode === "field") && (
       <View style={{ flexDirection: "row", gap: 4, marginBottom: 8 }}>
         {VISION_MODE_TABS.map((t) => {
           const active = visionMode === t.key;
@@ -1067,6 +1149,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           );
         })}
       </View>
+      )}
 
       {/* Top-tile controls: start/stop the right hardware.
           Map / Balls modes have their own controls inside the per-mode body. */}
@@ -1568,67 +1651,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
       {visionMode === "balls" && (
         <>
-          <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-            {!arViewAvailable ? (
-              <Text style={{ fontSize: 13, color: theme.textSubtle }}>AR view not in this build.</Text>
-            ) : !yoloAvailable || !yoloReady ? (
-              <Text style={{ fontSize: 13, color: theme.textSubtle }}>YOLO native module not ready.</Text>
-            ) : (
-              <>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable
-                    onPress={captureAndFindBalls}
-                    disabled={ballsBusy || ballsLive}
-                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: theme.highlight, opacity: (ballsBusy || ballsLive) ? 0.4 : 1 }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
-                      {ballsBusy ? "Searching…" : "Snapshot"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={ballsLive ? stopBallsLive : startBallsLive}
-                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: ballsLive ? theme.destructive : theme.primary }}
-                  >
-                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
-                      {ballsLive ? "Stop live" : "Live"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={clearBalls}
-                    disabled={balls.length === 0}
-                    style={{ flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: balls.length === 0 ? 0.4 : 1 }}
-                  >
-                    <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }}>Clear</Text>
-                  </Pressable>
-                </View>
-                {(() => {
-                  const candCount = balls.filter((b) => b.status === "candidate").length;
-                  return (
-                    <Pressable
-                      onPress={clearCandidates}
-                      disabled={candCount === 0}
-                      style={{ marginTop: 8, paddingVertical: 8, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border, opacity: candCount === 0 ? 0.4 : 1 }}
-                    >
-                      <Text style={{ color: theme.text, fontSize: 12, fontWeight: "600" }}>
-                        Clear candidates ({candCount})
-                      </Text>
-                    </Pressable>
-                  );
-                })()}
-                <Pressable
-                  onPress={resetAR}
-                  style={{ marginTop: 8, paddingVertical: 8, borderRadius: 8, alignItems: "center", backgroundColor: theme.surfaceAlt, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
-                >
-                  <Text style={{ color: theme.textSubtle, fontSize: 12, fontWeight: "600" }}>
-                    Reset AR (wipe world map + all anchors)
-                  </Text>
-                </Pressable>
-                <Text style={{ fontSize: 11, color: theme.textSubtle, marginTop: 6, textAlign: "center" }}>
-                  Candidate (yellow) → probable (cyan) → confirmed (fuchsia). Close-up sightings (&lt; 2 m at high conf) skip straight to confirmed. Balls not seen on 3 close-range captures are deleted.
-                </Text>
-              </>
-            )}
-          </View>
 
           {/* Dev panel: tunables + telemetry */}
           <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
@@ -1894,42 +1916,6 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         <FieldTab arRef={arRef} theme={theme} styles={styles} arViewAvailable={arViewAvailable} arEditMode={arEditMode} setArEditMode={setArEditMode} />
       )}
 
-      {/* AR overlay toggles — shared by Balls and Field modes */}
-      {(visionMode === "balls" || visionMode === "field") && arViewAvailable && (
-        <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
-          <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
-            AR overlays
-          </Text>
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            {[
-              { label: "Planes", value: showPlanes, set: setShowPlanes, hint: "floor/walls" },
-              { label: "Mesh", value: showMesh, set: setShowMesh, hint: "LiDAR scene" },
-              { label: "Features", value: showFeaturePoints, set: setShowFeaturePoints, hint: "tracked points" },
-            ].map((opt) => (
-              <Pressable
-                key={opt.label}
-                onPress={() => opt.set(!opt.value)}
-                style={{
-                  flex: 1,
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                  alignItems: "center",
-                  backgroundColor: opt.value ? theme.primary : theme.surfaceAlt,
-                  borderWidth: opt.value ? 0 : StyleSheet.hairlineWidth,
-                  borderColor: theme.border,
-                }}
-              >
-                <Text style={{ fontSize: 12, fontWeight: "600", color: opt.value ? "#fff" : theme.text }}>
-                  {opt.label}
-                </Text>
-                <Text style={{ fontSize: 9, color: opt.value ? "#fff" : theme.textSubtle, marginTop: 1 }}>
-                  {opt.hint}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      )}
     </>
   );
 }
