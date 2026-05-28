@@ -991,20 +991,27 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
   return (
     <>
-      {/* AR mode: transparent spacer (AR view is fixed behind ScrollView) + overlaid controls */}
+      {/* AR mode: full-screen AR view is behind ScrollView; render bottom sheet controls here */}
       {(visionMode === "balls" || visionMode === "field") && (
         arViewAvailable ? (
           <>
-            {/* Spacer pushes content below the visible area so AR shows through */}
-            <View style={{ marginHorizontal: -16, marginTop: -16, height: screenH - 120 }} />
-            {/* Off-screen ball indicators */}
+            {/* Spacer: enough height so AR view shows through, bottom sheet sits at bottom.
+                Controls start below this and can be scrolled up over the AR view. */}
+            <View style={{ height: screenH - 250 }} />
+            {/* Off-screen ball indicators overlaid on AR view */}
             {visionMode === "balls" && offScreenBalls.length > 0 && (
-              <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: screenH - 120, marginLeft: -16 }} pointerEvents="none">
+              <View style={{ position: "absolute", top: 0, left: -16, right: -16, height: screenH - 250 }} pointerEvents="none">
                 <OffScreenIndicators balls={offScreenBalls} />
               </View>
             )}
-            {/* Sticky controls bar */}
-            <View style={{ marginHorizontal: -16, marginBottom: 4 }}>
+            {/* Bottom sheet — fixed at bottom of screen */}
+            <View
+              pointerEvents="box-none"
+              style={{
+                position: "absolute", bottom: 0, left: -16, right: -16,
+                paddingBottom: 30, paddingHorizontal: 12,
+              }}
+            >
               {/* Ball count badge */}
               {visionMode === "balls" && balls.length > 0 && (
                 <View style={{ alignItems: "center", marginBottom: 8 }}>
@@ -1016,8 +1023,8 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                 </View>
               )}
               {/* Action buttons */}
-              {visionMode === "balls" && arViewAvailable && yoloReady && (
-                <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, paddingHorizontal: 12 }}>
+              {visionMode === "balls" && yoloReady && (
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
                   <Pressable
                     onPress={captureAndFindBalls}
                     disabled={ballsBusy || ballsLive}
@@ -1045,7 +1052,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                 </View>
               )}
               {/* Mode tabs — transparent pill bar */}
-              <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3, marginHorizontal: 12 }}>
+              <View style={{ flexDirection: "row", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 10, padding: 3 }}>
                 {VISION_MODE_TABS.map((t) => {
                   const active = visionMode === t.key;
                   return (
@@ -1064,7 +1071,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   );
                 })}
               </View>
-              {/* Overlay toggle row */}
+              {/* AR overlay toggles */}
               <View style={{ flexDirection: "row", gap: 6, justifyContent: "center", marginTop: 8 }}>
                 {[
                   { label: "Planes", value: showPlanes, set: setShowPlanes },
