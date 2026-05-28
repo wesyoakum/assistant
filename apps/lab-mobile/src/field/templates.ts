@@ -100,11 +100,11 @@ export function computeLandmarkPositions(
   const { fwdX, fwdZ, rightX, rightZ, to1bX, to1bZ, to3bX, to3bZ } = axes;
 
   return [
-    // HP tip points toward backstop (opposite of forward/center field direction)
-    // SCNShape's +Y in the path = tip direction. After -90° X rotation, +Y maps to -Z in world.
-    // So we rotate Y axis so -Z points away from center field = toward the user.
+    // HP tip points toward backstop (away from center field).
+    // After SCNShape -90° X rotation, the path's +Y becomes local -Z.
+    // Rotate so local -Z aligns with -forward (backstop direction).
     { kind: "home_plate", x: homeX, y: homeY, z: homeZ,
-      yRotDeg: Math.atan2(-fwdX, -fwdZ) * (180 / Math.PI) },
+      yRotDeg: Math.atan2(fwdX, fwdZ) * (180 / Math.PI) },
     { kind: "first_base", x: homeX + to1bX * bp, y: homeY, z: homeZ + to1bZ * bp },
     { kind: "second_base", x: homeX + fwdX * bp * Math.SQRT2, y: homeY, z: homeZ + fwdZ * bp * Math.SQRT2 },
     { kind: "third_base", x: homeX + to3bX * bp, y: homeY, z: homeZ + to3bZ * bp },

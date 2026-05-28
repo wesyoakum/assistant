@@ -151,6 +151,72 @@ function OffScreenIndicators({ balls }: { balls: { number: number; status: BallS
   );
 }
 
+/** Horizontal knurled rotation wheel — drag left/right to rotate the field. */
+function RotationWheel({ value, onChange, screenW }: { value: number; onChange: (deg: number) => void; screenW: number }) {
+  const startVal = useRef(0);
+  const valRef = useRef(value);
+  valRef.current = value;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const wheelW = screenW - 48;
+  const notchCount = 60;
+  const degreesPerPixel = 0.5;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startVal.current = valRef.current;
+      },
+      onPanResponderMove: (_, gesture) => {
+        const delta = gesture.dx * degreesPerPixel;
+        onChangeRef.current(startVal.current + delta);
+      },
+    })
+  ).current;
+
+  // Compute notch positions — shift by the current rotation so notches appear to scroll
+  const offset = (value * 2) % 10; // pixel offset for scrolling effect
+
+  return (
+    <View style={{ marginTop: 10, alignItems: "center" }}>
+      <Text style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginBottom: 4 }}>
+        {value.toFixed(0)}°
+      </Text>
+      <View
+        {...panResponder.panHandlers}
+        style={{
+          width: wheelW, height: 28, borderRadius: 6,
+          backgroundColor: "rgba(0,0,0,0.5)",
+          overflow: "hidden", flexDirection: "row", alignItems: "center",
+          borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
+        }}
+      >
+        {Array.from({ length: notchCount }, (_, i) => {
+          const isMajor = i % 5 === 0;
+          return (
+            <View
+              key={i}
+              style={{
+                flex: 1,
+                height: isMajor ? 20 : 12,
+                borderRightWidth: 1,
+                borderRightColor: isMajor ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)",
+              }}
+            />
+          );
+        })}
+        {/* Center marker */}
+        <View style={{
+          position: "absolute", left: wheelW / 2 - 1, top: 0, bottom: 0,
+          width: 2, backgroundColor: "rgba(255,255,255,0.8)",
+        }} />
+      </View>
+    </View>
+  );
+}
+
 function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnType<typeof makeStyles>; pressure: { pressure: number; relativeAltitude?: number | null } | null }) {
   const [cameraPerm, requestCameraPerm] = useCameraPermissions();
   const [cameraOn, setCameraOn] = useState(false);
@@ -519,6 +585,26 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   const [fieldPlaced, setFieldPlaced] = useState(false);
   const [isMovingField, setIsMovingField] = useState(false);
   const isMovingFieldRef = useRef(false);
+  const [fieldRotationDeg, setFieldRotationDeg] = useState(0);  // manual rotation offset
+  const fieldRotRef = useRef(0);
+  const updateFieldRotation = (deg: number) => {
+    fieldRotRef.current = deg;
+    setFieldRotationDeg(deg);
+    // If field is placed, re-place with new rotation
+    if (fieldPlaced && arRef.current) {
+      placeFieldAtCenter();
+    }
+  };
+
+  // Apply manual rotation offset to camera forward direction
+  const rotatedForward = (camT: number[]) => {
+    const rawX = -camT[8]!;
+    const rawZ = -camT[10]!;
+    const rad = fieldRotRef.current * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    return { fwdX: rawX * cos - rawZ * sin, fwdZ: rawX * sin + rawZ * cos };
+  };
 
   // Place entire field at screen center
   const placeFieldAtCenter = async () => {
@@ -528,8 +614,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
     await arRef.current.clearFieldLandmarks();
     const camT = await arRef.current.currentCameraTransform();
     if (!camT || camT.length < 16) return;
-    const fwdX = -camT[8]!;
-    const fwdZ = -camT[10]!;
+    const { fwdX, fwdZ } = rotatedForward(camT);
     const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
     for (const p of positions) {
       await arRef.current.addFieldLandmarkAtWorld(p.x, p.y, p.z, p.kind as FieldLandmarkKind, p.yRotDeg ?? 0);
@@ -549,8 +634,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         if (!hit || cancelled) break;
         const camT = await arRef.current.currentCameraTransform();
         if (!camT || camT.length < 16) break;
-        const fwdX = -camT[8]!;
-        const fwdZ = -camT[10]!;
+        const { fwdX, fwdZ } = rotatedForward(camT);
         await arRef.current.clearFieldLandmarks();
         const positions = computeLandmarkPositions(hit.worldX, hit.worldY, hit.worldZ, fwdX, fwdZ, fieldType);
         for (const p of positions) {
@@ -1211,6 +1295,14 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.3)" }} />
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.3)" }} />
                 </View>
+                {/* Rotation wheel */}
+                {fieldPlaced && (
+                  <RotationWheel
+                    value={fieldRotationDeg}
+                    onChange={updateFieldRotation}
+                    screenW={screenW}
+                  />
+                )}
               </View>
 
               {/* Tap to show/hide sub-tabs */}
