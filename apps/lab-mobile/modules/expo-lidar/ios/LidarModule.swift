@@ -119,14 +119,11 @@ public final class LidarModule: Module {
         return view.raycastScreenPoint(nx: CGFloat(nx), ny: CGFloat(ny))
       }
       AsyncFunction("captureViewImage") { (view: LidarARView, jpegQuality: Double) -> [String: Any]? in
-        // Capture the live camera image from the view's running ARSession,
-        // rotated to portrait for display + YOLO use.
-        guard let frame = view.sceneView.session.currentFrame else { return nil }
-        let ci = CIImage(cvPixelBuffer: frame.capturedImage).oriented(.right)
-        let ctx = CIContext()
-        guard let cg = ctx.createCGImage(ci, from: ci.extent) else { return nil }
-        let uiImage = UIImage(cgImage: cg)
-        guard let jpeg = uiImage.jpegData(compressionQuality: CGFloat(jpegQuality)) else { return nil }
+        // Snapshot exactly what the ARSCNView renders on screen so that
+        // YOLO bounding-box coordinates map 1:1 to the visible view.
+        let snapshot = view.sceneView.snapshot()
+        guard let jpeg = snapshot.jpegData(compressionQuality: CGFloat(jpegQuality)),
+              let cg = snapshot.cgImage else { return nil }
         return [
           "imageBase64": jpeg.base64EncodedString(),
           "imageWidth": cg.width,
