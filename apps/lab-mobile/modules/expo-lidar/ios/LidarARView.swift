@@ -704,8 +704,9 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let color: UIColor = isHoriz
       ? UIColor(red: 0.0, green: 0.8, blue: 1.0, alpha: 1.0)   // cyan for horizontal
       : UIColor(red: 1.0, green: 0.4, blue: 0.0, alpha: 1.0)   // orange for vertical
-    plane.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.35)
-    plane.firstMaterial?.emission.contents = color.withAlphaComponent(0.15)
+    plane.firstMaterial?.diffuse.contents = color.withAlphaComponent(0.55)
+    plane.firstMaterial?.emission.contents = color.withAlphaComponent(0.40)
+    plane.firstMaterial?.transparency = 0.65
     plane.firstMaterial?.isDoubleSided = true
     plane.firstMaterial?.writesToDepthBuffer = false
     let planeNode = SCNNode(geometry: plane)
@@ -809,9 +810,10 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
 
     let geometry = SCNGeometry(sources: [verticesSource, normalsSource], elements: [element])
     let material = SCNMaterial()
-    material.diffuse.contents = UIColor(red: 0.2, green: 1.0, blue: 0.4, alpha: 1.0)  // bright green
-    material.emission.contents = UIColor(red: 0.1, green: 0.6, blue: 0.2, alpha: 0.4)
+    material.diffuse.contents = UIColor(red: 0.0, green: 1.0, blue: 0.6, alpha: 1.0)  // bright green
+    material.emission.contents = UIColor(red: 0.0, green: 1.0, blue: 0.5, alpha: 0.8)
     material.fillMode = .lines
+    material.lightingModel = .constant  // ignore lighting so wireframe is always bright
     material.isDoubleSided = true
     material.writesToDepthBuffer = false
     geometry.materials = [material]

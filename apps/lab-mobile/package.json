@@ -19,6 +19,7 @@
     "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.34",
     "expo-av": "^16.0.8",
+    "expo-baseball": "workspace:*",
     "expo-battery": "~10.0.8",
     "expo-brightness": "~14.0.8",
     "expo-camera": "~17.0.10",
