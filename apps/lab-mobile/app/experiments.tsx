@@ -491,6 +491,9 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
   }
   const arRef = useRef<LidarARViewRef>(null);
   const arViewAvailable = lidarARViewAvailable();
+  // Use glass (semi-transparent) cards when AR view is filling the screen
+  const isArFullscreen = (visionMode === "balls" || visionMode === "field") && arViewAvailable;
+  const cardStyle = isArFullscreen ? styles.glassCard : styles.card;
   // AR visualization toggles for the LidarARView
   const [showPlanes, setShowPlanes] = useState(false);
   const [showMesh, setShowMesh] = useState(false);
@@ -1653,7 +1656,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
         <>
 
           {/* Dev panel: tunables + telemetry */}
-          <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
+          <View style={[cardStyle, { padding: 10, marginBottom: 4 }]}>
             <Pressable
               onPress={() => setDevOpen((v) => !v)}
               style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
@@ -1754,7 +1757,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
           {/* Telemetry: what just happened on the last capture */}
           {telemetry && (
-            <View style={[styles.card, { padding: 10, marginBottom: 4 }]}>
+            <View style={[cardStyle, { padding: 10, marginBottom: 4 }]}>
               <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 4 }}>
                 Last capture — {telemetry.rawDetectionCount} raw · {telemetry.sportsBallCount} sports ball
               </Text>
@@ -1823,13 +1826,13 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           )}
 
           {ballsErr && (
-            <View style={[styles.card, { padding: 12, marginBottom: 4 }]}>
+            <View style={[cardStyle, { padding: 12, marginBottom: 4 }]}>
               <Text style={{ fontSize: 12, color: theme.destructive }}>{ballsErr}</Text>
             </View>
           )}
 
           {ballsLastImage && (
-            <View style={[styles.card, { padding: 8, marginBottom: 4 }]}>
+            <View style={[cardStyle, { padding: 8, marginBottom: 4 }]}>
               <View style={{ aspectRatio: ballsLastImage.width / ballsLastImage.height, position: "relative", borderRadius: 6, overflow: "hidden" }}>
                 <Image source={{ uri: ballsLastImage.uri }} style={{ width: "100%", height: "100%" }} resizeMode="cover" fadeDuration={0} />
                 {ballsLastImage.boxes.map((b, i) => {
@@ -1854,7 +1857,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
           )}
 
           {balls.length > 0 && (
-            <View style={[styles.card, { padding: 12, marginBottom: 16 }]}>
+            <View style={[cardStyle, { padding: 12, marginBottom: 16 }]}>
               <Text style={{ fontSize: 11, fontWeight: "600", color: theme.textSubtle, textTransform: "uppercase", marginBottom: 6 }}>
                 Tracked balls ({balls.length})
               </Text>
@@ -1913,7 +1916,7 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
       )}
 
       {visionMode === "field" && (
-        <FieldTab arRef={arRef} theme={theme} styles={styles} arViewAvailable={arViewAvailable} arEditMode={arEditMode} setArEditMode={setArEditMode} />
+        <FieldTab arRef={arRef} theme={theme} styles={styles} cardStyle={cardStyle} arViewAvailable={arViewAvailable} arEditMode={arEditMode} setArEditMode={setArEditMode} />
       )}
 
     </>
@@ -1922,10 +1925,11 @@ function VisionTab({ theme, styles, pressure }: { theme: Theme; styles: ReturnTy
 
 // ─── Field Registration Tab ───────────────────────────────────────────────────
 
-function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEditMode }: {
+function FieldTab({ arRef, theme, styles, cardStyle, arViewAvailable, arEditMode, setArEditMode }: {
   arRef: React.RefObject<LidarARViewRef | null>;
   theme: Theme;
   styles: ReturnType<typeof makeStyles>;
+  cardStyle: { backgroundColor: string; borderRadius: number; overflow: "hidden" };
   arViewAvailable: boolean;
   arEditMode: boolean;
   setArEditMode: (v: boolean) => void;
@@ -2127,7 +2131,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
   if (!arViewAvailable) {
     return (
-      <View style={[styles.card, { padding: 14 }]}>
+      <View style={[cardStyle, { padding: 14 }]}>
         <Text style={{ fontSize: 13, color: theme.textSubtle }}>AR view not in this build.</Text>
       </View>
     );
@@ -2165,7 +2169,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
       )}
 
       {/* Controls */}
-      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+      <View style={[cardStyle, { padding: 14, marginBottom: 4 }]}>
         {/* Field type selector */}
         <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 8 }}>Field Type</Text>
         <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
@@ -2236,7 +2240,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
       {/* Item picker modal */}
       {showItemPicker && (
-        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <View style={[cardStyle, { padding: 14, marginBottom: 4 }]}>
           <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 8 }}>Add Item at Crosshairs</Text>
           <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
             {(remainingKinds.length > 0 ? remainingKinds : PLACEABLE_KINDS).map((kind) => (
@@ -2257,7 +2261,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
       {/* Placed landmarks list */}
       {listedLandmarks.length > 0 && (
-        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <View style={[cardStyle, { padding: 14, marginBottom: 4 }]}>
           <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 6 }}>Landmarks</Text>
           {listedLandmarks.map((l) => (
             <View key={l.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4 }}>
@@ -2274,7 +2278,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
       {/* Register */}
       {hasLandmarks && !fieldActive && (
-        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <View style={[cardStyle, { padding: 14, marginBottom: 4 }]}>
           {frameResult && (
             <Text style={{ fontSize: 11, color: theme.textSubtle, marginBottom: 8 }}>{frameResult}</Text>
           )}
@@ -2289,7 +2293,7 @@ function FieldTab({ arRef, theme, styles, arViewAvailable, arEditMode, setArEdit
 
       {/* Saved fields */}
       {fields.length > 0 && (
-        <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
+        <View style={[cardStyle, { padding: 14, marginBottom: 4 }]}>
           <Text style={{ fontSize: 12, fontWeight: "600", color: theme.textMuted, marginBottom: 6 }}>Saved Fields</Text>
           {fields.map((f) => (
             <View key={f.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
@@ -5029,6 +5033,7 @@ function makeStyles(theme: Theme) {
       marginLeft: 4,
     },
     card: { backgroundColor: theme.surface, borderRadius: 12, overflow: "hidden" },
+    glassCard: { backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 12, overflow: "hidden" },
     row: {
       flexDirection: "row",
       paddingHorizontal: 14,
