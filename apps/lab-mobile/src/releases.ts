@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.4.0",
+    title: "Lab → Tracker: VNTrackObjectRequest prototype (needs rebuild)",
+    notes: [
+      "Pick a video from the photo library, two-finger pinch + pan to zoom in, one-finger drag to draw an initial bounding box, run the tracker",
+      "Uses Apple Vision's VNTrackObjectRequest + VNSequenceRequestHandler — no CoreML model, no bundle additions",
+      "Per-frame results: bbox + confidence + timestamp, scrubable with Prev / Next",
+      "Stops automatically after 5 consecutive low-confidence frames",
+    ],
+  },
+  {
     version: "v1.3.1",
     title: "Lab sub-tabs: Vision back, reordered",
     notes: [
