@@ -29,6 +29,7 @@ import { computeFieldFrame, type LandmarkPositions, type Vec3 } from "../src/fie
 import { detectNotes, identifyChord } from "../src/audio/chords";
 import { generateDirtBoundary, computeLandmarkPositions, recomputeFieldFromBase, foulPoleDistFt, FIELD_TEMPLATES } from "../src/field/templates";
 import { classifyBall } from "../src/field/classify";
+import { TrackerTab } from "../src/tracker/TrackerTab";
 import { useFields, type FieldRegistration } from "../src/state/fields";
 import { useAuth } from "../src/state/auth";
 import { API_BASE } from "../src/api/client";
@@ -3047,10 +3048,11 @@ export default function ExperimentsScreen() {
   );
 }
 
-export type LabTab = "vision" | "audio" | "sensors" | "device" | "info";
+export type LabTab = "vision" | "tracker" | "audio" | "sensors" | "device" | "info";
 
 const LAB_TABS: { key: LabTab; label: string }[] = [
   { key: "vision", label: "Vision" },
+  { key: "tracker", label: "Tracker" },
   { key: "audio", label: "Audio" },
   { key: "sensors", label: "Sensors" },
   { key: "device", label: "Device" },
@@ -4837,6 +4839,8 @@ export function ExperimentsContent() {
       </>)}
 
       {labTab === "vision" && <VisionTab theme={theme} styles={styles} pressure={pressure} />}
+
+      {labTab === "tracker" && <TrackerTab />}
 
       {labTab === "audio" && (<>
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>
