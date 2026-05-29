@@ -98,6 +98,10 @@ export function TrackerTab() {
     if (!videoUri || !frame) return;
     const max = Math.max(0, frame.durationSec - (frame.frameRate > 0 ? 1 / frame.frameRate : 0.001));
     const next = Math.max(0, Math.min(max, frameTimeSec + deltaSec));
+    // Clear the box: it was drawn relative to the old frame's content, so it
+    // would visually stick to that pixel region while a different image loads
+    // underneath. Forcing a re-draw on the new frame keeps the user honest.
+    setBox(null);
     loadFrame(videoUri, next);
   };
 
@@ -290,6 +294,34 @@ export function TrackerTab() {
 
   const reviewedFrame = result?.frames[reviewIdx] ?? null;
 
+  // Review section: load the actual frame at the reviewed timestamp instead
+  // of showing the initial still under every tracker result.
+  const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  useEffect(() => {
+    if (!result || !videoUri || !reviewedFrame) {
+      setReviewImage(null);
+      return;
+    }
+    const t = reviewedFrame.timeSec;
+    if (reviewImage && Math.abs(reviewImage.timeSec - t) < 1e-4) return;
+    let cancelled = false;
+    setReviewLoading(true);
+    VisionTracker.frameAtTime(videoUri, t, 0.75)
+      .then((f) => {
+        if (cancelled) return;
+        setReviewImage({ base64: f.imageBase64, timeSec: t });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Keep last successfully loaded image if available; otherwise blank.
+      })
+      .finally(() => {
+        if (!cancelled) setReviewLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [reviewIdx, result, videoUri, reviewedFrame?.timeSec]);
+
   if (!VisionTracker.available()) {
     return (
       <View style={{ padding: 16 }}>
@@ -437,9 +469,21 @@ export function TrackerTab() {
             {"  ·  "}
             {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
           </Text>
-          {reviewedFrame && frame && (
+          {reviewedFrame && (
             <View style={{ aspectRatio: result.videoWidth / result.videoHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginBottom: 8, position: "relative" }}>
-              <Image source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }} style={{ width: "100%", height: "100%" }} fadeDuration={0} resizeMode="cover" />
+              {reviewImage && (
+                <Image
+                  source={{ uri: `data:image/jpeg;base64,${reviewImage.base64}` }}
+                  style={{ width: "100%", height: "100%" }}
+                  fadeDuration={0}
+                  resizeMode="cover"
+                />
+              )}
+              {reviewLoading && (
+                <View style={{ position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                  <Text style={{ color: "#fff", fontSize: 10 }}>loading…</Text>
+                </View>
+              )}
               {reviewedFrame.box && (
                 <View
                   pointerEvents="none"

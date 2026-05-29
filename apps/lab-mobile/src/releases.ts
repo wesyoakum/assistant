@@ -10,6 +10,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.4.2",
+    title: "Tracker: clear box on frame step + load correct frame in review",
+    notes: [
+      "Stepping the main canvas to a new frame now clears the drawn box (it was visually pinned to the old frame's content)",
+      "The review section under tracker results now actually loads the frame at each tracked timestamp instead of showing the initial still under every box",
+    ],
+  },
+  {
     version: "v1.4.1",
     title: "Tracker fixes: gesture capture · frame stepping · start-time",
     notes: [
