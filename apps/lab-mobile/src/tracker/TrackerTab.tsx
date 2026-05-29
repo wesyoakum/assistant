@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -26,28 +26,38 @@ const MAX_SCALE = 8;
 export function TrackerTab() {
   const theme = useTheme();
   const [videoUri, setVideoUri] = useState<string | null>(null);
-  const [firstFrame, setFirstFrame] = useState<FirstFrameResult | null>(null);
+  const [frame, setFrame] = useState<FirstFrameResult | null>(null);
+  const [frameTimeSec, setFrameTimeSec] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [box, setBox] = useState<NormalizedBox | null>(null);
   const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number } | null>(null);
   const [reviewIdx, setReviewIdx] = useState(0);
 
-  // Viewport (the user pans + zooms this; box drawing happens in image
-  // coordinates, transformed through this).
+  // Disable parent ScrollView's pan while the user is gesturing on the canvas.
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+
+  // Viewport (user-controlled via 2-finger pinch + pan).
   const [vp, setVp] = useState<ViewState>({ scale: 1, tx: 0, ty: 0 });
   const vpRef = useRef(vp);
   useEffect(() => { vpRef.current = vp; }, [vp]);
 
+  // Canvas dimensions in screen coords (after onLayout fires).
   const [canvas, setCanvas] = useState({ width: 1, height: 1 });
   const canvasRef = useRef(canvas);
   useEffect(() => { canvasRef.current = canvas; }, [canvas]);
 
-  // Gesture state.
-  const gestureBase = useRef({ vp, pinchD: 0, pinchMid: { x: 0, y: 0 }, isPinch: false });
-  // Drawing state, in screen coords.
+  // Page-space offset of the canvas. We measure on layout so we can convert
+  // PanResponder touch.pageX/Y → canvas-local coords reliably (locationX/Y is
+  // unreliable across some gesture transitions).
+  const canvasRef2 = useRef<View>(null);
+  const canvasPageOffsetRef = useRef({ x: 0, y: 0 });
+
+  // Box-drawing screen-coord rect during a drag.
   const drawStart = useRef<{ x: number; y: number } | null>(null);
   const [drawingBoxScreen, setDrawingBoxScreen] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+
+  const gestureBase = useRef({ vp, pinchD: 0, pinchMid: { x: 0, y: 0 }, isPinch: false });
 
   const pickVideo = async () => {
     setErr(null);
@@ -62,14 +72,21 @@ export function TrackerTab() {
     if (res.canceled || !res.assets?.length) return;
     const asset = res.assets[0]!;
     setVideoUri(asset.uri);
-    setFirstFrame(null);
+    setFrame(null);
+    setFrameTimeSec(0);
     setBox(null);
     setResult(null);
     setVp({ scale: 1, tx: 0, ty: 0 });
-    setBusy("loading first frame…");
+    await loadFrame(asset.uri, 0);
+  };
+
+  const loadFrame = async (uri: string, timeSec: number) => {
+    setBusy("loading frame…");
+    setErr(null);
     try {
-      const ff = await VisionTracker.firstFrame(asset.uri, 0.85);
-      setFirstFrame(ff);
+      const f = timeSec === 0 ? await VisionTracker.firstFrame(uri, 0.85) : await VisionTracker.frameAtTime(uri, timeSec, 0.85);
+      setFrame(f);
+      setFrameTimeSec(timeSec);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -77,28 +94,71 @@ export function TrackerTab() {
     }
   };
 
-  // Convert a screen-coord point inside the canvas to normalized image coords.
-  const screenToImage = (sx: number, sy: number, c = canvasRef.current, v = vpRef.current) => {
-    // Image is rendered to fit the canvas at scale 1 with translate (0, 0).
-    // After zoom, transform is: translate(tx, ty) scale(s).
-    // Inverse: imageNorm = ((screen - canvasCenter - tx) / s + canvasCenter) / canvasSize
+  const frameStep = (deltaSec: number) => {
+    if (!videoUri || !frame) return;
+    const max = Math.max(0, frame.durationSec - (frame.frameRate > 0 ? 1 / frame.frameRate : 0.001));
+    const next = Math.max(0, Math.min(max, frameTimeSec + deltaSec));
+    loadFrame(videoUri, next);
+  };
+
+  const frameStepSec = useMemo(() => {
+    if (!frame || frame.frameRate <= 0) return 1 / 30;
+    return 1 / frame.frameRate;
+  }, [frame]);
+
+  // Convert a page-coord point into the canvas's local (0,0)-(width,height) coord
+  // space. The PanResponder gives us pageX/pageY consistently; locationX/Y is
+  // unreliable when the gesture crosses through other views.
+  const pageToLocal = useCallback((pageX: number, pageY: number) => {
+    return {
+      x: pageX - canvasPageOffsetRef.current.x,
+      y: pageY - canvasPageOffsetRef.current.y,
+    };
+  }, []);
+
+  // Local screen coord → normalized image coord (in the underlying image,
+  // accounting for the current zoom + pan).
+  const localToImage = useCallback((lx: number, ly: number) => {
+    const c = canvasRef.current;
+    const v = vpRef.current;
     const cx = c.width / 2;
     const cy = c.height / 2;
-    const ix = (sx - cx - v.tx) / v.scale + cx;
-    const iy = (sy - cy - v.ty) / v.scale + cy;
+    const ix = (lx - cx - v.tx) / v.scale + cx;
+    const iy = (ly - cy - v.ty) / v.scale + cy;
     return { nx: Math.max(0, Math.min(1, ix / c.width)), ny: Math.max(0, Math.min(1, iy / c.height)) };
-  };
+  }, []);
 
   const onCanvasLayout = (e: LayoutChangeEvent) => {
     setCanvas({ width: e.nativeEvent.layout.width || 1, height: e.nativeEvent.layout.height || 1 });
+    // Refresh measureInWindow so the page-offset is accurate. This also fires
+    // again whenever the layout changes (scroll position changes don't, so
+    // we re-measure on gesture grant too).
+    canvasRef2.current?.measureInWindow((x, y) => {
+      canvasPageOffsetRef.current = { x, y };
+    });
   };
 
-  // Single PanResponder: 1 finger draws a box, 2 fingers pinch+pan.
+  const remeasure = useCallback(() => {
+    canvasRef2.current?.measureInWindow((x, y) => {
+      canvasPageOffsetRef.current = { x, y };
+    });
+  }, []);
+
   const responder = useMemo(() =>
     PanResponder.create({
+      // CRITICAL: capture-phase wins over the parent ScrollView so it doesn't
+      // steal the touch and start scrolling.
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e, g) => {
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => {
+        // Re-measure since scroll position may have changed.
+        remeasure();
+        // Disable the ScrollView so it doesn't fight us.
+        setScrollEnabled(false);
+
         gestureBase.current.vp = vpRef.current;
         const touches = e.nativeEvent.touches;
         if (touches.length >= 2) {
@@ -110,16 +170,16 @@ export function TrackerTab() {
           setDrawingBoxScreen(null);
         } else {
           gestureBase.current.isPinch = false;
-          // 1 finger: start drawing a box. locationX/Y are within the canvas.
-          drawStart.current = { x: g.x0 - (e.nativeEvent.touches[0]?.pageX ?? g.x0) + (e.nativeEvent.locationX ?? 0), y: 0 };
-          drawStart.current = { x: e.nativeEvent.locationX ?? 0, y: e.nativeEvent.locationY ?? 0 };
-          setDrawingBoxScreen({ x: drawStart.current.x, y: drawStart.current.y, w: 0, h: 0 });
+          const t0 = touches[0]!;
+          const local = pageToLocal(t0.pageX, t0.pageY);
+          drawStart.current = { x: local.x, y: local.y };
+          setDrawingBoxScreen({ x: local.x, y: local.y, w: 0, h: 0 });
         }
       },
-      onPanResponderMove: (e, g) => {
+      onPanResponderMove: (e) => {
         const touches = e.nativeEvent.touches;
 
-        // Promote to pinch if a second finger lands mid-drag.
+        // Mid-gesture: a second finger landed → promote to pinch.
         if (touches.length >= 2 && !gestureBase.current.isPinch) {
           gestureBase.current.isPinch = true;
           gestureBase.current.vp = vpRef.current;
@@ -143,45 +203,52 @@ export function TrackerTab() {
           return;
         }
 
-        // 1-finger: drawing box. dx/dy are relative to grant; use locationX/Y on this event.
-        if (drawStart.current) {
-          const lx = e.nativeEvent.locationX ?? drawStart.current.x;
-          const ly = e.nativeEvent.locationY ?? drawStart.current.y;
+        // 1-finger drag: extend the drawing box.
+        if (drawStart.current && touches.length >= 1) {
+          const t0 = touches[0]!;
+          const local = pageToLocal(t0.pageX, t0.pageY);
           const x0 = drawStart.current.x;
           const y0 = drawStart.current.y;
           setDrawingBoxScreen({
-            x: Math.min(x0, lx),
-            y: Math.min(y0, ly),
-            w: Math.abs(lx - x0),
-            h: Math.abs(ly - y0),
+            x: Math.min(x0, local.x),
+            y: Math.min(y0, local.y),
+            w: Math.abs(local.x - x0),
+            h: Math.abs(local.y - y0),
           });
         }
       },
       onPanResponderRelease: () => {
+        setScrollEnabled(true);
         if (gestureBase.current.isPinch) {
-          // Snap viewport to ensure image stays within reasonable bounds.
           setVp((v) => clampViewport(v, canvasRef.current));
           gestureBase.current.isPinch = false;
+          drawStart.current = null;
           return;
         }
         const bs = drawingBoxScreen;
-        if (bs && bs.w > 6 && bs.h > 6) {
-          // Convert the screen box into normalized image coords.
-          const topLeft = screenToImage(bs.x, bs.y);
-          const bottomRight = screenToImage(bs.x + bs.w, bs.y + bs.h);
+        if (bs && bs.w > 4 && bs.h > 4) {
+          const topLeft = localToImage(bs.x, bs.y);
+          const bottomRight = localToImage(bs.x + bs.w, bs.y + bs.h);
           const nb: NormalizedBox = {
             x: topLeft.nx,
             y: topLeft.ny,
-            width: Math.max(0.005, bottomRight.nx - topLeft.nx),
-            height: Math.max(0.005, bottomRight.ny - topLeft.ny),
+            width: Math.max(0.003, bottomRight.nx - topLeft.nx),
+            height: Math.max(0.003, bottomRight.ny - topLeft.ny),
           };
           setBox(nb);
         }
         setDrawingBoxScreen(null);
         drawStart.current = null;
       },
+      onPanResponderTerminate: () => {
+        setScrollEnabled(true);
+        gestureBase.current.isPinch = false;
+        drawStart.current = null;
+        setDrawingBoxScreen(null);
+      },
     }),
-  []);
+    [remeasure, pageToLocal, localToImage, drawingBoxScreen],
+  );
 
   // Render the committed box on the canvas in screen coords.
   const committedBoxScreen = useMemo(() => {
@@ -204,7 +271,12 @@ export function TrackerTab() {
     setBusy("tracking…");
     setErr(null);
     try {
-      const r = await VisionTracker.trackInVideo(videoUri, box, { sampleStride: 1, maxFrames: 0, confidenceCutoff: 0.05 });
+      const r = await VisionTracker.trackInVideo(videoUri, box, {
+        sampleStride: 1,
+        maxFrames: 0,
+        confidenceCutoff: 0.05,
+        startTimeSec: frameTimeSec,
+      });
       setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate });
       setReviewIdx(0);
     } catch (e) {
@@ -227,17 +299,17 @@ export function TrackerTab() {
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 12 }}>
+    <ScrollView contentContainerStyle={{ padding: 12 }} scrollEnabled={scrollEnabled}>
       <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, marginBottom: 6 }}>Vision tracker</Text>
       <Text style={{ fontSize: 12, color: theme.textSubtle, marginBottom: 12 }}>
-        Pick a video, draw a box on the object you want to follow, run the tracker. Pinch with two fingers to zoom + pan; one-finger drag draws/replaces the box.
+        Pick a video, step to a frame where the ball is visible, pinch + pan to zoom, drag with one finger to draw the initial box, run the tracker.
       </Text>
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
         <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
           <Text style={styles.btnText}>{videoUri ? "Pick another video" : "Pick video"}</Text>
         </Pressable>
-        {firstFrame && (
+        {frame && (
           <Pressable onPress={resetViewport} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
             <Text style={[styles.btnText, { color: theme.text }]}>Reset zoom</Text>
           </Pressable>
@@ -250,12 +322,13 @@ export function TrackerTab() {
         </View>
       )}
 
-      {firstFrame && (
+      {frame && (
         <View
+          ref={canvasRef2}
           {...responder.panHandlers}
           onLayout={onCanvasLayout}
           style={{
-            aspectRatio: firstFrame.imageWidth / firstFrame.imageHeight,
+            aspectRatio: frame.imageWidth / frame.imageHeight,
             backgroundColor: "#000",
             borderRadius: 8,
             overflow: "hidden",
@@ -263,7 +336,7 @@ export function TrackerTab() {
           }}
         >
           <Image
-            source={{ uri: `data:image/jpeg;base64,${firstFrame.imageBase64}` }}
+            source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }}
             style={{
               width: "100%",
               height: "100%",
@@ -272,7 +345,6 @@ export function TrackerTab() {
             resizeMode="cover"
             fadeDuration={0}
           />
-          {/* Committed box */}
           {committedBoxScreen && !drawingBoxScreen && (
             <View
               pointerEvents="none"
@@ -287,7 +359,6 @@ export function TrackerTab() {
               }}
             />
           )}
-          {/* In-progress drawing */}
           {drawingBoxScreen && (
             <View
               pointerEvents="none"
@@ -302,16 +373,38 @@ export function TrackerTab() {
               }}
             />
           )}
-          {/* Zoom indicator */}
           {vp.scale > 1.01 && (
             <View style={{ position: "absolute", top: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
               <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
             </View>
           )}
+          <View style={{ position: "absolute", bottom: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+            <Text style={{ color: "#fff", fontSize: 11 }}>
+              {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
+              {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
+            </Text>
+          </View>
         </View>
       )}
 
-      {firstFrame && (
+      {frame && (
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
+          <Pressable onPress={() => frameStep(-1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>«1s</Text>
+          </Pressable>
+          <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>‹ frame</Text>
+          </Pressable>
+          <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>frame ›</Text>
+          </Pressable>
+          <Pressable onPress={() => frameStep(1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>1s»</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {frame && (
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
             onPress={runTracker}
@@ -344,11 +437,9 @@ export function TrackerTab() {
             {"  ·  "}
             {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
           </Text>
-          {reviewedFrame && (
+          {reviewedFrame && frame && (
             <View style={{ aspectRatio: result.videoWidth / result.videoHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginBottom: 8, position: "relative" }}>
-              {firstFrame && (
-                <Image source={{ uri: `data:image/jpeg;base64,${firstFrame.imageBase64}` }} style={{ width: "100%", height: "100%" }} fadeDuration={0} resizeMode="cover" />
-              )}
+              <Image source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }} style={{ width: "100%", height: "100%" }} fadeDuration={0} resizeMode="cover" />
               {reviewedFrame.box && (
                 <View
                   pointerEvents="none"
@@ -413,7 +504,6 @@ function clamp(v: number, lo: number, hi: number) {
 }
 
 function clampViewport(v: ViewState, c: { width: number; height: number }): ViewState {
-  // Keep the image visible: don't let the translate push it entirely off-screen.
   const maxOffsetX = (c.width * (v.scale - 1)) / 2;
   const maxOffsetY = (c.height * (v.scale - 1)) / 2;
   return {
