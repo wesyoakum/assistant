@@ -298,23 +298,25 @@ export function TrackerTab() {
   // of showing the initial still under every tracker result.
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   useEffect(() => {
     if (!result || !videoUri || !reviewedFrame) {
       setReviewImage(null);
+      setReviewError(null);
       return;
     }
     const t = reviewedFrame.timeSec;
-    if (reviewImage && Math.abs(reviewImage.timeSec - t) < 1e-4) return;
     let cancelled = false;
     setReviewLoading(true);
+    setReviewError(null);
     VisionTracker.frameAtTime(videoUri, t, 0.75)
       .then((f) => {
         if (cancelled) return;
         setReviewImage({ base64: f.imageBase64, timeSec: t });
       })
-      .catch(() => {
+      .catch((e: Error) => {
         if (cancelled) return;
-        // Keep last successfully loaded image if available; otherwise blank.
+        setReviewError(`frameAtTime(${t.toFixed(3)}s) failed: ${e.message}`);
       })
       .finally(() => {
         if (!cancelled) setReviewLoading(false);
@@ -481,7 +483,19 @@ export function TrackerTab() {
               )}
               {reviewLoading && (
                 <View style={{ position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Text style={{ color: "#fff", fontSize: 10 }}>loading…</Text>
+                  <Text style={{ color: "#fff", fontSize: 10 }}>
+                    loading t={reviewedFrame?.timeSec.toFixed(3)}s
+                  </Text>
+                </View>
+              )}
+              {reviewError && (
+                <View style={{ position: "absolute", top: 8, left: 8, right: 8, backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6 }}>
+                  <Text style={{ color: "#fff", fontSize: 10 }} numberOfLines={3}>{reviewError}</Text>
+                </View>
+              )}
+              {!reviewImage && !reviewLoading && !reviewError && reviewedFrame && (
+                <View style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: "#bbb", fontSize: 11 }}>(no image loaded — try Prev/Next)</Text>
                 </View>
               )}
               {reviewedFrame.box && (

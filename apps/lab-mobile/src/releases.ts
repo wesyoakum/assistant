@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.4.3",
+    title: "Tracker: always-reload review + visible errors",
+    notes: [
+      "Review panel always re-fetches the frame at each tracked timestamp — no caching short-circuit (the old check was sometimes skipping reloads even on timestamp change)",
+      "Loading pill now shows the timestamp it's fetching",
+      "frameAtTime errors surface as a red banner instead of failing silently",
+      "(No-image / no-loading / no-error) shows a placeholder so the panel never looks blank for unknown reasons",
+    ],
+  },
+  {
     version: "v1.4.2",
     title: "Tracker: clear box on frame step + load correct frame in review",
     notes: [
