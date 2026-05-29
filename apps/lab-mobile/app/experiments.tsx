@@ -3047,11 +3047,12 @@ export default function ExperimentsScreen() {
   );
 }
 
-export type LabTab = "sensors" | "audio" | "device" | "info";
+export type LabTab = "vision" | "audio" | "sensors" | "device" | "info";
 
 const LAB_TABS: { key: LabTab; label: string }[] = [
-  { key: "sensors", label: "Sensors" },
+  { key: "vision", label: "Vision" },
   { key: "audio", label: "Audio" },
+  { key: "sensors", label: "Sensors" },
   { key: "device", label: "Device" },
   { key: "info", label: "Info" },
 ];
@@ -3061,7 +3062,7 @@ export function ExperimentsContent() {
   const styles = useStyles(makeStyles);
   const theme = useTheme();
   const { data: me } = useMe();
-  const [labTab, setLabTab] = useState<LabTab>("sensors");
+  const [labTab, setLabTab] = useState<LabTab>("vision");
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [pushPerm, setPushPerm] = useState<string>("?");
   const [clipboardSnap, setClipboardSnap] = useState<string>("");
@@ -4834,6 +4835,8 @@ export function ExperimentsContent() {
         </Text>
       </View>
       </>)}
+
+      {labTab === "vision" && <VisionTab theme={theme} styles={styles} pressure={pressure} />}
 
       {labTab === "audio" && (<>
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>
