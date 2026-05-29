@@ -12,7 +12,10 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { VisionTracker, type NormalizedBox, type TrackedFrame, type FirstFrameResult } from "expo-vision-tracker";
+import { TemplateTracker } from "expo-template-tracker";
 import { useTheme } from "../theme";
+
+type TrackerMode = "vision" | "template";
 
 interface ViewState {
   scale: number;
@@ -31,8 +34,9 @@ export function TrackerTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [box, setBox] = useState<NormalizedBox | null>(null);
-  const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number } | null>(null);
+  const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number; mode: TrackerMode } | null>(null);
   const [reviewIdx, setReviewIdx] = useState(0);
+  const [trackerMode, setTrackerMode] = useState<TrackerMode>("template");
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -272,16 +276,25 @@ export function TrackerTab() {
 
   const runTracker = async () => {
     if (!videoUri || !box) return;
-    setBusy("tracking…");
+    setBusy(`tracking (${trackerMode})…`);
     setErr(null);
     try {
-      const r = await VisionTracker.trackInVideo(videoUri, box, {
-        sampleStride: 1,
-        maxFrames: 0,
-        confidenceCutoff: 0.05,
-        startTimeSec: frameTimeSec,
-      });
-      setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate });
+      const r = trackerMode === "vision"
+        ? await VisionTracker.trackInVideo(videoUri, box, {
+            sampleStride: 1,
+            maxFrames: 0,
+            confidenceCutoff: 0.05,
+            startTimeSec: frameTimeSec,
+          })
+        : await TemplateTracker.trackInVideo(videoUri, box, {
+            sampleStride: 1,
+            maxFrames: 0,
+            startTimeSec: frameTimeSec,
+            confidenceCutoff: 0.30,
+            searchPadding: 3,
+            downsample: 2,
+          });
+      setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate, mode: trackerMode });
       setReviewIdx(0);
     } catch (e) {
       setErr((e as Error).message);
@@ -439,6 +452,30 @@ export function TrackerTab() {
       )}
 
       {frame && (
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+          {(["template", "vision"] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setTrackerMode(m)}
+              style={[
+                styles.btn,
+                {
+                  flex: 1,
+                  backgroundColor: trackerMode === m ? theme.primary : theme.surfaceAlt,
+                  borderWidth: trackerMode === m ? 0 : StyleSheet.hairlineWidth,
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <Text style={[styles.btnText, { color: trackerMode === m ? "#fff" : theme.text }]}>
+                {m === "template" ? "Template" : "Apple Vision"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {frame && (
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
             onPress={runTracker}
@@ -467,7 +504,7 @@ export function TrackerTab() {
       {result && (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: theme.text, fontWeight: "600", marginBottom: 6 }}>
-            Tracked {result.frames.length} frames in {result.elapsedMs} ms
+            [{result.mode === "template" ? "Template" : "Apple Vision"}] tracked {result.frames.length} frames in {result.elapsedMs} ms
             {"  ·  "}
             {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
           </Text>
