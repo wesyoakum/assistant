@@ -97,6 +97,188 @@ public final class VisionDetectModule: Module {
         "rectangles": rectangles,
       ]
     }
+
+    // --- Body Pose ---
+    AsyncFunction("detectBodyPose") { (uri: String) -> [String: Any] in
+      guard let image = loadCGImage(uri: uri) else {
+        throw VisionDetectError.imageLoadFailed
+      }
+      let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+      let request = VNDetectHumanBodyPoseRequest()
+
+      let t0 = Date()
+      try handler.perform([request])
+      let elapsedMs = Int(Date().timeIntervalSince(t0) * 1000)
+
+      var bodies: [[String: Any]] = []
+      for obs in (request.results ?? []) {
+        var joints: [String: [String: Any]] = [:]
+        let allPoints = try obs.recognizedPoints(.all)
+        for (key, point) in allPoints {
+          if point.confidence > 0.1 {
+            joints[key.rawValue.rawValue] = [
+              "x": point.location.x,
+              "y": 1.0 - point.location.y,
+              "confidence": point.confidence,
+            ]
+          }
+        }
+        bodies.append(["joints": joints])
+      }
+
+      return [
+        "width": image.width,
+        "height": image.height,
+        "elapsedMs": elapsedMs,
+        "bodies": bodies,
+      ]
+    }
+
+    // --- Hand Pose ---
+    AsyncFunction("detectHandPose") { (uri: String) -> [String: Any] in
+      guard let image = loadCGImage(uri: uri) else {
+        throw VisionDetectError.imageLoadFailed
+      }
+      let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+      let request = VNDetectHumanHandPoseRequest()
+      request.maximumHandCount = 4
+
+      let t0 = Date()
+      try handler.perform([request])
+      let elapsedMs = Int(Date().timeIntervalSince(t0) * 1000)
+
+      var hands: [[String: Any]] = []
+      for obs in (request.results ?? []) {
+        var joints: [String: [String: Any]] = [:]
+        let allPoints = try obs.recognizedPoints(.all)
+        for (key, point) in allPoints {
+          if point.confidence > 0.1 {
+            joints[key.rawValue.rawValue] = [
+              "x": point.location.x,
+              "y": 1.0 - point.location.y,
+              "confidence": point.confidence,
+            ]
+          }
+        }
+        hands.append(["joints": joints])
+      }
+
+      return [
+        "width": image.width,
+        "height": image.height,
+        "elapsedMs": elapsedMs,
+        "hands": hands,
+      ]
+    }
+
+    // --- Face Landmarks ---
+    AsyncFunction("detectFaceLandmarks") { (uri: String) -> [String: Any] in
+      guard let image = loadCGImage(uri: uri) else {
+        throw VisionDetectError.imageLoadFailed
+      }
+      let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+      let request = VNDetectFaceLandmarksRequest()
+
+      let t0 = Date()
+      try handler.perform([request])
+      let elapsedMs = Int(Date().timeIntervalSince(t0) * 1000)
+
+      var faces: [[String: Any]] = []
+      for obs in (request.results ?? []) {
+        var face: [String: Any] = [
+          "box": flipBox(obs.boundingBox),
+          "confidence": obs.confidence,
+        ]
+        if let lm = obs.landmarks {
+          var regions: [String: [[String: CGFloat]]] = [:]
+          let namedRegions: [(String, VNFaceLandmarkRegion2D?)] = [
+            ("faceContour", lm.faceContour),
+            ("leftEye", lm.leftEye),
+            ("rightEye", lm.rightEye),
+            ("leftEyebrow", lm.leftEyebrow),
+            ("rightEyebrow", lm.rightEyebrow),
+            ("nose", lm.nose),
+            ("noseCrest", lm.noseCrest),
+            ("medianLine", lm.medianLine),
+            ("outerLips", lm.outerLips),
+            ("innerLips", lm.innerLips),
+            ("leftPupil", lm.leftPupil),
+            ("rightPupil", lm.rightPupil),
+          ]
+          for (name, region) in namedRegions {
+            guard let region = region else { continue }
+            let box = obs.boundingBox
+            var points: [[String: CGFloat]] = []
+            for i in 0..<region.pointCount {
+              let pt = region.normalizedPoints[i]
+              // Region points are relative to the face bounding box; convert to image coords.
+              let imgX = box.origin.x + pt.x * box.width
+              let imgY = 1.0 - (box.origin.y + pt.y * box.height)
+              points.append(["x": imgX, "y": imgY])
+            }
+            regions[name] = points
+          }
+          face["landmarks"] = regions
+        }
+        faces.append(face)
+      }
+
+      return [
+        "width": image.width,
+        "height": image.height,
+        "elapsedMs": elapsedMs,
+        "faces": faces,
+      ]
+    }
+
+    // --- Person Segmentation ---
+    AsyncFunction("detectPersonSegmentation") { (uri: String) -> [String: Any] in
+      guard let image = loadCGImage(uri: uri) else {
+        throw VisionDetectError.imageLoadFailed
+      }
+      let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+      let request = VNGeneratePersonSegmentationRequest()
+      request.qualityLevel = .balanced
+
+      let t0 = Date()
+      try handler.perform([request])
+      let elapsedMs = Int(Date().timeIntervalSince(t0) * 1000)
+
+      guard let result = request.results?.first else {
+        return [
+          "width": image.width,
+          "height": image.height,
+          "elapsedMs": elapsedMs,
+          "maskBase64": "",
+          "maskWidth": 0,
+          "maskHeight": 0,
+        ]
+      }
+
+      let maskBuffer = result.pixelBuffer
+      let maskW = CVPixelBufferGetWidth(maskBuffer)
+      let maskH = CVPixelBufferGetHeight(maskBuffer)
+
+      // Convert the mask pixel buffer to a PNG base64 string
+      let ciImage = CIImage(cvPixelBuffer: maskBuffer)
+      let ciCtx = CIContext()
+      var maskBase64 = ""
+      if let cgMask = ciCtx.createCGImage(ciImage, from: ciImage.extent) {
+        let uiMask = UIImage(cgImage: cgMask)
+        if let pngData = uiMask.pngData() {
+          maskBase64 = pngData.base64EncodedString()
+        }
+      }
+
+      return [
+        "width": image.width,
+        "height": image.height,
+        "elapsedMs": elapsedMs,
+        "maskBase64": maskBase64,
+        "maskWidth": maskW,
+        "maskHeight": maskH,
+      ]
+    }
   }
 }
 
