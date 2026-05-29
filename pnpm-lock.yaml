@@ -116,6 +116,9 @@ importers:
       expo-task-manager:
         specifier: ~14.0.9
         version: 14.0.9(expo@54.0.34)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))
+      expo-template-tracker:
+        specifier: workspace:*
+        version: link:modules/expo-template-tracker
       expo-updates:
         specifier: ~29.0.17
         version: 29.0.17(expo@54.0.34)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
@@ -181,6 +184,8 @@ importers:
   apps/lab-mobile/modules/expo-gamecontroller: {}
 
   apps/lab-mobile/modules/expo-lidar: {}
+
+  apps/lab-mobile/modules/expo-template-tracker: {}
 
   apps/lab-mobile/modules/expo-vision-detect: {}
 

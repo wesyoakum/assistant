@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.5.0",
+    title: "Tracker: template-matching + motion prediction mode (needs rebuild)",
+    notes: [
+      "New 'Template' mode in the Tracker. After Apple Vision proved unable to keep up with fast small targets (confidence cratered by frame 10 on a pitch), the template approach we discussed: crop the user's box as a template, predict next-frame position from prior velocity, NCC-match in a small search window, repeat",
+      "Toggle between Template and Apple Vision modes above the action row to A/B compare on the same video",
+      "Result header tags which mode produced it. Frame-by-frame review unchanged",
+      "Pure Accelerate / luma extraction from BGRA — no CoreML, no ML model. Runs on the downsampled (½×) luma plane for speed",
+    ],
+  },
+  {
     version: "v1.4.3",
     title: "Tracker: always-reload review + visible errors",
     notes: [
