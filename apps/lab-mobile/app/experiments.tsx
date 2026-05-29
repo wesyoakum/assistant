@@ -3664,6 +3664,149 @@ export function ExperimentsContent() {
   const [spectrumFullscreen, setSpectrumFullscreen] = useState(false);
   const { width: winW, height: winH } = useWindowDimensions();
 
+  // ── Spectrum chart touch gestures ──────────────────────────────────────
+  // 1-finger horizontal drag: pan frequency range
+  // 1-finger vertical drag:   pan dB range
+  // 2-finger pinch (X / Y):   zoom the corresponding axis around its centre
+  // Tap (no movement):        open fullscreen
+  const freqMinRef = useRef(freqMin); useEffect(() => { freqMinRef.current = freqMin; }, [freqMin]);
+  const freqMaxRef = useRef(freqMax); useEffect(() => { freqMaxRef.current = freqMax; }, [freqMax]);
+  const dbFloorRef = useRef(dbFloor); useEffect(() => { dbFloorRef.current = dbFloor; }, [dbFloor]);
+  const dbCeilRef  = useRef(dbCeil);  useEffect(() => { dbCeilRef.current  = dbCeil;  }, [dbCeil]);
+  const spectrumScaleRef = useRef(spectrumScale); useEffect(() => { spectrumScaleRef.current = spectrumScale; }, [spectrumScale]);
+  const spectrumChartSize = useRef({ width: 1, height: 1 });
+  const spectrumGestureBase = useRef({
+    freqMin: 27.5, freqMax: 7040, dbFloor: -80, dbCeil: 0,
+    pinchX: 0, pinchY: 0, isPinch: false,
+  });
+  const spectrumPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 3 || Math.abs(g.dy) > 3,
+      onPanResponderGrant: (e) => {
+        const touches = e.nativeEvent.touches;
+        spectrumGestureBase.current.freqMin = freqMinRef.current;
+        spectrumGestureBase.current.freqMax = freqMaxRef.current;
+        spectrumGestureBase.current.dbFloor = dbFloorRef.current;
+        spectrumGestureBase.current.dbCeil = dbCeilRef.current;
+        if (touches.length >= 2) {
+          spectrumGestureBase.current.isPinch = true;
+          spectrumGestureBase.current.pinchX = Math.max(1, Math.abs(touches[0]!.pageX - touches[1]!.pageX));
+          spectrumGestureBase.current.pinchY = Math.max(1, Math.abs(touches[0]!.pageY - touches[1]!.pageY));
+        } else {
+          spectrumGestureBase.current.isPinch = false;
+        }
+      },
+      onPanResponderMove: (e, g) => {
+        const touches = e.nativeEvent.touches;
+        const base = spectrumGestureBase.current;
+        const { width, height } = spectrumChartSize.current;
+
+        // Promote to pinch the moment a second finger lands mid-gesture.
+        if (touches.length >= 2 && !base.isPinch) {
+          base.isPinch = true;
+          base.pinchX = Math.max(1, Math.abs(touches[0]!.pageX - touches[1]!.pageX));
+          base.pinchY = Math.max(1, Math.abs(touches[0]!.pageY - touches[1]!.pageY));
+          base.freqMin = freqMinRef.current;
+          base.freqMax = freqMaxRef.current;
+          base.dbFloor = dbFloorRef.current;
+          base.dbCeil  = dbCeilRef.current;
+          return;
+        }
+
+        if (base.isPinch && touches.length >= 2) {
+          // ── PINCH (two-finger zoom) ────────────────────────────────────
+          const curX = Math.max(1, Math.abs(touches[0]!.pageX - touches[1]!.pageX));
+          const curY = Math.max(1, Math.abs(touches[0]!.pageY - touches[1]!.pageY));
+          const xRatio = curX / base.pinchX;  // > 1 = fingers apart → zoom in
+          const yRatio = curY / base.pinchY;
+          // Clamp ratios so a single frame can't blow the range out
+          const cx = Math.max(0.25, Math.min(4, xRatio));
+          const cy = Math.max(0.25, Math.min(4, yRatio));
+
+          // Frequency: scale window around its geometric centre (log)
+          // or arithmetic centre (linear).
+          if (spectrumScaleRef.current === "notes") {
+            const lo = Math.log(base.freqMin);
+            const hi = Math.log(base.freqMax);
+            const mid = (lo + hi) / 2;
+            const half = (hi - lo) / 2 / cx;
+            const newLo = Math.max(Math.log(10), mid - half);
+            const newHi = Math.min(Math.log(22000), mid + half);
+            const fLo = Math.exp(newLo);
+            const fHi = Math.exp(Math.max(newLo + Math.log(1.05), newHi));
+            setFreqMin(fLo);
+            setFreqMax(fHi);
+          } else {
+            const mid = (base.freqMin + base.freqMax) / 2;
+            const half = (base.freqMax - base.freqMin) / 2 / cx;
+            const fLo = Math.max(10, mid - half);
+            const fHi = Math.min(22000, Math.max(fLo + 100, mid + half));
+            setFreqMin(fLo);
+            setFreqMax(fHi);
+          }
+
+          // dB: linear scale around centre.
+          const dMid = (base.dbFloor + base.dbCeil) / 2;
+          const dHalf = (base.dbCeil - base.dbFloor) / 2 / cy;
+          const dLo = Math.max(-160, dMid - dHalf);
+          const dHi = Math.min(20, Math.max(dLo + 10, dMid + dHalf));
+          setDbFloor(Math.round(dLo));
+          setDbCeil(Math.round(dHi));
+          return;
+        }
+
+        // ── 1-finger pan ─────────────────────────────────────────────────
+        // Horizontal: shift freq range. Drag right → chart scrolls right
+        // → see lower frequencies (freq window shifts down).
+        const fracX = -g.dx / width;
+        const fracY =  g.dy / height;
+
+        if (spectrumScaleRef.current === "notes") {
+          const ratio = Math.pow(base.freqMax / base.freqMin, fracX);
+          let newLo = base.freqMin * ratio;
+          let newHi = base.freqMax * ratio;
+          if (newLo < 10) { newHi *= 10 / newLo; newLo = 10; }
+          if (newHi > 22000) { newLo *= 22000 / newHi; newHi = 22000; }
+          setFreqMin(newLo);
+          setFreqMax(newHi);
+        } else {
+          const delta = (base.freqMax - base.freqMin) * fracX;
+          let newLo = base.freqMin + delta;
+          let newHi = base.freqMax + delta;
+          if (newLo < 10) { newHi += 10 - newLo; newLo = 10; }
+          if (newHi > 22000) { newLo -= newHi - 22000; newHi = 22000; }
+          setFreqMin(newLo);
+          setFreqMax(newHi);
+        }
+
+        // dB pan: drag down → both floor and ceil decrease (see quieter audio at top of chart).
+        // i.e. moving content down: floor↓ ceil↓
+        const dbSpan = base.dbCeil - base.dbFloor;
+        const dbDelta = dbSpan * fracY;
+        let newFloor = base.dbFloor + dbDelta;
+        let newCeil  = base.dbCeil  + dbDelta;
+        if (newFloor < -160) { newCeil += -160 - newFloor; newFloor = -160; }
+        if (newCeil  >   20) { newFloor -= newCeil - 20; newCeil = 20; }
+        setDbFloor(Math.round(newFloor));
+        setDbCeil(Math.round(newCeil));
+      },
+      onPanResponderRelease: (_, g) => {
+        // Treat near-zero movement as a tap → open fullscreen.
+        if (Math.abs(g.dx) < 6 && Math.abs(g.dy) < 6 && !spectrumGestureBase.current.isPinch) {
+          setSpectrumFullscreen(true);
+        }
+      },
+      onPanResponderTerminate: () => { spectrumGestureBase.current.isPinch = false; },
+    })
+  ).current;
+  const onSpectrumChartLayout = (e: LayoutChangeEvent) => {
+    spectrumChartSize.current = {
+      width: e.nativeEvent.layout.width || 1,
+      height: e.nativeEvent.layout.height || 1,
+    };
+  };
+
   // Unlock orientation while the fullscreen spectrum is open; relock to portrait on close.
   useEffect(() => {
     if (spectrumFullscreen) {
@@ -4363,7 +4506,6 @@ export function ExperimentsContent() {
       {labTab === "vision" && <VisionTab theme={theme} styles={styles} pressure={pressure} />}
 
       {labTab === "audio" && (<>
-      <Text style={styles.sectionTitle}>Microphone</Text>
       <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
         <Sparkline samples={micHist} color={theme.highlight} height={56} />
       </View>
@@ -4697,15 +4839,16 @@ export function ExperimentsContent() {
 
       {labTab === "audio" && (<>
       <Text style={styles.sectionTitle}>Microphone spectrum</Text>
-      <Pressable
-        onPress={() => setSpectrumFullscreen(true)}
+      <View
+        {...spectrumPanResponder.panHandlers}
+        onLayout={onSpectrumChartLayout}
         style={[styles.card, { padding: 6, marginBottom: 4 }]}
       >
         <SpectrumBars samples={spectrum} peaks={peaks} height={90} bandEdges={bandEdgesRef.current} sampleRate={SAMPLE_RATE} fftSize={fftSize} />
         <Text style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: "600", color: theme.textSubtle, opacity: 0.7 }}>
-          TAP TO FULLSCREEN
+          DRAG TO PAN · PINCH TO ZOOM · TAP FOR FULLSCREEN
         </Text>
-      </Pressable>
+      </View>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
           {(["notes", "linear"] as const).map((s) => {
