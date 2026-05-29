@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.3.0",
+    title: "AR drawer · spectrum cleanup · lab tabs",
+    notes: [
+      "AR tab: swipe down from the top edge (or tap the grab handle) to open a settings drawer; first item is Exit AR — returns to the Lab tab",
+      "Audio tab: removed the level meter + Start listening section; the spectrum is now the only thing there",
+      "Spectrum chart taller by default and resizable — drag the handle right under the chart to grow or shrink",
+      "Lab sub-tabs: removed the Vision entry (those live in the AR tab now)",
+    ],
+  },
+  {
     version: "v1.2.0",
     title: "Spectrum chart: drag to pan, pinch to zoom",
     notes: [

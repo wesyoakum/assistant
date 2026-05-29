@@ -8,7 +8,11 @@ import {
   SafeAreaView,
   Dimensions,
   ScrollView,
+  PanResponder,
+  Animated,
+  Pressable,
 } from "react-native";
+import { useRouter } from "expo-router";
 import {
   LidarARView,
   lidarARViewAvailable,
@@ -111,9 +115,42 @@ const FACE_REGIONS_OPEN = ["leftEyebrow", "rightEyebrow", "nose", "noseCrest", "
 // --- Main screen ---
 
 export default function ARScreen() {
+  const router = useRouter();
   const arRef = useRef<LidarARViewRef>(null);
   const [page, setPage] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
+
+  // ── Swipe-up settings drawer (top of screen) ─────────────────────────
+  const DRAWER_HEIGHT = 240;
+  const drawerY = useRef(new Animated.Value(-DRAWER_HEIGHT)).current;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerOpenRef = useRef(false);
+  const animateDrawer = useCallback((open: boolean) => {
+    drawerOpenRef.current = open;
+    setDrawerOpen(open);
+    Animated.timing(drawerY, {
+      toValue: open ? 0 : -DRAWER_HEIGHT,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+  }, [drawerY]);
+  // The grab handle is at the top edge — tap or swipe-down opens it,
+  // swipe-up closes it.
+  const drawerGrabResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 4,
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 30) animateDrawer(true);
+        else if (g.dy < -30) animateDrawer(false);
+        else animateDrawer(!drawerOpenRef.current); // tap toggles
+      },
+    })
+  ).current;
+  const exitAR = useCallback(() => {
+    animateDrawer(false);
+    router.replace("/(tabs)/lab");
+  }, [animateDrawer, router]);
 
   // Page 0: viz toggles
   const [viz, setViz] = useState<Record<VizToggle, boolean>>({
@@ -307,6 +344,34 @@ export default function ARScreen() {
       {handPose && handPose.hands.length > 0 && (
         <HandPoseOverlay result={handPose} />
       )}
+
+      {/* Top swipe-down settings drawer (currently: Exit only) */}
+      <Animated.View
+        style={[
+          styles.drawer,
+          { height: DRAWER_HEIGHT, transform: [{ translateY: drawerY }] },
+        ]}
+        pointerEvents={drawerOpen ? "auto" : "box-none"}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <View style={styles.drawerInner}>
+            <Text style={styles.drawerTitle}>Settings</Text>
+            <Pressable onPress={exitAR} style={styles.drawerItem}>
+              <Text style={styles.drawerItemText}>Exit AR</Text>
+            </Pressable>
+          </View>
+        </SafeAreaView>
+      </Animated.View>
+      {/* Drawer grab handle — sits at the very top edge. Swipe down or tap to open. */}
+      <View
+        {...drawerGrabResponder.panHandlers}
+        style={styles.drawerHandle}
+        pointerEvents="auto"
+      >
+        <SafeAreaView>
+          <View style={styles.drawerHandleBar} />
+        </SafeAreaView>
+      </View>
 
       {/* Swipeable control pages */}
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
@@ -710,6 +775,56 @@ const styles = StyleSheet.create({
   fallbackText: {
     color: "#fff",
     fontSize: 16,
+  },
+  drawer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(20, 20, 22, 0.95)",
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 14,
+    zIndex: 5,
+  },
+  drawerInner: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+  },
+  drawerTitle: {
+    color: "rgba(255, 255, 255, 0.6)",
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  drawerItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.08)",
+  },
+  drawerItemText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  drawerHandle: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingBottom: 12,
+    zIndex: 6,
+  },
+  drawerHandleBar: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.45)",
+    marginTop: 4,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
