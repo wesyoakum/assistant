@@ -113,14 +113,15 @@ public final class VisionDetectModule: Module {
       var bodies: [[String: Any]] = []
       for obs in (request.results ?? []) {
         var joints: [String: [String: Any]] = [:]
-        let allPoints = try obs.recognizedPoints(.all)
-        for (key, point) in allPoints {
-          if point.confidence > 0.1 {
-            joints[key.rawValue.rawValue] = [
-              "x": point.location.x,
-              "y": 1.0 - point.location.y,
-              "confidence": point.confidence,
-            ]
+        if let allPoints = try? obs.recognizedPoints(forGroupKey: .all) {
+          for (key, point) in allPoints {
+            if point.confidence > 0.1 {
+              joints[key.rawValue] = [
+                "x": Double(point.location.x),
+                "y": Double(1.0 - point.location.y),
+                "confidence": Double(point.confidence),
+              ]
+            }
           }
         }
         bodies.append(["joints": joints])
@@ -150,14 +151,15 @@ public final class VisionDetectModule: Module {
       var hands: [[String: Any]] = []
       for obs in (request.results ?? []) {
         var joints: [String: [String: Any]] = [:]
-        let allPoints = try obs.recognizedPoints(.all)
-        for (key, point) in allPoints {
-          if point.confidence > 0.1 {
-            joints[key.rawValue.rawValue] = [
-              "x": point.location.x,
-              "y": 1.0 - point.location.y,
-              "confidence": point.confidence,
-            ]
+        if let allPoints = try? obs.recognizedPoints(forGroupKey: .all) {
+          for (key, point) in allPoints {
+            if point.confidence > 0.1 {
+              joints[key.rawValue] = [
+                "x": Double(point.location.x),
+                "y": Double(1.0 - point.location.y),
+                "confidence": Double(point.confidence),
+              ]
+            }
           }
         }
         hands.append(["joints": joints])
@@ -187,10 +189,10 @@ public final class VisionDetectModule: Module {
       for obs in (request.results ?? []) {
         var face: [String: Any] = [
           "box": flipBox(obs.boundingBox),
-          "confidence": obs.confidence,
+          "confidence": Double(obs.confidence),
         ]
         if let lm = obs.landmarks {
-          var regions: [String: [[String: CGFloat]]] = [:]
+          var regions: [String: [[String: Double]]] = [:]
           let namedRegions: [(String, VNFaceLandmarkRegion2D?)] = [
             ("faceContour", lm.faceContour),
             ("leftEye", lm.leftEye),
@@ -208,12 +210,11 @@ public final class VisionDetectModule: Module {
           for (name, region) in namedRegions {
             guard let region = region else { continue }
             let box = obs.boundingBox
-            var points: [[String: CGFloat]] = []
+            var points: [[String: Double]] = []
             for i in 0..<region.pointCount {
               let pt = region.normalizedPoints[i]
-              // Region points are relative to the face bounding box; convert to image coords.
-              let imgX = box.origin.x + pt.x * box.width
-              let imgY = 1.0 - (box.origin.y + pt.y * box.height)
+              let imgX = Double(box.origin.x + pt.x * box.width)
+              let imgY = Double(1.0 - (box.origin.y + pt.y * box.height))
               points.append(["x": imgX, "y": imgY])
             }
             regions[name] = points
@@ -259,7 +260,6 @@ public final class VisionDetectModule: Module {
       let maskW = CVPixelBufferGetWidth(maskBuffer)
       let maskH = CVPixelBufferGetHeight(maskBuffer)
 
-      // Convert the mask pixel buffer to a PNG base64 string
       let ciImage = CIImage(cvPixelBuffer: maskBuffer)
       let ciCtx = CIContext()
       var maskBase64 = ""

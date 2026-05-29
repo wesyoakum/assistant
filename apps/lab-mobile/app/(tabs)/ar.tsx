@@ -194,7 +194,8 @@ export default function ARScreen() {
             break;
           }
         }
-      } catch {
+      } catch (e) {
+        console.warn("[VisionLoop]", mode, e);
         await sleep(500);
       }
     }
