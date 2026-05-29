@@ -3047,10 +3047,9 @@ export default function ExperimentsScreen() {
   );
 }
 
-export type LabTab = "vision" | "sensors" | "audio" | "device" | "info";
+export type LabTab = "sensors" | "audio" | "device" | "info";
 
 const LAB_TABS: { key: LabTab; label: string }[] = [
-  { key: "vision", label: "Vision" },
   { key: "sensors", label: "Sensors" },
   { key: "audio", label: "Audio" },
   { key: "device", label: "Device" },
@@ -3062,7 +3061,7 @@ export function ExperimentsContent() {
   const styles = useStyles(makeStyles);
   const theme = useTheme();
   const { data: me } = useMe();
-  const [labTab, setLabTab] = useState<LabTab>("vision");
+  const [labTab, setLabTab] = useState<LabTab>("sensors");
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [pushPerm, setPushPerm] = useState<string>("?");
   const [clipboardSnap, setClipboardSnap] = useState<string>("");
@@ -3663,6 +3662,27 @@ export function ExperimentsContent() {
   const [dbCeil, setDbCeil] = useState<number>(0);
   const [spectrumFullscreen, setSpectrumFullscreen] = useState(false);
   const { width: winW, height: winH } = useWindowDimensions();
+
+  // Spectrum chart height — user-resizable via the drag handle under the chart.
+  const SPECTRUM_HEIGHT_MIN = 80;
+  const SPECTRUM_HEIGHT_MAX = 480;
+  const [spectrumHeight, setSpectrumHeight] = useState(180);
+  const spectrumHeightRef = useRef(180);
+  useEffect(() => { spectrumHeightRef.current = spectrumHeight; }, [spectrumHeight]);
+  const spectrumHeightBaseRef = useRef(180);
+  const spectrumResizeResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        spectrumHeightBaseRef.current = spectrumHeightRef.current;
+      },
+      onPanResponderMove: (_, g) => {
+        const next = Math.max(SPECTRUM_HEIGHT_MIN, Math.min(SPECTRUM_HEIGHT_MAX, spectrumHeightBaseRef.current + g.dy));
+        setSpectrumHeight(next);
+      },
+    })
+  ).current;
 
   // ── Spectrum chart touch gestures ──────────────────────────────────────
   // 1-finger horizontal drag: pan frequency range
@@ -4503,28 +4523,6 @@ export function ExperimentsContent() {
       />
       </>)}
 
-      {labTab === "vision" && <VisionTab theme={theme} styles={styles} pressure={pressure} />}
-
-      {labTab === "audio" && (<>
-      <View style={[styles.card, { padding: 6, marginBottom: 4 }]}>
-        <Sparkline samples={micHist} color={theme.highlight} height={56} />
-      </View>
-      <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
-        <BarGauge value={micLevel ?? 0} max={1} color={theme.highlight} height={14} />
-        <Text style={{ marginTop: 6, fontSize: 12, color: theme.textMuted, textAlign: "right" }}>
-          {micRecording
-            ? `${Math.round((micLevel ?? 0) * 100)}% · peak ${Math.round(micPeak * 100)}%`
-            : micStatus}
-        </Text>
-        <Pressable
-          style={[styles.btn, { marginTop: 10, marginBottom: 0 }]}
-          onPress={micRecording ? stopMic : startMic}
-        >
-          <Text style={styles.btnText}>{micRecording ? "Stop listening" : "Start listening"}</Text>
-        </Pressable>
-      </View>
-      </>)}
-
       {labTab === "sensors" && (<>
       <Text style={styles.sectionTitle}>Location</Text>
       <View style={[styles.card, { padding: 12, marginBottom: 4, flexDirection: "row", justifyContent: "space-around", alignItems: "center" }]}>
@@ -4842,12 +4840,26 @@ export function ExperimentsContent() {
       <View
         {...spectrumPanResponder.panHandlers}
         onLayout={onSpectrumChartLayout}
-        style={[styles.card, { padding: 6, marginBottom: 4 }]}
+        style={[styles.card, { padding: 6, marginBottom: 0 }]}
       >
-        <SpectrumBars samples={spectrum} peaks={peaks} height={90} bandEdges={bandEdgesRef.current} sampleRate={SAMPLE_RATE} fftSize={fftSize} />
+        <SpectrumBars samples={spectrum} peaks={peaks} height={spectrumHeight} bandEdges={bandEdgesRef.current} sampleRate={SAMPLE_RATE} fftSize={fftSize} />
         <Text style={{ position: "absolute", top: 8, right: 10, fontSize: 9, fontWeight: "600", color: theme.textSubtle, opacity: 0.7 }}>
           DRAG TO PAN · PINCH TO ZOOM · TAP FOR FULLSCREEN
         </Text>
+      </View>
+      <View
+        {...spectrumResizeResponder.panHandlers}
+        style={{
+          height: 18,
+          marginBottom: 4,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.surfaceAlt,
+          borderBottomLeftRadius: 8,
+          borderBottomRightRadius: 8,
+        }}
+      >
+        <View style={{ width: 36, height: 3, borderRadius: 2, backgroundColor: theme.textSubtle, opacity: 0.5 }} />
       </View>
       <View style={[styles.card, { padding: 14, marginBottom: 4 }]}>
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
