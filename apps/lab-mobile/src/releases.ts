@@ -10,6 +10,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.3.1",
+    title: "Lab sub-tabs: Vision back, reordered",
+    notes: [
+      "New order: Vision · Audio · Sensors · Device · Info. Default is Vision",
+    ],
+  },
+  {
     version: "v1.3.0",
     title: "AR drawer · spectrum cleanup · lab tabs",
     notes: [
