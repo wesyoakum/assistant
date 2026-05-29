@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.2.0",
+    title: "Spectrum chart: drag to pan, pinch to zoom",
+    notes: [
+      "Audio tab: drag the chart horizontally to pan the frequency window, vertically to pan the dB window",
+      "Two-finger pinch zooms each axis around its centre",
+      "Tap (no drag) still opens the fullscreen view",
+      "Removed the redundant 'Microphone' header above the level meter",
+    ],
+  },
+  {
     version: "v1.1.0",
     title: "Lab experiments migrated (needs rebuild)",
     notes: [
