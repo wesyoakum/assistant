@@ -10,6 +10,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.4.1",
+    title: "Tracker fixes: gesture capture · frame stepping · start-time",
+    notes: [
+      "Canvas now captures touches so the page doesn't scroll while you pinch / pan / draw",
+      "Frame stepping under the canvas — ‹frame · frame› step by 1/fps; «1s · 1s» jump a full second. Lets you advance to a frame where the ball is visible before drawing",
+      "Drawing the box reliably commits — Run tracker un-greys as soon as a box is set",
+      "Tracking now starts from whichever frame you drew the box on, not always from frame 0",
+      "Native module gained frameAtTime + a startTimeSec option on trackInVideo",
+    ],
+  },
+  {
     version: "v1.4.0",
     title: "Lab → Tracker: VNTrackObjectRequest prototype (needs rebuild)",
     notes: [

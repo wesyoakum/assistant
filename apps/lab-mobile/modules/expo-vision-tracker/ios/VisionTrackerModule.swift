@@ -14,38 +14,12 @@ public final class VisionTrackerModule: Module {
     // The JS UI needs the still to let the user draw an initial bbox at full
     // resolution; the box gets passed back into trackInVideo().
     AsyncFunction("firstFrame") { (uri: String, jpegQuality: Double) -> [String: Any] in
-      guard let url = resolveURL(uri) else { throw NSError.tracker("Could not resolve video URI") }
-      let asset = AVURLAsset(url: url)
-      let imgGen = AVAssetImageGenerator(asset: asset)
-      imgGen.appliesPreferredTrackTransform = true
-      imgGen.requestedTimeToleranceBefore = .zero
-      imgGen.requestedTimeToleranceAfter = .zero
-      let cgImage = try imgGen.copyCGImage(at: .zero, actualTime: nil)
-      let uiImage = UIImage(cgImage: cgImage)
-      guard let jpeg = uiImage.jpegData(compressionQuality: CGFloat(jpegQuality)) else {
-        throw NSError.tracker("Failed to encode first frame")
-      }
-      let durationSec = CMTimeGetSeconds(asset.duration)
-      // Try to extract video track size + fps too.
-      var vWidth = cgImage.width
-      var vHeight = cgImage.height
-      var fps: Double = 0
-      if let track = asset.tracks(withMediaType: .video).first {
-        // Preferred transform may have been applied above; use natural size for
-        // diagnostics, but the rendered (CG) image dimensions are what JS draws on.
-        vWidth = Int(track.naturalSize.width)
-        vHeight = Int(track.naturalSize.height)
-        fps = Double(track.nominalFrameRate)
-      }
-      return [
-        "imageBase64": jpeg.base64EncodedString(),
-        "imageWidth": cgImage.width,
-        "imageHeight": cgImage.height,
-        "naturalWidth": vWidth,
-        "naturalHeight": vHeight,
-        "durationSec": durationSec,
-        "frameRate": fps,
-      ]
+      return try generateFrame(uri: uri, timeSec: 0, jpegQuality: jpegQuality)
+    }
+
+    // Returns a base64 JPEG of the frame at the given video timestamp.
+    AsyncFunction("frameAtTime") { (uri: String, timeSec: Double, jpegQuality: Double) -> [String: Any] in
+      return try generateFrame(uri: uri, timeSec: timeSec, jpegQuality: jpegQuality)
     }
 
     // Track a single object through the video, starting from the given box on
@@ -55,12 +29,14 @@ public final class VisionTrackerModule: Module {
     //   maxFrames: hard cap on frames processed (0 = no cap)
     //   sampleStride: process every Nth frame (1 = every frame)
     //   confidenceCutoff: stop tracking once confidence < this for 5 frames
+    //   startTimeSec: skip ahead to this video time before tracking (default 0)
     AsyncFunction("trackInVideo") { (uri: String, initialBox: [String: Double], opts: [String: Any]) -> [String: Any] in
       guard let url = resolveURL(uri) else { throw NSError.tracker("Could not resolve video URI") }
 
       let maxFrames = (opts["maxFrames"] as? Int) ?? 0
       let sampleStride = max(1, (opts["sampleStride"] as? Int) ?? 1)
       let cutoff = (opts["confidenceCutoff"] as? Double) ?? 0.05
+      let startTimeSec = (opts["startTimeSec"] as? Double) ?? 0
 
       let asset = AVURLAsset(url: url)
       guard let track = asset.tracks(withMediaType: .video).first else {
@@ -68,6 +44,14 @@ public final class VisionTrackerModule: Module {
       }
 
       let reader = try AVAssetReader(asset: asset)
+      // Skip the reader to the user's chosen start time.
+      if startTimeSec > 0 {
+        let cmStart = CMTime(seconds: startTimeSec, preferredTimescale: 600)
+        let remaining = CMTimeSubtract(asset.duration, cmStart)
+        if CMTimeCompare(remaining, .zero) > 0 {
+          reader.timeRange = CMTimeRange(start: cmStart, duration: remaining)
+        }
+      }
       let outputSettings: [String: Any] = [
         kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
       ]
@@ -205,6 +189,40 @@ private extension NSError {
   static func tracker(_ msg: String) -> NSError {
     NSError(domain: "ExpoVisionTracker", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
   }
+}
+
+private func generateFrame(uri: String, timeSec: Double, jpegQuality: Double) throws -> [String: Any] {
+  guard let url = resolveURL(uri) else { throw NSError.tracker("Could not resolve video URI") }
+  let asset = AVURLAsset(url: url)
+  let imgGen = AVAssetImageGenerator(asset: asset)
+  imgGen.appliesPreferredTrackTransform = true
+  imgGen.requestedTimeToleranceBefore = .zero
+  imgGen.requestedTimeToleranceAfter = .zero
+  let cmTime = CMTime(seconds: max(0, timeSec), preferredTimescale: 600)
+  let cgImage = try imgGen.copyCGImage(at: cmTime, actualTime: nil)
+  let uiImage = UIImage(cgImage: cgImage)
+  guard let jpeg = uiImage.jpegData(compressionQuality: CGFloat(jpegQuality)) else {
+    throw NSError.tracker("Failed to encode frame")
+  }
+  let durationSec = CMTimeGetSeconds(asset.duration)
+  var vWidth = cgImage.width
+  var vHeight = cgImage.height
+  var fps: Double = 0
+  if let track = asset.tracks(withMediaType: .video).first {
+    vWidth = Int(track.naturalSize.width)
+    vHeight = Int(track.naturalSize.height)
+    fps = Double(track.nominalFrameRate)
+  }
+  return [
+    "imageBase64": jpeg.base64EncodedString(),
+    "imageWidth": cgImage.width,
+    "imageHeight": cgImage.height,
+    "naturalWidth": vWidth,
+    "naturalHeight": vHeight,
+    "durationSec": durationSec,
+    "frameRate": fps,
+    "timeSec": timeSec,
+  ]
 }
 
 private func resolveURL(_ uri: String) -> URL? {

@@ -18,6 +18,8 @@ export interface FirstFrameResult {
   durationSec: number;
   /** Nominal frame rate from the video track (0 if not reported). */
   frameRate: number;
+  /** Time of this frame in seconds (0 for firstFrame, requested time for frameAtTime). */
+  timeSec?: number;
 }
 
 export interface TrackedFrame {
@@ -37,6 +39,8 @@ export interface TrackInVideoOptions {
   maxFrames?: number;
   /** Confidence below this counts as "lost"; 5 consecutive lost frames ends tracking. */
   confidenceCutoff?: number;
+  /** Skip the asset reader ahead to this video timestamp before tracking. */
+  startTimeSec?: number;
 }
 
 export interface TrackInVideoResult {
@@ -50,6 +54,7 @@ export interface TrackInVideoResult {
 
 interface NativeModule {
   firstFrame(uri: string, jpegQuality: number): Promise<FirstFrameResult>;
+  frameAtTime(uri: string, timeSec: number, jpegQuality: number): Promise<FirstFrameResult>;
   trackInVideo(
     uri: string,
     initialBox: NormalizedBox,
@@ -71,6 +76,10 @@ export const VisionTracker = {
   firstFrame(uri: string, jpegQuality = 0.85): Promise<FirstFrameResult> {
     if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
     return Native.firstFrame(uri, jpegQuality);
+  },
+  frameAtTime(uri: string, timeSec: number, jpegQuality = 0.85): Promise<FirstFrameResult> {
+    if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
+    return Native.frameAtTime(uri, timeSec, jpegQuality);
   },
   trackInVideo(uri: string, initialBox: NormalizedBox, opts: TrackInVideoOptions = {}): Promise<TrackInVideoResult> {
     if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
