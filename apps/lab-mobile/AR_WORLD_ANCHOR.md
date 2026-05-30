@@ -1,5 +1,43 @@
 # AR Baseball Field Registration — Implementation Plan
 
+> **Direction update (2026-06) — multi-landmark registration.** Real-field use
+> showed the plate-centric premise was too narrow. Constraints learned on site:
+> the app session won't stay open the whole game; you can't return to the plate
+> mid-game; and from a seat you see a *changing subset* of landmarks — plate,
+> bases, foul lines, pitcher's rubber, foul poles — **rarely all at once, but
+> usually several.**
+>
+> New model: treat the field as one **known rigid template** and fit it to
+> **whatever landmarks are currently observed** (2+), using the same
+> Procrustes/Umeyama similarity fit already proven in `fitPlateTemplate`
+> (`src/field/plateDetect.ts`), generalized from "5 plate corners" to "any subset
+> of known field points." Consequences:
+> - **No landmark is required** — the plate is just one optional input. Register
+>   from bases + a foul line, or the rubber + a pole, etc.
+> - **Re-register per session** from whatever's in view (cheap, since the field
+>   is always there). Persistence (`ARWorldMap`) is deprioritized — relocalizing
+>   a saved point cloud across lighting/people changes is brittle, and you'd
+>   re-register anyway.
+> - **Scale is solved, not assumed** — Umeyama estimates global scale, so a field
+>   whose bases are 61 ft instead of 60 ft is fit *as it actually is* once enough
+>   landmarks are seen. The nominal template only needs correct *proportions*
+>   (level of play); absolute size self-corrects. Residual error from a wrong
+>   nominal scales ~linearly and only bites in the far outfield when too few
+>   landmarks were captured.
+> - **High-res capture** (`Lidar.captureHighResolutionFrame`, added) substitutes
+>   for the telephoto we can't use: ARKit owns the wide camera and forbids
+>   optical zoom mid-session, but a full-sensor still (iOS 16+) keeps the world
+>   transform while giving far more detail on distant landmarks (a base/pole
+>   200 ft out). Registration runs on the high-res still, then maps picked/
+>   detected pixels back to world space.
+>
+> Open decisions: **capture method** (tap-and-label first — robust, mostly
+> testable JS, no fragile per-landmark detection — vs. auto-detect later as an
+> accelerator) and **level-of-play proportions** (a preset the user picks).
+> The plate-detection work below is now *one landmark provider* feeding this fit,
+> not the whole story.
+
+
 **Platform:** iOS app, iPhone 16 Pro (LiDAR + ARKit)
 **Goal:** Anchor a known baseball-field model into the AR world and hold
 registration accurately enough that content placed in the outfield (300+ ft)
