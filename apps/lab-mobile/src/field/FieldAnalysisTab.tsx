@@ -66,6 +66,12 @@ export function FieldAnalysisTab() {
   const [mode, setMode] = useState<Mode>("place");
   const [vp, setVp] = useState<Viewport>({ scale: 1, tx: 0, ty: 0 });
   const [canvas, setCanvas] = useState({ width: 1, height: 1 });
+  // The canvas view + its measured window offset, for page→canvas-local taps.
+  const canvasViewRef = useRef<View>(null);
+  const canvasOffsetRef = useRef({ x: 0, y: 0 });
+  const measureCanvas = useCallback(() => {
+    canvasViewRef.current?.measureInWindow((x, y) => { canvasOffsetRef.current = { x, y }; });
+  }, []);
 
   const landmarks = useMemo(() => buildFieldLandmarks(FIELD_SPECS[specKey]!), [specKey]);
 
@@ -155,12 +161,17 @@ export function FieldAnalysisTab() {
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
+        measureCanvas(); // refresh offset (scroll position may have shifted it)
         const t = evt.nativeEvent.touches;
+        // Use PAGE coords minus the canvas's measured window offset. locationX/Y
+        // is relative to whichever (possibly transformed/scaled) subview received
+        // the touch, so it's wrong under zoom — pageX/Y is consistent.
+        const off = canvasOffsetRef.current;
         gestureRef.current = {
           startTx: vpRef.current.tx, startTy: vpRef.current.ty, startScale: vpRef.current.scale,
           startDist: t.length >= 2 ? touchDist(t as any[]) : 0,
           lastDx: 0, lastDy: 0,
-          startLX: evt.nativeEvent.locationX, startLY: evt.nativeEvent.locationY,
+          startLX: evt.nativeEvent.pageX - off.x, startLY: evt.nativeEvent.pageY - off.y,
           moved: false,
         };
       },
@@ -329,8 +340,9 @@ export function FieldAnalysisTab() {
 
           {/* Frame canvas (clips zoom); inner view carries the viewport transform */}
           <View
+            ref={canvasViewRef}
             {...panResponder.panHandlers}
-            onLayout={(e: LayoutChangeEvent) => setCanvas({ width: e.nativeEvent.layout.width || 1, height: e.nativeEvent.layout.height || 1 })}
+            onLayout={(e: LayoutChangeEvent) => { setCanvas({ width: e.nativeEvent.layout.width || 1, height: e.nativeEvent.layout.height || 1 }); measureCanvas(); }}
             style={{ width: "100%", aspectRatio: frame.imageWidth / frame.imageHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginTop: 8 }}
           >
             <View style={[StyleSheet.absoluteFill, { transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }] }]}>
