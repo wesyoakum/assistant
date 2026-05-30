@@ -29,10 +29,11 @@ import {
   type JointPoint,
   type LandmarkPoint,
 } from "expo-vision-detect";
+import { computeHomePlatePose, type Vec3 } from "../../src/field/coordinateFrame";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
-const TOTAL_PAGES = 6;
+const TOTAL_PAGES = 7;
 
 // --- Types ---
 
@@ -174,6 +175,15 @@ export default function ARScreen() {
   const [segmentation, setSegmentation] = useState<PersonSegmentationResult | null>(null);
   const [visionElapsed, setVisionElapsed] = useState<number>(0);
 
+  // Page 0: Plate World — establish an AR world anchored to home plate by
+  // marking its 5 corners. Pure geometry (computeHomePlatePose) recovers the
+  // pose; a virtual home_plate marker is dropped onto the real one.
+  const plateCornersRef = useRef<Vec3[]>([]);
+  const [plateCount, setPlateCount] = useState(0);
+  const [plateStatus, setPlateStatus] = useState(
+    "Aim the crosshair at a home-plate corner, then tap Capture (0/5).",
+  );
+
   // Detection loop (page 1)
   const runDetectionLoop = useCallback(async (mode: DetectionMode) => {
     if (runningRef.current) return;
@@ -275,17 +285,57 @@ export default function ARScreen() {
     }
   }, [visionMode, runVisionLoop]);
 
-  // Stop everything when leaving the active page
+  // Page 0: Plate World handlers
+  const establishPlateWorld = useCallback(async (corners: Vec3[]) => {
+    const p = computeHomePlatePose(corners);
+    if (!p) { setPlateStatus("Couldn't solve the plate — tap Reset and recapture."); return; }
+    // Heading toward the pitcher = field "forward" (same atan2 convention as
+    // src/field/templates.ts), used to orient the rendered plate.
+    const headingDeg = (Math.atan2(p.forward.x, p.forward.z) * 180) / Math.PI;
+    try {
+      await arRef.current?.clearFieldLandmarks();
+      await arRef.current?.addFieldLandmarkAtWorld(
+        p.center.x, p.center.y, p.center.z, "home_plate", headingDeg,
+      );
+    } catch {
+      // Marker render is best-effort; the readout still stands.
+    }
+    const frontIn = p.frontEdgeLengthM * 39.3701;
+    const errPct = Math.round(p.scaleError * 100);
+    setPlateStatus(
+      `${p.scaleError <= 0.2 ? "World anchored" : "Placed (size off?)"} · ` +
+      `${frontIn.toFixed(1)}in (${errPct}% off 17in) · heading ${headingDeg.toFixed(0)}°`,
+    );
+  }, []);
+
+  const capturePlateCorner = useCallback(async () => {
+    const hit = await arRef.current?.raycastScreenPoint(0.5, 0.5).catch(() => null);
+    if (!hit) { setPlateStatus("No surface under the crosshair — aim at the ground."); return; }
+    const next: Vec3[] = [...plateCornersRef.current, { x: hit.worldX, y: hit.worldY, z: hit.worldZ }];
+    plateCornersRef.current = next;
+    setPlateCount(next.length);
+    if (next.length < 5) setPlateStatus(`Captured ${next.length}/5 — move to the next corner.`);
+    else { setPlateStatus("Solving…"); await establishPlateWorld(next); }
+  }, [establishPlateWorld]);
+
+  const resetPlateWorld = useCallback(async () => {
+    plateCornersRef.current = [];
+    setPlateCount(0);
+    setPlateStatus("Aim the crosshair at a home-plate corner, then tap Capture (0/5).");
+    try { await arRef.current?.clearFieldLandmarks(); } catch { /* ignore */ }
+  }, []);
+
+  // Stop everything when leaving the active page (indices shifted by Plate World at 0)
   useEffect(() => {
-    if (page !== 1 && detectionMode) {
+    if (page !== 2 && detectionMode) {
       setDetectionMode(null);
       runningRef.current = false;
       setOverlay(null);
     }
-    if (page !== 2 && visionMode === "bodyPose") { stopAll(); }
-    if (page !== 3 && visionMode === "segmentation") { stopAll(); }
-    if (page !== 4 && visionMode === "faceLandmarks") { stopAll(); }
-    if (page !== 5 && visionMode === "handPose") { stopAll(); }
+    if (page !== 3 && visionMode === "bodyPose") { stopAll(); }
+    if (page !== 4 && visionMode === "segmentation") { stopAll(); }
+    if (page !== 5 && visionMode === "faceLandmarks") { stopAll(); }
+    if (page !== 6 && visionMode === "handPose") { stopAll(); }
   }, [page, detectionMode, visionMode, stopAll]);
 
   // Cleanup on unmount
@@ -320,7 +370,15 @@ export default function ARScreen() {
         showFeaturePoints={viz.features}
       />
 
-      {/* Detection bounding box overlay (page 1) */}
+      {/* Plate World crosshair (page 0) — Capture raycasts against screen center */}
+      {page === 0 && (
+        <View pointerEvents="none" style={styles.plateCrosshair}>
+          <View style={styles.crossH} />
+          <View style={styles.crossV} />
+        </View>
+      )}
+
+      {/* Detection bounding box overlay (page 2) */}
       {overlay && overlay.detections.length > 0 && (
         <DetectionBoxes overlay={overlay} mode={detectionMode} />
       )}
@@ -382,6 +440,13 @@ export default function ARScreen() {
           ))}
         </View>
 
+        {/* Plate World status (page 0) */}
+        {page === 0 && (
+          <View style={styles.statsBar} pointerEvents="none">
+            <Text style={styles.statsText}>{plateStatus}</Text>
+          </View>
+        )}
+
         {/* Stats bar */}
         {overlay && detectionMode && (
           <View style={styles.statsBar} pointerEvents="none">
@@ -414,7 +479,20 @@ export default function ARScreen() {
           style={styles.pager}
           contentContainerStyle={styles.pagerContent}
         >
-          {/* Page 0: Visualization toggles */}
+          {/* Page 0: Plate World — establish an AR world anchored to home plate */}
+          <View style={styles.page}>
+            <View style={styles.controlBar}>
+              <TogglePill
+                label={plateCount >= 5 ? "Captured 5/5" : `Capture ${plateCount}/5`}
+                active={plateCount > 0 && plateCount < 5}
+                onPress={capturePlateCorner}
+                disabled={plateCount >= 5}
+              />
+              <TogglePill label="Reset" active={false} onPress={resetPlateWorld} />
+            </View>
+          </View>
+
+          {/* Page 1: Visualization toggles */}
           <View style={styles.page}>
             <View style={styles.controlBar}>
               <TogglePill label="Planes" active={viz.planes} onPress={() => toggleViz("planes")} />
@@ -423,7 +501,7 @@ export default function ARScreen() {
             </View>
           </View>
 
-          {/* Page 1: Detection modes */}
+          {/* Page 2: Detection modes */}
           <View style={styles.page}>
             <View style={styles.controlBar}>
               <TogglePill
@@ -441,7 +519,7 @@ export default function ARScreen() {
             </View>
           </View>
 
-          {/* Page 2: Body Pose */}
+          {/* Page 3: Body Pose */}
           <View style={styles.page}>
             <View style={styles.controlBar}>
               <TogglePill
@@ -453,7 +531,7 @@ export default function ARScreen() {
             </View>
           </View>
 
-          {/* Page 3: Person Segmentation */}
+          {/* Page 4: Person Segmentation */}
           <View style={styles.page}>
             <View style={styles.controlBar}>
               <TogglePill
@@ -465,7 +543,7 @@ export default function ARScreen() {
             </View>
           </View>
 
-          {/* Page 4: Face Landmarks */}
+          {/* Page 5: Face Landmarks */}
           <View style={styles.page}>
             <View style={styles.controlBar}>
               <TogglePill
@@ -477,7 +555,7 @@ export default function ARScreen() {
             </View>
           </View>
 
-          {/* Page 5: Hand Pose */}
+          {/* Page 6: Hand Pose */}
           <View style={styles.page}>
             <View style={styles.controlBar}>
               <TogglePill
@@ -898,6 +976,14 @@ const styles = StyleSheet.create({
     color: "#000",
   },
   pillTextDisabled: {},
+  // Plate World crosshair
+  plateCrosshair: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  crossH: { position: "absolute", width: 28, height: 2, backgroundColor: "rgba(255,255,255,0.85)", borderRadius: 1 },
+  crossV: { position: "absolute", width: 2, height: 28, backgroundColor: "rgba(255,255,255,0.85)", borderRadius: 1 },
   // Detection boxes
   box: {
     position: "absolute",

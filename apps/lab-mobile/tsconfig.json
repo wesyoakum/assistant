@@ -6,5 +6,7 @@
       "@/*": ["./*"]
     }
   },
-  "include": ["**/*.ts", "**/*.tsx"]
+  "include": ["**/*.ts", "**/*.tsx"],
+  "comment": "*.test.ts files run under Node's built-in test runner (node --experimental-strip-types --test), not Metro, so they use node: built-ins and explicit .ts import specifiers that the app build does not allow.",
+  "exclude": ["**/*.test.ts"]
 }
