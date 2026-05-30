@@ -103,8 +103,24 @@ public final class TrackNetModule: Module {
       }
 
       let frameRate = Double(track.nominalFrameRate)
-      let videoWidth = Int(track.naturalSize.width)
-      let videoHeight = Int(track.naturalSize.height)
+      // The video's storage (natural) size and its display orientation can
+      // differ — e.g. a phone-portrait clip is stored landscape with a 90°
+      // preferredTransform. AVAssetReader yields raw (storage-oriented) buffers,
+      // so we must apply the preferredTransform to get DISPLAY-oriented frames —
+      // otherwise the model sees a rotated frame and the reported box lands in
+      // the wrong place (it's drawn over the display-oriented review image, which
+      // uses appliesPreferredTrackTransform). Compute the display size + the
+      // transform that maps the natural rect to an origin-anchored display rect.
+      let preferred = track.preferredTransform
+      let natural = track.naturalSize
+      let displayRect = CGRect(origin: .zero, size: natural).applying(preferred)
+      let displayWidth = Int(abs(displayRect.width).rounded())
+      let displayHeight = Int(abs(displayRect.height).rounded())
+      // Normalize the transform so the rotated content sits at origin (0,0).
+      let orient = preferred.concatenating(
+        CGAffineTransform(translationX: -displayRect.minX, y: -displayRect.minY))
+      let videoWidth = displayWidth
+      let videoHeight = displayHeight
 
       // Pre-allocate scratch buffers.
       let pixelCount = self.TN_W * self.TN_H
@@ -136,8 +152,11 @@ public final class TrackNetModule: Module {
         let time = CMSampleBufferGetPresentationTimeStamp(sample)
         let timeSec = CMTimeGetSeconds(time)
 
-        // Resize current frame into fCur (R, G, B planes contiguous in [0,1]).
-        if !writeResizedRGBFloats(pb: pb, out: &fCur, ciContext: ciContext, dstW: self.TN_W, dstH: self.TN_H) {
+        // Resize current frame into fCur (R, G, B planes contiguous in [0,1]),
+        // applying the display orientation so the model sees the frame the same
+        // way up as the review image.
+        if !writeResizedRGBFloats(pb: pb, out: &fCur, ciContext: ciContext, dstW: self.TN_W, dstH: self.TN_H,
+                                  orient: orient, displayW: CGFloat(displayWidth), displayH: CGFloat(displayHeight)) {
           CMSampleBufferInvalidate(sample)
           continue
         }
@@ -242,13 +261,15 @@ private func resolveURL(_ uri: String) -> URL? {
 /// Resize a BGRA CVPixelBuffer to (dstW × dstH) and write three planar
 /// channels of normalized [0, 1] floats into `out` in order R, G, B
 /// (out length must be dstW * dstH * 3).
-private func writeResizedRGBFloats(pb: CVPixelBuffer, out: inout [Float], ciContext: CIContext, dstW: Int, dstH: Int) -> Bool {
+private func writeResizedRGBFloats(pb: CVPixelBuffer, out: inout [Float], ciContext: CIContext, dstW: Int, dstH: Int,
+                                   orient: CGAffineTransform, displayW: CGFloat, displayH: CGFloat) -> Bool {
   // Render the BGRA pixel buffer into a 32-bit RGBA bitmap of the target size.
   let ci = CIImage(cvPixelBuffer: pb)
-  let srcW = ci.extent.width
-  let srcH = ci.extent.height
-  guard srcW > 0, srcH > 0 else { return false }
-  let scaled = ci.transformed(by: CGAffineTransform(scaleX: CGFloat(dstW) / srcW, y: CGFloat(dstH) / srcH))
+  guard displayW > 0, displayH > 0 else { return false }
+  // 1) Apply the display orientation (rotate/flip storage → display).
+  // 2) Scale the resulting display-sized frame to the model input size.
+  let oriented = ci.transformed(by: orient)
+  let scaled = oriented.transformed(by: CGAffineTransform(scaleX: CGFloat(dstW) / displayW, y: CGFloat(dstH) / displayH))
   let bytesPerRow = dstW * 4
   var rgba = [UInt8](repeating: 0, count: bytesPerRow * dstH)
   let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
