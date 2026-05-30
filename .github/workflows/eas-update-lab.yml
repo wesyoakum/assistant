@@ -57,9 +57,29 @@ jobs:
       - name: Publish update
         working-directory: apps/lab-mobile
         run: |
-          BRANCH="${{ github.event.inputs.branch || 'production' }}"
+          # On manual dispatch: publish to the chosen channel.
+          # On push to main: publish to BOTH channels, so preview builds (used for
+          # testing) get OTA updates too — not just production. (Previously push
+          # only hit production, so preview-channel installs never updated.)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BRANCHES="${{ github.event.inputs.branch }}"
+          else
+            BRANCHES="preview production"
+          fi
           MSG="${{ github.event.inputs.message }}"
           if [ -z "$MSG" ]; then
             MSG=$(git log -1 --pretty=%s)
           fi
-          eas update --branch "$BRANCH" --message "$MSG" --non-interactive
+
+          echo "::group::Update target"
+          echo "Channels      : $BRANCHES"
+          node -e "console.log('runtimeVersion =', require('./app.json').expo.version)"
+          echo "An installed build receives this update ONLY if its runtimeVersion"
+          echo "matches the value above. The iOS build NUMBER (e.g. 36) is unrelated;"
+          echo "runtimeVersion comes from the app version (policy: appVersion)."
+          echo "::endgroup::"
+
+          for B in $BRANCHES; do
+            echo "Publishing to channel: $B"
+            eas update --branch "$B" --message "$MSG" --non-interactive
+          done
