@@ -1,0 +1,26 @@
+# YOLO-pose dataset for home-plate 5-corner detection.
+#
+# One object class ("home_plate") with 5 keypoints = the plate's 5 corners.
+# The model predicts the corners directly; they feed src/field/coordinateFrame.ts
+# computeHomePlatePose() to anchor the AR world.
+#
+# Point `path` at wherever your images/ and labels/ live (kept out of git —
+# see .gitignore). Ultralytics expects labels/ alongside images/ with matching
+# basenames (foo.jpg -> foo.txt).
+
+path: .                # dataset root
+train: images/train
+val: images/val
+
+# 5 keypoints, each (x, y, visibility). visibility: 2 = labeled+visible,
+# 1 = labeled but occluded, 0 = not labeled.
+kpt_shape: [5, 3]
+
+# Horizontal-flip augmentation remap. Home plate mirrors across its apex axis,
+# swapping the left/right corners. Keypoint order (see README):
+#   0 front-left, 1 front-right, 2 back-right, 3 apex, 4 back-left
+# Under a horizontal flip: 0<->1, 2<->4, 3->3.
+flip_idx: [1, 0, 4, 3, 2]
+
+names:
+  0: home_plate
