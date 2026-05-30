@@ -14,9 +14,24 @@ import * as ImagePicker from "expo-image-picker";
 import { VisionTracker, type NormalizedBox, type TrackedFrame, type FirstFrameResult } from "expo-vision-tracker";
 import { TemplateTracker } from "expo-template-tracker";
 import { TrackNet } from "expo-tracknet";
+import { Yolo } from "expo-yolo";
+import { Baseball } from "expo-baseball";
+import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { useTheme } from "../theme";
 
-type TrackerMode = "vision" | "template" | "tracknet";
+type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
+
+// Modes that detect the ball themselves (no user-drawn box required).
+const DETECTOR_MODES: TrackerMode[] = ["tracknet", "blob", "yolo", "baseball"];
+
+const MODE_LABEL: Record<TrackerMode, string> = {
+  template: "Template",
+  vision: "Apple Vision",
+  tracknet: "TrackNet",
+  blob: "Blob",
+  yolo: "YOLO ball",
+  baseball: "Baseball",
+};
 
 interface ViewState {
   scale: number;
@@ -277,35 +292,54 @@ export function TrackerTab() {
 
   const runTracker = async () => {
     if (!videoUri) return;
-    // TrackNet finds the ball itself — no initial box required. The other
-    // modes need a user-drawn box.
-    if (!box && trackerMode !== "tracknet") return;
+    // Detector modes (TrackNet/Blob/YOLO/Baseball) find the ball themselves — no
+    // initial box required. Template/Vision need a user-drawn box.
+    if (!box && !DETECTOR_MODES.includes(trackerMode)) return;
     setBusy(`tracking (${trackerMode})…`);
     setErr(null);
     try {
-      const r = trackerMode === "vision"
-        ? await VisionTracker.trackInVideo(videoUri, box!, {
-            sampleStride: 1,
-            maxFrames: 0,
-            confidenceCutoff: 0.05,
+      let r: { frames: TrackedFrame[]; videoWidth: number; videoHeight: number; frameRate: number; elapsedMs: number };
+      if (trackerMode === "vision") {
+        r = await VisionTracker.trackInVideo(videoUri, box!, {
+          sampleStride: 1, maxFrames: 0, confidenceCutoff: 0.05, startTimeSec: frameTimeSec,
+        });
+      } else if (trackerMode === "tracknet") {
+        r = await TrackNet.trackInVideo(videoUri, {
+          sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec, confidenceCutoff: 0.10,
+        });
+      } else if (trackerMode === "blob") {
+        r = await VisionTracker.trackBlobInVideo(videoUri, {
+          sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec, downsample: 2,
+        });
+      } else if (trackerMode === "yolo" || trackerMode === "baseball") {
+        // JS frame-walk: run the object detector on each frame's JPEG. COCO YOLO
+        // is filtered to the ball class; the baseball model emits only baseballs.
+        const detect = async (uri: string): Promise<RawDetection[]> => {
+          const res = trackerMode === "yolo"
+            ? await Yolo.detect(uri, { minConfidence: 0.10 })
+            : await Baseball.detect(uri, { minConfidence: 0.10 });
+          return res.detections.map((d) => ({ label: d.label, confidence: d.confidence, box: d.box }));
+        };
+        const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
+        r = await detectorWalk(
+          (t, q) => VisionTracker.frameAtTime(videoUri, t, q).then((f) => ({
+            imageBase64: f.imageBase64, imageWidth: f.imageWidth, imageHeight: f.imageHeight, frameRate: f.frameRate ?? 0,
+          })),
+          detect,
+          {
             startTimeSec: frameTimeSec,
-          })
-        : trackerMode === "tracknet"
-        ? await TrackNet.trackInVideo(videoUri, {
-            sampleStride: 1,
+            stepSec: 1 / fps,
+            durationSec: frame?.durationSec ?? 9999,
             maxFrames: 0,
-            startTimeSec: frameTimeSec,
-            confidenceCutoff: 0.10,
-          })
-        : await TemplateTracker.trackInVideo(videoUri, box!, {
-            sampleStride: 1,
-            maxFrames: 0,
-            startTimeSec: frameTimeSec,
-            // NCC drops sharply with motion blur even on a real hit; keep low so we don't bail prematurely.
-            confidenceCutoff: 0.15,
-            searchPadding: 3,
-            downsample: 2,
-          });
+            labelFilter: trackerMode === "yolo" ? (l) => l === "sports ball" : undefined,
+          },
+        );
+      } else {
+        r = await TemplateTracker.trackInVideo(videoUri, box!, {
+          sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec,
+          confidenceCutoff: 0.15, searchPadding: 3, downsample: 2,
+        });
+      }
       setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate, mode: trackerMode });
       setReviewIdx(0);
     } catch (e) {
@@ -464,15 +498,16 @@ export function TrackerTab() {
       )}
 
       {frame && (
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-          {(["template", "vision", "tracknet"] as const).map((m) => (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+          {(["template", "vision", "tracknet", "blob", "yolo", "baseball"] as const).map((m) => (
             <Pressable
               key={m}
               onPress={() => setTrackerMode(m)}
               style={[
                 styles.btn,
                 {
-                  flex: 1,
+                  minWidth: "31%",
+                  flexGrow: 1,
                   backgroundColor: trackerMode === m ? theme.primary : theme.surfaceAlt,
                   borderWidth: trackerMode === m ? 0 : StyleSheet.hairlineWidth,
                   borderColor: theme.border,
@@ -480,7 +515,7 @@ export function TrackerTab() {
               ]}
             >
               <Text style={[styles.btnText, { color: trackerMode === m ? "#fff" : theme.text }]}>
-                {m === "template" ? "Template" : m === "vision" ? "Apple Vision" : "TrackNet"}
+                {MODE_LABEL[m]}
               </Text>
             </Pressable>
           ))}
@@ -491,10 +526,10 @@ export function TrackerTab() {
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
             onPress={runTracker}
-            disabled={(!box && trackerMode !== "tracknet") || !!busy}
-            style={[styles.btn, { backgroundColor: theme.highlight, opacity: (!box && trackerMode !== "tracknet") || busy ? 0.4 : 1 }]}
+            disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
+            style={[styles.btn, { backgroundColor: theme.highlight, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
           >
-            <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : trackerMode === "tracknet" ? "Run TrackNet" : "Run tracker"}</Text>
+            <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
           </Pressable>
           <Pressable
             onPress={() => { setBox(null); setResult(null); }}
@@ -516,7 +551,7 @@ export function TrackerTab() {
       {result && (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: theme.text, fontWeight: "600", marginBottom: 6 }}>
-            [{result.mode === "template" ? "Template" : result.mode === "vision" ? "Apple Vision" : "TrackNet"}] tracked {result.frames.length} frames in {result.elapsedMs} ms
+            [{MODE_LABEL[result.mode]}] tracked {result.frames.length} frames in {result.elapsedMs} ms
             {"  ·  "}
             {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
           </Text>

@@ -60,6 +60,23 @@ interface NativeModule {
     initialBox: NormalizedBox,
     opts: TrackInVideoOptions,
   ): Promise<TrackInVideoResult>;
+  trackBlobInVideo(uri: string, opts: BlobTrackOptions): Promise<TrackInVideoResult>;
+}
+
+/** Options for the classical bright-moving-blob ball tracker. */
+export interface BlobTrackOptions {
+  sampleStride?: number;
+  maxFrames?: number;
+  startTimeSec?: number;
+  /** Integer luma downsample (1 = native, 2 = half each axis). Default 2. */
+  downsample?: number;
+  /** Brightness floor 0–255 (default 170), motion delta (default 25), area
+   *  fractions and fill — see src/tracker/blobTrack.ts. */
+  brightness?: number;
+  motionDelta?: number;
+  minAreaFrac?: number;
+  maxAreaFrac?: number;
+  minFill?: number;
 }
 
 let Native: NativeModule | null = null;
@@ -84,5 +101,10 @@ export const VisionTracker = {
   trackInVideo(uri: string, initialBox: NormalizedBox, opts: TrackInVideoOptions = {}): Promise<TrackInVideoResult> {
     if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
     return Native.trackInVideo(uri, initialBox, opts);
+  },
+  /** Classical bright-moving-blob ball tracker — no initial box needed. */
+  trackBlobInVideo(uri: string, opts: BlobTrackOptions = {}): Promise<TrackInVideoResult> {
+    if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
+    return Native.trackBlobInVideo(uri, opts);
   },
 };

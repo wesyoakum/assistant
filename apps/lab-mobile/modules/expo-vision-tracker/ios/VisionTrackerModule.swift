@@ -182,8 +182,203 @@ public final class VisionTrackerModule: Module {
         "elapsedMs": elapsedMs,
       ]
     }
+
+    // Classical "bright moving blob" ball tracker. Single AVAssetReader pass; per
+    // frame it computes a downscaled luma plane and finds the most ball-like
+    // bright region that brightened vs the previous frame. Faithful port of the
+    // unit-tested JS reference in src/tracker/blobTrack.ts — same brightness/
+    // motion/size/fill/aspect gates — run natively for speed. No initial box
+    // required (it's a detector). Output matches TrackedFrame[].
+    AsyncFunction("trackBlobInVideo") { (uri: String, opts: [String: Any]) -> [String: Any] in
+      guard let url = resolveURL(uri) else { throw NSError.tracker("Could not resolve video URI") }
+
+      let maxFrames = (opts["maxFrames"] as? Int) ?? 0
+      let sampleStride = max(1, (opts["sampleStride"] as? Int) ?? 1)
+      let startTimeSec = (opts["startTimeSec"] as? Double) ?? 0
+      let downsample = max(1, (opts["downsample"] as? Int) ?? 2)
+      let brightThresh = Float((opts["brightness"] as? Double) ?? 170)
+      let motionDelta = Float((opts["motionDelta"] as? Double) ?? 25)
+      let minAreaFrac = (opts["minAreaFrac"] as? Double) ?? 0.00002
+      let maxAreaFrac = (opts["maxAreaFrac"] as? Double) ?? 0.02
+      let minFill = (opts["minFill"] as? Double) ?? 0.45
+
+      let asset = AVURLAsset(url: url)
+      guard let track = asset.tracks(withMediaType: .video).first else {
+        throw NSError.tracker("Video has no video track")
+      }
+      let reader = try AVAssetReader(asset: asset)
+      if startTimeSec > 0 {
+        let cmStart = CMTime(seconds: startTimeSec, preferredTimescale: 600)
+        let remaining = CMTimeSubtract(asset.duration, cmStart)
+        if CMTimeCompare(remaining, .zero) > 0 {
+          reader.timeRange = CMTimeRange(start: cmStart, duration: remaining)
+        }
+      }
+      let outputSettings: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+      ]
+      let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
+      output.alwaysCopiesSampleData = false
+      reader.add(output)
+      guard reader.startReading() else {
+        throw NSError.tracker("AVAssetReader could not start (\(reader.error?.localizedDescription ?? "unknown"))")
+      }
+
+      let frameRate = Double(track.nominalFrameRate)
+      let videoWidth = Int(track.naturalSize.width)
+      let videoHeight = Int(track.naturalSize.height)
+
+      var results: [[String: Any]] = []
+      var prev: [Float]? = nil
+      var frameIndex = -1
+      let started = Date()
+
+      while let sample = output.copyNextSampleBuffer() {
+        frameIndex += 1
+        if sampleStride > 1, frameIndex % sampleStride != 0 {
+          CMSampleBufferInvalidate(sample); continue
+        }
+        guard let pb = CMSampleBufferGetImageBuffer(sample) else { continue }
+        let timeSec = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
+
+        guard let luma = lumaPlane(pb, downsample: downsample) else {
+          CMSampleBufferInvalidate(sample); continue
+        }
+        let det = detectBrightMovingBlob(
+          cur: luma.data, prev: prev, w: luma.width, h: luma.height,
+          bright: brightThresh, motionDelta: motionDelta,
+          minAreaFrac: minAreaFrac, maxAreaFrac: maxAreaFrac, minFill: minFill)
+
+        if let d = det.box {
+          results.append([
+            "frameIndex": frameIndex, "timeSec": timeSec,
+            "box": ["x": d.x, "y": d.y, "width": d.w, "height": d.h],
+            "confidence": det.confidence, "lost": false,
+          ])
+        } else {
+          results.append([
+            "frameIndex": frameIndex, "timeSec": timeSec,
+            "box": NSNull(), "confidence": 0.0, "lost": true,
+          ])
+        }
+
+        prev = luma.data
+        CMSampleBufferInvalidate(sample)
+        if maxFrames > 0 && results.count >= maxFrames { break }
+      }
+
+      return [
+        "frames": results,
+        "videoWidth": videoWidth,
+        "videoHeight": videoHeight,
+        "frameRate": frameRate,
+        "elapsedMs": Int(Date().timeIntervalSince(started) * 1000),
+      ]
+    }
   }
 }
+
+// MARK: - Blob detection (native port of src/tracker/blobTrack.ts)
+
+private struct LumaPlane { var data: [Float]; var width: Int; var height: Int }
+
+/// Downscaled luma (0..255 as Float) from a BGRA pixel buffer (point-sampled).
+private func lumaPlane(_ pb: CVPixelBuffer, downsample: Int) -> LumaPlane? {
+  CVPixelBufferLockBaseAddress(pb, .readOnly)
+  defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
+  guard let base = CVPixelBufferGetBaseAddress(pb) else { return nil }
+  let srcW = CVPixelBufferGetWidth(pb)
+  let srcH = CVPixelBufferGetHeight(pb)
+  let stride = CVPixelBufferGetBytesPerRow(pb)
+  let dstW = max(1, srcW / downsample)
+  let dstH = max(1, srcH / downsample)
+  var out = [Float](repeating: 0, count: dstW * dstH)
+  let ptr = base.assumingMemoryBound(to: UInt8.self)
+  for y in 0..<dstH {
+    let sy = min(srcH - 1, y * downsample)
+    for x in 0..<dstW {
+      let sx = min(srcW - 1, x * downsample)
+      let o = sy * stride + sx * 4
+      let b = Float(ptr[o + 0]); let g = Float(ptr[o + 1]); let r = Float(ptr[o + 2])
+      out[y * dstW + x] = 0.114 * b + 0.587 * g + 0.299 * r
+    }
+  }
+  return LumaPlane(data: out, width: dstW, height: dstH)
+}
+
+private struct BlobBoxN { var x: Double; var y: Double; var w: Double; var h: Double }
+private struct BlobResult { var box: BlobBoxN?; var confidence: Double }
+
+/// Faithful port of detectBlob() in src/tracker/blobTrack.ts. Returns a top-left
+/// normalized [0,1] box.
+private func detectBrightMovingBlob(
+  cur: [Float], prev: [Float]?, w: Int, h: Int,
+  bright: Float, motionDelta: Float,
+  minAreaFrac: Double, maxAreaFrac: Double, minFill: Double
+) -> BlobResult {
+  let n = w * h
+  if n == 0 || (prev != nil && prev!.count != n) { return BlobResult(box: nil, confidence: 0) }
+  let minArea = max(2, Int(minAreaFrac * Double(n)))
+  let maxArea = max(minArea + 1, Int(maxAreaFrac * Double(n)))
+
+  var mask = [UInt8](repeating: 0, count: n)
+  for i in 0..<n {
+    let v = cur[i]
+    if v < bright { continue }
+    if let p = prev, v - p[i] < motionDelta { continue }
+    mask[i] = 1
+  }
+
+  var best: (area: Int, minx: Int, miny: Int, maxx: Int, maxy: Int, sx: Int, sy: Int, sumB: Float)? = nil
+  var stack = [Int]()
+  for start in 0..<n {
+    if mask[start] != 1 { continue }
+    var area = 0, minx = w, miny = h, maxx = 0, maxy = 0, sx = 0, sy = 0
+    var sumB: Float = 0
+    mask[start] = 2
+    stack.append(start)
+    while let idx = stack.popLast() {
+      let x = idx % w, y = idx / w
+      area += 1; sx += x; sy += y; sumB += cur[idx]
+      if x < minx { minx = x }; if x > maxx { maxx = x }
+      if y < miny { miny = y }; if y > maxy { maxy = y }
+      if x > 0, mask[idx - 1] == 1 { mask[idx - 1] = 2; stack.append(idx - 1) }
+      if x < w - 1, mask[idx + 1] == 1 { mask[idx + 1] = 2; stack.append(idx + 1) }
+      if y > 0, mask[idx - w] == 1 { mask[idx - w] = 2; stack.append(idx - w) }
+      if y < h - 1, mask[idx + w] == 1 { mask[idx + w] = 2; stack.append(idx + w) }
+    }
+    if area < minArea || area > maxArea { continue }
+    let bw = maxx - minx + 1, bh = maxy - miny + 1
+    let fill = Double(area) / Double(bw * bh)
+    if fill < minFill { continue }
+    let aspect = Double(max(bw, bh)) / Double(min(bw, bh))
+    if aspect > 2.5 { continue }
+    if best == nil || area > best!.area {
+      best = (area, minx, miny, maxx, maxy, sx, sy, sumB)
+    }
+  }
+
+  guard let bst = best else { return BlobResult(box: nil, confidence: 0) }
+  let bw = bst.maxx - bst.minx + 1, bh = bst.maxy - bst.miny + 1
+  let fill = Double(bst.area) / Double(bw * bh)
+  let avgBright = Double(bst.sumB) / Double(bst.area)
+  let brightScore = clampUnit((avgBright - Double(bright)) / (255 - Double(bright)) + 0.4)
+  let roundScore = clampUnit((fill - minFill) / (1 - minFill) + 0.3)
+  let motionBonus = (prev != nil) ? 1.0 : 0.6
+  let confidence = clampUnit(0.5 * brightScore + 0.5 * roundScore) * motionBonus
+
+  let pad = 0.4
+  let nx = Double(bst.minx) / Double(w) - (Double(bw) * pad) / Double(w) / 2
+  let ny = Double(bst.miny) / Double(h) - (Double(bh) * pad) / Double(h) / 2
+  return BlobResult(
+    box: BlobBoxN(
+      x: clampUnit(nx), y: clampUnit(ny),
+      w: min(1, Double(bw) * (1 + pad) / Double(w)),
+      h: min(1, Double(bh) * (1 + pad) / Double(h))),
+    confidence: confidence)
+}
+
+private func clampUnit(_ v: Double) -> Double { v < 0 ? 0 : (v > 1 ? 1 : v) }
 
 private extension NSError {
   static func tracker(_ msg: String) -> NSError {
