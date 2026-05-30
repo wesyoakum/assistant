@@ -10,6 +10,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.7.1",
+    title: "Tracker: YOLO ball only (OTA)",
+    notes: [
+      "The Tracker now shows just the YOLO-ball mode — it was the only one that reliably tracked real pitch footage. Template, Apple Vision, TrackNet, Blob, and the custom Baseball model are hidden but still in the code (easy to bring back).",
+      "JS-only change, delivered over-the-air — no rebuild needed.",
+    ],
+    pr: 155,
+  },
+  {
     version: "v1.7.0",
     title: "Slim to Plate + Tracker; auto-detect home plate (needs rebuild)",
     notes: [
