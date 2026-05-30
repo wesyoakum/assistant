@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.6.1",
+    title: "Tracker: TrackNet mode (needs rebuild)",
+    notes: [
+      "Third tracker mode added: TrackNet (academic CNN purpose-built for tracking small fast balls in sports video — takes 3 consecutive frames, outputs a heatmap)",
+      "No initial bounding box needed — the model finds the ball itself per frame. (You can still pick a starting frame with the frame-step buttons.)",
+      "Weights are tennis-trained (yastrebksv/TrackNet, public Google Drive). Baseball generalisation is unknown but the architecture's whole point is small fast targets — first real test for our use case",
+      "Bundle gets +41 MB. Model runs at 360×640 internally. License is unclear so this is research/exploration only for now",
+    ],
+  },
+  {
     version: "v1.6.0",
     title: "Plate World: anchor an AR world to home plate (needs rebuild)",
     notes: [
