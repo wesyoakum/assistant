@@ -40,7 +40,21 @@ interface NativeModule {
   stopSession(): Promise<void>;
   captureAlignedFrame(jpegQuality: number): Promise<AlignedFrame>;
   saveImageToPhotos(base64: string): Promise<boolean>;
+  captureHighResolutionFrame(jpegQuality: number): Promise<HiResFrame>;
   addListener: (event: string, callback: (payload: DepthFrame) => void) => EventSubscription;
+}
+
+/** A full-sensor still captured mid-session, with the world transform intact.
+ *  Used for field registration — far more pixel detail on distant landmarks than
+ *  the downscaled live AR stream, while still mappable to world space. */
+export interface HiResFrame {
+  imageBase64: string;
+  imageWidth: number;
+  imageHeight: number;
+  intrinsics: { fx: number; fy: number; cx: number; cy: number; imageWidth: number; imageHeight: number };
+  /** Column-major camera→world 4×4 (16 floats) at capture time. */
+  transform4x4: number[];
+  timestamp: number;
 }
 
 // Wrap module load so an OTA that ships this JS to an older binary
@@ -84,6 +98,12 @@ export const Lidar = {
   saveImageToPhotos(base64: string): Promise<boolean> {
     if (!NativeLidar) return Promise.reject(new Error("LiDAR native module not in this build"));
     return NativeLidar.saveImageToPhotos(base64);
+  },
+  /** Capture a full-sensor still mid-session (iOS 16+) for registration: far more
+   *  detail on distant landmarks than the live AR stream, keeps the world transform. */
+  captureHighResolutionFrame(jpegQuality = 0.9): Promise<HiResFrame> {
+    if (!NativeLidar) return Promise.reject(new Error("LiDAR native module not in this build"));
+    return NativeLidar.captureHighResolutionFrame(jpegQuality);
   },
   addDepthListener(cb: (frame: DepthFrame) => void): EventSubscription {
     if (!NativeLidar) return { remove: () => {} } as EventSubscription;

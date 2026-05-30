@@ -234,6 +234,73 @@ public final class LidarModule: Module {
     AsyncFunction("saveImageToPhotos") { (base64: String) -> Bool in
       return try await Self.saveImageToPhotos(base64: base64)
     }
+
+    // Capture a FULL-SENSOR still mid-session (iOS 16+) for field registration.
+    //
+    // ARKit owns the wide camera and forbids switching to telephoto / optical
+    // zoom during a session, so we can't zoom — but the live AR stream is heavily
+    // downscaled (~1080p), which loses detail on distant landmarks (a base or
+    // foul pole 200 ft away). captureHighResolutionFrame() grabs the camera's
+    // native full-resolution photo (e.g. 12MP) WITHOUT losing the ARKit world
+    // transform, so detected/tapped landmark pixels can still be mapped back to
+    // world space for the multi-landmark template fit. This is the resolution
+    // win that substitutes for the telephoto lens we can't use.
+    //
+    // Returns the JPEG + intrinsics (for the high-res image's own pixel grid) +
+    // the camera→world transform at capture time. If the device/iOS doesn't
+    // support it, falls back to the current frame's capturedImage.
+    AsyncFunction("captureHighResolutionFrame") { (jpegQuality: Double) -> [String: Any] in
+      guard let session = self.arSession else { throw LidarError.notRunning }
+
+      let hiResFrame: ARFrame
+      if #available(iOS 16.0, *) {
+        hiResFrame = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<ARFrame, Error>) in
+          session.captureHighResolutionFrame { frame, error in
+            if let frame = frame {
+              cont.resume(returning: frame)
+            } else {
+              cont.resume(throwing: error ?? LidarError.noFrame)
+            }
+          }
+        }
+      } else {
+        guard let frame = session.currentFrame else { throw LidarError.noFrame }
+        hiResFrame = frame
+      }
+
+      let ciImage = CIImage(cvPixelBuffer: hiResFrame.capturedImage)
+      guard let cgImage = self.ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+        throw LidarError.imageEncodeFailed
+      }
+      let uiImage = UIImage(cgImage: cgImage)
+      guard let jpegData = uiImage.jpegData(compressionQuality: CGFloat(jpegQuality)) else {
+        throw LidarError.imageEncodeFailed
+      }
+
+      let cam = hiResFrame.camera
+      let intr = cam.intrinsics
+      let xform = cam.transform
+      var xformArr: [Float] = []
+      xformArr.reserveCapacity(16)
+      for col in 0..<4 {
+        let c = xform[col]
+        xformArr.append(c.x); xformArr.append(c.y); xformArr.append(c.z); xformArr.append(c.w)
+      }
+
+      return [
+        "imageBase64": jpegData.base64EncodedString(),
+        "imageWidth": cgImage.width,
+        "imageHeight": cgImage.height,
+        "intrinsics": [
+          "fx": intr.columns.0.x, "fy": intr.columns.1.y,
+          "cx": intr.columns.2.x, "cy": intr.columns.2.y,
+          "imageWidth": Int(cam.imageResolution.width),
+          "imageHeight": Int(cam.imageResolution.height),
+        ],
+        "transform4x4": xformArr,            // column-major cam→world, 16 floats
+        "timestamp": hiResFrame.timestamp,
+      ]
+    }
   }
 
   // MARK: - Save image to photo library
