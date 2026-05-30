@@ -14,6 +14,7 @@ import {
   type LidarARViewRef,
 } from "../../modules/expo-lidar/src";
 import { computeHomePlatePose, type Vec3 } from "../../src/field/coordinateFrame";
+import { detectPlatePentagon, type Point2 } from "../../src/field/plateDetect";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 
@@ -74,6 +75,43 @@ export default function PlateScreen() {
     try { await arRef.current?.clearFieldLandmarks(); } catch { /* ignore */ }
   }, []);
 
+  // Auto-detect (Phase A, AR_WORLD_ANCHOR §4): native finds white-region
+  // contours → tested detectPlatePentagon orders the 5 corners → raycast each to
+  // the ground plane → establishPlateWorld (same path as the manual taps).
+  const autoDetectPlate = useCallback(async () => {
+    setPlateStatus("Scanning for home plate…");
+    let contours: number[][];
+    try {
+      contours = (await arRef.current?.detectPlateContours(6)) ?? [];
+    } catch (e) {
+      setPlateStatus(`Detect failed: ${(e as Error).message}`);
+      return;
+    }
+    if (contours.length === 0) { setPlateStatus("No plate found — aim at the plate, good light."); return; }
+
+    // Pick the highest-confidence valid pentagon across candidate contours.
+    let best: { corners: Point2[]; confidence: number } | null = null;
+    for (const flat of contours) {
+      const pts: Point2[] = [];
+      for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]!, y: flat[i + 1]! });
+      const pent = detectPlatePentagon(pts, { minConfidence: 0.6 });
+      if (pent && (!best || pent.confidence > best.confidence)) best = pent;
+    }
+    if (!best) { setPlateStatus("Found a shape but it's not plate-like — reposition."); return; }
+
+    // Raycast the 5 ordered corners (view-normalized) to the ground plane.
+    const world: Vec3[] = [];
+    for (const c of best.corners) {
+      const hit = await arRef.current?.raycastScreenPoint(c.x, c.y).catch(() => null);
+      if (!hit) { setPlateStatus("Corners didn't hit the ground — step closer / flatter."); return; }
+      world.push({ x: hit.worldX, y: hit.worldY, z: hit.worldZ });
+    }
+    plateCornersRef.current = world;
+    setPlateCount(5);
+    setPlateStatus(`Detected (conf ${(best.confidence * 100).toFixed(0)}%) — solving…`);
+    await establishPlateWorld(world);
+  }, [establishPlateWorld]);
+
   // Save the current AR frame to the photo library to build a labeling dataset
   // for the §10 fallback (and for line-robustness testing, §7.3). Point the
   // phone at home plate from varied angles/distances/lighting and tap repeatedly.
@@ -127,6 +165,7 @@ export default function PlateScreen() {
             onPress={capturePlateCorner}
             disabled={plateCount >= 5}
           />
+          <TogglePill label="Auto" active={false} onPress={autoDetectPlate} />
           <TogglePill label="Reset" active={false} onPress={resetPlateWorld} />
           <TogglePill
             label={trainingCount > 0 ? `Save Frame (${trainingCount})` : "Save Frame"}

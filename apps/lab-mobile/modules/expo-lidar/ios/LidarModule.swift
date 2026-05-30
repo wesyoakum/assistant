@@ -119,6 +119,11 @@ public final class LidarModule: Module {
       AsyncFunction("raycastScreenPoint") { (view: LidarARView, nx: Double, ny: Double) -> [String: Any]? in
         return view.raycastScreenPoint(nx: CGFloat(nx), ny: CGFloat(ny))
       }
+      // Plate auto-detection: returns candidate white-region contours as flat
+      // [x0,y0,x1,y1,...] arrays of view-normalized points (see plateDetect.ts).
+      AsyncFunction("detectPlateContours") { (view: LidarARView, maxContours: Int) -> [[Double]] in
+        return view.detectPlateContours(maxContours: maxContours).map { $0.map { Double($0) } }
+      }
       AsyncFunction("captureViewImage") { (view: LidarARView, jpegQuality: Double) -> [String: Any]? in
         // Snapshot exactly what the ARSCNView renders on screen so that
         // YOLO bounding-box coordinates map 1:1 to the visible view.

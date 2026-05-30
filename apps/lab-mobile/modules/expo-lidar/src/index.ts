@@ -140,6 +140,14 @@ export interface LidarARViewRef {
   clearFieldLandmarks: () => Promise<void>;
   /** Raycast from a normalized screen point to the ground. Returns world position or null. */
   raycastScreenPoint: (nx: number, ny: number) => Promise<{ worldX: number; worldY: number; worldZ: number } | null>;
+  /**
+   * Detect candidate white-region (home-plate) contours in the current camera
+   * frame. Returns up to `maxContours` contours, each a flat array of
+   * view-normalized points [x0,y0,x1,y1,...] (x,y in 0..1 over the view). Feed
+   * each to `detectPlatePentagon` (src/field/plateDetect.ts) → raycast the 5
+   * ordered corners → `computeHomePlatePose`. See AR_WORLD_ANCHOR.md §4.
+   */
+  detectPlateContours: (maxContours: number) => Promise<number[][]>;
 }
 
 export type BallState = "candidate" | "probable" | "confirmed";
