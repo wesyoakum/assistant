@@ -42,6 +42,7 @@
     "expo-status-bar": "~3.0.9",
     "expo-task-manager": "~14.0.9",
     "expo-template-tracker": "workspace:*",
+    "expo-tracknet": "workspace:*",
     "expo-updates": "~29.0.17",
     "expo-vision-detect": "workspace:*",
     "expo-vision-tracker": "workspace:*",
