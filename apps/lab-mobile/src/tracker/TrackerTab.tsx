@@ -13,9 +13,10 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { VisionTracker, type NormalizedBox, type TrackedFrame, type FirstFrameResult } from "expo-vision-tracker";
 import { TemplateTracker } from "expo-template-tracker";
+import { TrackNet } from "expo-tracknet";
 import { useTheme } from "../theme";
 
-type TrackerMode = "vision" | "template";
+type TrackerMode = "vision" | "template" | "tracknet";
 
 interface ViewState {
   scale: number;
@@ -275,18 +276,28 @@ export function TrackerTab() {
   }, [box, vp, canvas]);
 
   const runTracker = async () => {
-    if (!videoUri || !box) return;
+    if (!videoUri) return;
+    // TrackNet finds the ball itself — no initial box required. The other
+    // modes need a user-drawn box.
+    if (!box && trackerMode !== "tracknet") return;
     setBusy(`tracking (${trackerMode})…`);
     setErr(null);
     try {
       const r = trackerMode === "vision"
-        ? await VisionTracker.trackInVideo(videoUri, box, {
+        ? await VisionTracker.trackInVideo(videoUri, box!, {
             sampleStride: 1,
             maxFrames: 0,
             confidenceCutoff: 0.05,
             startTimeSec: frameTimeSec,
           })
-        : await TemplateTracker.trackInVideo(videoUri, box, {
+        : trackerMode === "tracknet"
+        ? await TrackNet.trackInVideo(videoUri, {
+            sampleStride: 1,
+            maxFrames: 0,
+            startTimeSec: frameTimeSec,
+            confidenceCutoff: 0.10,
+          })
+        : await TemplateTracker.trackInVideo(videoUri, box!, {
             sampleStride: 1,
             maxFrames: 0,
             startTimeSec: frameTimeSec,
@@ -454,7 +465,7 @@ export function TrackerTab() {
 
       {frame && (
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-          {(["template", "vision"] as const).map((m) => (
+          {(["template", "vision", "tracknet"] as const).map((m) => (
             <Pressable
               key={m}
               onPress={() => setTrackerMode(m)}
@@ -469,7 +480,7 @@ export function TrackerTab() {
               ]}
             >
               <Text style={[styles.btnText, { color: trackerMode === m ? "#fff" : theme.text }]}>
-                {m === "template" ? "Template" : "Apple Vision"}
+                {m === "template" ? "Template" : m === "vision" ? "Apple Vision" : "TrackNet"}
               </Text>
             </Pressable>
           ))}
@@ -480,10 +491,10 @@ export function TrackerTab() {
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
             onPress={runTracker}
-            disabled={!box || !!busy}
-            style={[styles.btn, { backgroundColor: theme.highlight, opacity: !box || busy ? 0.4 : 1 }]}
+            disabled={(!box && trackerMode !== "tracknet") || !!busy}
+            style={[styles.btn, { backgroundColor: theme.highlight, opacity: (!box && trackerMode !== "tracknet") || busy ? 0.4 : 1 }]}
           >
-            <Text style={styles.btnText}>{busy === "tracking…" ? "Tracking…" : "Run tracker"}</Text>
+            <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : trackerMode === "tracknet" ? "Run TrackNet" : "Run tracker"}</Text>
           </Pressable>
           <Pressable
             onPress={() => { setBox(null); setResult(null); }}
@@ -505,7 +516,7 @@ export function TrackerTab() {
       {result && (
         <View style={{ marginTop: 6 }}>
           <Text style={{ color: theme.text, fontWeight: "600", marginBottom: 6 }}>
-            [{result.mode === "template" ? "Template" : "Apple Vision"}] tracked {result.frames.length} frames in {result.elapsedMs} ms
+            [{result.mode === "template" ? "Template" : result.mode === "vision" ? "Apple Vision" : "TrackNet"}] tracked {result.frames.length} frames in {result.elapsedMs} ms
             {"  ·  "}
             {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
           </Text>
