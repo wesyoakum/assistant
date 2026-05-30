@@ -8,7 +8,8 @@ stays aligned.
 > **Status note (supersedes the earlier plan).** This document replaces the
 > earlier "detect the plate with a trained YOLO-pose corner model" framing.
 > The initial fix is now **automatic and training-free** (region → contour →
-> polygon → `solvePnP`), and orientation at the operating position is owned by
+> polygon → raycast corners to the ground plane), and orientation at the
+> operating position is owned by
 > **foul-line vanishing points**, not the plate. The `training/plate-detector/`
 > YOLO-pose scaffold is **deprioritized** — kept only as the §10 fallback if the
 > classical region/line CV proves too brittle on real fields. See
@@ -61,7 +62,7 @@ ARKit (ARWorldTrackingConfiguration, sceneReconstruction = .mesh)
    │  provides: world frame, ground plane, metric scale, VIO/LiDAR tracking
    │
    ├── PHASE A: Initial fix (one-time, good angle)
-   │     5-corner solvePnP against known plate model  →  field anchor (full pose)
+   │     5 corner pixels → raycast to ground plane → computeHomePlatePose → field anchor
    │
    ├── SLAM carries the anchor as user walks to operating position
    │
@@ -82,8 +83,8 @@ jitter).
 Goal: one clean, near-perfect pose from a good angle that SLAM will preserve.
 **Fully automatic — no manual tapping.**
 
-**Method: region → contour → polygon → PnP.** Zero training data; runs natively
-on iOS.
+**Method: region → contour → polygon → raycast corners to ground plane.** Zero
+training data; runs natively on iOS (no PnP/OpenCV — see CV-stack decision).
 
 1. **Region.** Isolate the plate as a bright white blob on dirt. Threshold in a
    robust color space (HSV/Lab — high lightness, low saturation) rather than raw
@@ -99,11 +100,16 @@ on iOS.
    back corners by geometry (the apex is the vertex pointing toward the catcher;
    the squared back edge anchors orientation). This gives a consistent
    correspondence order for PnP.
-5. **Subpixel refine.** Run `cornerSubPix` on each of the 5 vertices before
-   solving — this drives final accuracy more than the detector choice, since
-   corner error amplifies into outfield pose error.
-6. **Solve.** `solvePnP` of the 5 refined corners against the known 17″ pentagon
-   → full 6DoF pose with scale.
+5. **Subpixel refine.** Run a `cornerSubPix`-equivalent on each of the 5 vertices
+   before solving — this drives final accuracy more than the detector choice,
+   since corner error amplifies into outfield pose error.
+6. **Solve — by raycast, not PnP.** ARKit already gives the ground plane and
+   metric scale, so rather than `solvePnP`, raycast each of the 5 refined corner
+   pixels onto the ground plane (`raycastScreenPoint`) → 5 world points →
+   `computeHomePlatePose()` (already implemented + tested) recovers plate origin,
+   yaw, and a scale-check against the known 17″ edge. The good-angle requirement
+   is exactly what makes ground-plane raycast accurate here. (See the CV-stack
+   decision below for why PnP/OpenCV is avoided.)
 7. Create the field `ARAnchor` at the resulting plate position + yaw; parent the
    field model to it.
 
@@ -111,9 +117,9 @@ The accurate **along-range distance** captured here is the value SLAM preserves
 on the walk over — the whole point of doing the fix from a good angle.
 
 **Validation gate before accepting a fix:** require exactly 5 vertices, a
-plausible pentagon shape (edge-length ratios, apex angle), and a low PnP
-reprojection error. Reject and re-capture otherwise rather than anchoring off a
-bad solve.
+plausible pentagon shape (edge-length ratios, apex angle), and a low scale error
+from `computeHomePlatePose` (the recovered 17″ front edge vs. known). Reject and
+re-capture otherwise rather than anchoring off a bad solve.
 
 *Fallbacks:*
 
@@ -132,8 +138,9 @@ Run every frame:
 
 1. **Line detection.** Start with classic CV: edge detection → Hough → RANSAC
    line fitting on the two foul lines. Cheap, runs every frame, robust at grazing
-   angles. Apple's Vision framework has no direct line detector, so use OpenCV or
-   Accelerate/Metal. Reach for a small Core ML segmentation net **only if**
+   angles. Apple's Vision framework has no direct line detector, so use MPS Sobel
+   edges + RANSAC line fitting (Accelerate/Metal — see CV-stack decision). Reach
+   for a small Core ML segmentation net **only if**
    shadows / chalk wear prove brutal in testing — don't build it preemptively.
 2. **Yaw** from the lines' **vanishing points** (robust; does not require the apex).
 3. **(x, y)** by `ARRaycastQuery` of the apex pixel onto the estimated ground
@@ -176,7 +183,9 @@ Run every frame:
 ## 8. Build order (suggested)
 
 1. ARKit session + ground plane + scene mesh; confirm stable world frame.
-2. Tap-to-mark plate calibration → `solvePnP` → place field anchor. Validate with
+2. Tap-to-mark plate calibration → raycast corners → `computeHomePlatePose` →
+   place field anchor (✅ already built as the Plate tab's manual capture).
+   Validate with
    a good-angle test.
 3. Walk-over test: does the anchor hold as you move to the dugout? (SLAM
    carry-over.)
@@ -217,22 +226,51 @@ What in `apps/lab-mobile` this plan builds on, reuses, or retires:
 
 | Plan element | Existing code | Action |
 |---|---|---|
-| World frame anchored at home plate (origin/axes, 4×4 transforms) | `src/field/coordinateFrame.ts` — `computeFieldFrame`, `computeHomePlatePose`, `transformPoint` (Phase 0, ✅ done + unit-tested) | **Reuse.** PnP output (§4.6) feeds this unchanged. |
-| ARKit session, ground raycast, anchors, world↔screen projection, aligned capture (image + depth + intrinsics + cam→world) | `modules/expo-lidar` — `raycastScreenPoint`, `addFieldLandmarkAtWorld`, `captureAlignedFrame`, `currentCameraTransform`, `resetSession`, `projectWorldPoint` | **Reuse + extend.** Needs: `solvePnP`, `approxPolyDP`/`cornerSubPix`, `ARRaycastQuery`, foul-line CV, scene-mesh reconstruction. |
-| Manual 5-corner "Plate World" capture (AR tab page 0) | `app/(tabs)/ar.tsx` — `capturePlateCorner`, `establishPlateWorld` | **Repurpose** as the §8.2 tap-to-mark calibration stand-in / good-angle PnP validation, ahead of the automatic §4 region→contour→PnP. |
+| World frame anchored at home plate (origin/axes, 4×4 transforms) | `src/field/coordinateFrame.ts` — `computeFieldFrame`, `computeHomePlatePose`, `transformPoint` (Phase 0, ✅ done + unit-tested) | **Reuse.** The 5 raycast corner points (§4.6) feed this unchanged. |
+| ARKit session, ground raycast, anchors, world↔screen projection, aligned capture (image + depth + intrinsics + cam→world) | `modules/expo-lidar` — `raycastScreenPoint`, `addFieldLandmarkAtWorld`, `captureAlignedFrame`, `currentCameraTransform`, `resetSession`, `projectWorldPoint` | **Reuse + extend.** Needs: contour/polygon/subpixel CV (Vision + vImage), foul-line CV (MPS Sobel + RANSAC), `ARRaycastQuery`, scene-mesh reconstruction. (No PnP — raycast to plane instead.) |
+| Manual 5-corner "Plate World" capture (AR tab page 0) | `app/(tabs)/ar.tsx` — `capturePlateCorner`, `establishPlateWorld` | **Repurpose** as the §8.2 tap-to-mark calibration stand-in / good-angle validation, ahead of the automatic §4 region→contour→raycast. Already uses raycast + `computeHomePlatePose` — the automatic path just replaces the 5 taps. |
 | In-app training-frame capture ("Save Frame") | `app/(tabs)/ar.tsx` — `saveTrainingFrame`; `Lidar.saveImageToPhotos` | **Keep** — still useful for collecting test frames for the §10 fallback / line-robustness §7.3 testing. |
 | Trained YOLO-pose corner model | `training/plate-detector/` scaffold | **Deprioritize** to §10 fallback. Not the primary path anymore. |
 | `home_plate` + bases/rubber/foul-pole landmark kinds | `modules/expo-lidar` — `FieldLandmarkKind` | **Reuse** for rendering the anchored field model. |
 
+### CV stack decision: Accelerate / Vision / Metal (not OpenCV)
+
+**Chosen 2026-05.** All custom CV is built on Apple-native frameworks — Vision
+(`VNDetectContoursRequest`), Accelerate/vImage, and MetalPerformanceShaders —
+**not** OpenCV. Rationale:
+
+- The one operation that would justify OpenCV — **`solvePnP`** — is **avoided**.
+  ARKit already provides the ground plane and metric scale, so the Phase A fix
+  raycasts the 5 detected corner pixels to the ground plane
+  (`raycastScreenPoint`, already in `expo-lidar`) and feeds the 5 world points to
+  **`computeHomePlatePose()`, which already exists and is unit-tested (11/11)**.
+  No PnP solve, no OpenCV. The plan's "good angle" requirement for the initial fix
+  is exactly the condition under which ground-plane raycast is accurate — so
+  raycast replaces PnP precisely where it's reliable.
+- Everything else is small or already native (see list below). OpenCV would mean a
+  heavy C++ pod + config plugin + Swift↔C++ bridge + lockfile/pod churn, bolted
+  onto an Expo setup where every existing native module is thin Swift over Apple
+  frameworks — all to avoid ~250 lines of well-understood algorithms after the
+  hard part is already dodged.
+- **Revisit only if:** late Phase B wants `solvePnP`-based opportunistic
+  re-registration (§5.5) at grazing angles where raycast is weak. If that ever
+  matters, add OpenCV *then*, scoped to that single solve — don't take the
+  dependency now for a maybe. The §10 Core ML fallback does **not** change this
+  decision (Core ML is also native).
+
 ### New native work this plan requires (not yet built)
 
-- `solvePnP` (5-point, against the 17″ pentagon model) — OpenCV or a hand-rolled
-  iterative solver. No OpenCV in the project today; decision needed (add OpenCV
-  pod vs. Accelerate/Metal hand-roll).
-- `VNDetectContoursRequest` + Douglas–Peucker polygon simplify + `cornerSubPix`
-  for the automatic plate region (§4).
-- Foul-line detection: edge → Hough → RANSAC, vanishing-point yaw (§5). Needs
-  OpenCV or Accelerate/Metal (Vision has no line detector).
+- **Phase A pose: raycast, not PnP.** 5 corner pixels → `raycastScreenPoint` each
+  to the ground plane → existing `computeHomePlatePose()`. (No new solver.)
+- Plate region (§4.1): HSV/Lab threshold → largest connected component.
+  **vImage / Metal** (no OpenCV `inRange`).
+- Contour (§4.2): **`VNDetectContoursRequest`** (Vision — native).
+- Polygon (§4.3): Douglas–Peucker simplify to 5 vertices. Hand-rolled (~50 lines).
+- Subpixel refine (§4.5): `cornerSubPix` equivalent on vImage gradients
+  (~60 lines).
+- Foul-line detection (§5.1): edges via **MPS Sobel** → RANSAC line fit
+  (~100 lines) → vanishing-point yaw (§5.2, pure geometry). (Vision has no line
+  detector; this replaces the OpenCV Hough path.)
 - `ARWorldTrackingConfiguration.sceneReconstruction = .mesh` enablement +
   `ARRaycastQuery` apex drop.
 - A smoothing filter over (x, y, yaw) and single-anchor update path.
