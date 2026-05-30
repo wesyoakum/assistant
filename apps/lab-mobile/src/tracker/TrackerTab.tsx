@@ -290,7 +290,8 @@ export function TrackerTab() {
             sampleStride: 1,
             maxFrames: 0,
             startTimeSec: frameTimeSec,
-            confidenceCutoff: 0.30,
+            // NCC drops sharply with motion blur even on a real hit; keep low so we don't bail prematurely.
+            confidenceCutoff: 0.15,
             searchPadding: 3,
             downsample: 2,
           });

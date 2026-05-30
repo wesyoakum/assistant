@@ -115,11 +115,21 @@ public final class TemplateTrackerModule: Module {
         let lumaH = luma.height
 
         if frameIndex == 0 {
-          // Crop the template from this frame's box.
-          let bx = max(0, min(lumaW - 2, Int(initBoxNorm.minX * CGFloat(lumaW))))
-          let by = max(0, min(lumaH - 2, Int(initBoxNorm.minY * CGFloat(lumaH))))
-          let bw = max(2, min(lumaW - bx, Int(initBoxNorm.width * CGFloat(lumaW))))
-          let bh = max(2, min(lumaH - by, Int(initBoxNorm.height * CGFloat(lumaH))))
+          // Crop the template from this frame's box. We tighten the crop to
+          // the central templateInset of the user-drawn rect so the template
+          // is dominated by the actual target rather than the surrounding
+          // background (which would otherwise let NCC lock onto the local
+          // pitcher / hand region instead of the ball flying away).
+          let bxRaw = max(0, min(lumaW - 2, Int(initBoxNorm.minX * CGFloat(lumaW))))
+          let byRaw = max(0, min(lumaH - 2, Int(initBoxNorm.minY * CGFloat(lumaH))))
+          let bwRaw = max(2, min(lumaW - bxRaw, Int(initBoxNorm.width * CGFloat(lumaW))))
+          let bhRaw = max(2, min(lumaH - byRaw, Int(initBoxNorm.height * CGFloat(lumaH))))
+          let insetX = max(0, bwRaw / 6)  // chop 1/6 off each side → keep central ~67%
+          let insetY = max(0, bhRaw / 6)
+          let bx = bxRaw + insetX
+          let by = byRaw + insetY
+          let bw = max(2, bwRaw - 2 * insetX)
+          let bh = max(2, bhRaw - 2 * insetY)
           templateW = bw
           templateH = bh
           template = Array(repeating: 0, count: bw * bh)
@@ -166,11 +176,18 @@ public final class TemplateTrackerModule: Module {
           return pc
         }()
 
-        // Search window centered on prediction. Window radius = searchPadding * template half-size.
+        // Search window centered on prediction.
+        // Minimum window: scaled to the image, never less than ~6.5% of width.
+        // First non-template frame has no velocity yet — use a much wider
+        // window so we can still catch a fast-moving target.
         let halfW = templateW / 2
         let halfH = templateH / 2
-        let radX = max(8, searchPadding * max(halfW, 4))
-        let radY = max(8, searchPadding * max(halfH, 4))
+        let scaledMin = max(40, lumaW / 15)
+        let firstNonTemplate = (prevPrevCenter == nil)
+        let radBase = searchPadding * max(halfW, halfH, 4)
+        let radPredFrames = firstNonTemplate ? max(scaledMin * 3, radBase) : max(scaledMin, radBase)
+        let radX = radPredFrames
+        let radY = radPredFrames
         // The top-left of the template patch can range from minX to maxX inclusive.
         let minX = max(0, predicted.x - halfW - radX)
         let maxX = min(lumaW - templateW, predicted.x - halfW + radX)
