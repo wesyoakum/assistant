@@ -18,12 +18,14 @@ kept in git rather than deleted so it can be pulled back if needed.
 
 ## Native modules (now removed from the build)
 
-The unused native modules — `expo-yolo`, `expo-baseball`, `expo-vision-detect`,
-`expo-gamecontroller` — were moved here to `archive/modules/`, removed from
-`package.json`, and dropped from `pnpm-lock.yaml`. They are **no longer autolinked
-or compiled into the iOS build** (the autolink glob is `modules/*`, which doesn't
-match `archive/modules/*`). Their only consumers were the archived
-`experiments.tsx`.
+The unused native modules — `expo-vision-detect` and `expo-gamecontroller` —
+were moved here to `archive/modules/`, removed from `package.json`, and dropped
+from `pnpm-lock.yaml`. They are **no longer autolinked or compiled into the iOS
+build** (the autolink glob is `modules/*`, which doesn't match
+`archive/modules/*`). Their only consumers were the archived `experiments.tsx`.
+
+(`expo-yolo` and `expo-baseball` were also archived here, but have since been
+**restored to `modules/`** to power the Tracker's YOLO-ball and Baseball modes.)
 
 `pnpm install --frozen-lockfile` passes with them gone, so this is EAS/CI-safe.
 
