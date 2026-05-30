@@ -16,14 +16,24 @@ kept in git rather than deleted so it can be pulled back if needed.
 | `app-tabs/chat.tsx` | `(tabs)/chat` placeholder ("Coming in Phase 2") | Unused. |
 | `src/audio/chords.ts` | FFT note/chord detection for the experiments Audio tab | Only consumer was `experiments.tsx`. |
 
-## Not archived (deliberately)
+## Native modules (now removed from the build)
 
 The unused native modules — `expo-yolo`, `expo-baseball`, `expo-vision-detect`,
-`expo-gamecontroller` — were **left in `modules/`**. They're pnpm workspace
-packages pinned in `pnpm-lock.yaml`; moving them would break
-`pnpm install --frozen-lockfile` in CI. Their *usage* was removed (the screens
-that imported them are here), so they're inert. Delete them properly only
-together with a lockfile regeneration.
+`expo-gamecontroller` — were moved here to `archive/modules/`, removed from
+`package.json`, and dropped from `pnpm-lock.yaml`. They are **no longer autolinked
+or compiled into the iOS build** (the autolink glob is `modules/*`, which doesn't
+match `archive/modules/*`). Their only consumers were the archived
+`experiments.tsx`.
+
+`pnpm install --frozen-lockfile` passes with them gone, so this is EAS/CI-safe.
+
+To restore one: move it back to `modules/`, re-add `"<name>": "workspace:*"` to
+`package.json` dependencies, and run `pnpm install --lockfile-only`.
+
+## Still-live native modules (kept in `modules/`)
+
+`expo-lidar` (Plate / AR), `expo-vision-tracker` + `expo-template-tracker`
+(Tracker). These are imported by the live app and stay.
 
 ## Restoring something
 
