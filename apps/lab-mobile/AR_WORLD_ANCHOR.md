@@ -118,13 +118,22 @@ real field. Now a true inverse; covered by a round-trip regression test.
 
 Output plugs straight into the existing `FieldRegistration` path.
 
-### Phase 1 — classical prototype (no training)  ← selected starting point
-In the Experiments AR screen, add a **"Detect home plate"** action:
-`captureAlignedFrame()` → classical corner finder (white-region threshold /
-contour fit, or `expo-vision-detect` rectangles as a starting point) → Stage 2 →
-place the field via the existing path. Proves the entire loop in good lighting
-before labeling a single image. If lighting is controlled this may be all that's
-needed.
+### Phase 1 — standalone "Plate World" test + classical detection
+
+**Phase 1a — standalone test screen (✅ DONE, manual corner capture).**
+`app/plate-world.tsx` is a self-contained AR screen, **completely separate from
+the Field registration flow** (which lives in `app/experiments.tsx`). Reached
+from the AR tab's settings drawer ("Plate World test"). You aim the crosshair at
+each of home plate's 5 corners and tap Capture; each capture raycasts to the
+ground (`raycastScreenPoint`). At 5 corners it runs `computeHomePlatePose`
+(Phase 0) and drops a virtual `home_plate` marker onto the real plate, oriented
+by the recovered heading, with a pose/scale readout. This is the Stage 1 = manual
+stand-in: the 5 taps are exactly the interface a detector will later fill.
+
+**Phase 1b — classical (no-training) detector (next).** Replace the 5 manual taps
+with an automatic corner finder (white-region/contour fit, or `expo-vision-detect`
+rectangles as a starting point) feeding the same `computeHomePlatePose` → marker
+path. Nothing downstream changes.
 
 ### Phase 2 — train YOLO-pose corner model (only if Phase 1 is too brittle)
 If classical detection fails on dirt-covered/worn plates, shadows, night games,

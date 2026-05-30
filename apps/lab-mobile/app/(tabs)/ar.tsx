@@ -356,6 +356,12 @@ export default function ARScreen() {
         <SafeAreaView style={{ flex: 1 }}>
           <View style={styles.drawerInner}>
             <Text style={styles.drawerTitle}>Settings</Text>
+            <Pressable
+              onPress={() => { animateDrawer(false); router.push("/plate-world"); }}
+              style={[styles.drawerItem, { marginBottom: 10 }]}
+            >
+              <Text style={styles.drawerItemText}>Plate World test</Text>
+            </Pressable>
             <Pressable onPress={exitAR} style={styles.drawerItem}>
               <Text style={styles.drawerItemText}>Exit AR</Text>
             </Pressable>
