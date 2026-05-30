@@ -15,13 +15,13 @@ import {
 } from "../../modules/expo-lidar/src";
 import { computeHomePlatePose, type Vec3 } from "../../src/field/coordinateFrame";
 import {
-  detectPlatePentagon,
   runPlatePipelineDebug,
   type Point2,
   type PlatePipelineDebug,
 } from "../../src/field/plateDetect";
 import {
   PlateDebugOverlay,
+  PlatePlacementOverlay,
   DEFAULT_DEBUG_LAYERS,
   type PlateDebugLayers,
 } from "../../src/field/PlateDebugOverlay";
@@ -59,6 +59,24 @@ export default function PlateScreen() {
   const [debugLayers, setDebugLayers] = useState<PlateDebugLayers>(DEFAULT_DEBUG_LAYERS);
   const [debugData, setDebugData] = useState<PlatePipelineDebug | null>(null);
   const [viewSize, setViewSize] = useState({ w: 0, h: 0 });
+
+  // ── Auto acquire / maintain state machine ──────────────────────────────────
+  // "off"        — Auto not running.
+  // "acquiring"  — scanning for the biggest plausible plate; draws a green
+  //                candidate and offers "Confirm Anchor". No anchor yet.
+  // "maintaining"— anchor set; keeps scanning but ONLY near the anchor's screen
+  //                position, re-establishing to correct drift (never a new plate).
+  type AutoPhase = "off" | "acquiring" | "maintaining";
+  const [autoPhase, setAutoPhase] = useState<AutoPhase>("off");
+  const autoPhaseRef = useRef<AutoPhase>("off");
+  useEffect(() => { autoPhaseRef.current = autoPhase; }, [autoPhase]);
+  // Snapped plate corners (PIXEL space) currently drawn by the placement overlay.
+  const [placementCorners, setPlacementCorners] = useState<Point2[] | null>(null);
+  // World-space corners of the live candidate (for confirm) / last good fix.
+  const candidateWorldRef = useRef<Vec3[] | null>(null);
+  // The committed anchor's world center, used to gate maintain-mode scanning to
+  // a region of interest around it (so we re-lock the SAME plate, not a new one).
+  const anchorCenterRef = useRef<Vec3 | null>(null);
 
   // Run the full pipeline on the current frame's best contour and capture every
   // intermediate stage for the overlay. Picks the contour whose template snap
@@ -123,9 +141,9 @@ export default function PlateScreen() {
     setDebugLayers((l) => ({ ...l, [key]: !l[key] }));
   }, []);
 
-  const establishPlateWorld = useCallback(async (corners: Vec3[]) => {
+  const establishPlateWorld = useCallback(async (corners: Vec3[], opts: { quiet?: boolean } = {}) => {
     const p = computeHomePlatePose(corners);
-    if (!p) { setPlateStatus("Couldn't solve the plate — tap Reset and recapture."); return; }
+    if (!p) { if (!opts.quiet) setPlateStatus("Couldn't solve the plate — tap Reset and recapture."); return false; }
     // Heading toward the pitcher = field "forward" (same atan2 convention as
     // src/field/templates.ts), used to orient the rendered plate.
     const headingDeg = (Math.atan2(p.forward.x, p.forward.z) * 180) / Math.PI;
@@ -137,12 +155,14 @@ export default function PlateScreen() {
     } catch {
       // Marker render is best-effort; the readout still stands.
     }
+    anchorCenterRef.current = p.center; // for maintain-mode ROI gating
     const frontIn = p.frontEdgeLengthM * 39.3701;
     const errPct = Math.round(p.scaleError * 100);
     setPlateStatus(
       `${p.scaleError <= 0.2 ? "World anchored" : "Placed (size off?)"} · ` +
       `${frontIn.toFixed(1)}in (${errPct}% off 17in) · heading ${headingDeg.toFixed(0)}°`,
     );
+    return true;
   }, []);
 
   const capturePlateCorner = useCallback(async () => {
@@ -162,42 +182,131 @@ export default function PlateScreen() {
     try { await arRef.current?.clearFieldLandmarks(); } catch { /* ignore */ }
   }, []);
 
-  // Auto-detect (Phase A, AR_WORLD_ANCHOR §4): native finds white-region
-  // contours → tested detectPlatePentagon orders the 5 corners → raycast each to
-  // the ground plane → establishPlateWorld (same path as the manual taps).
-  const autoDetectPlate = useCallback(async () => {
-    setPlateStatus("Scanning for home plate…");
+  // One auto scan pass (Phase A, AR_WORLD_ANCHOR §4). Behaviour depends on phase:
+  //  • acquiring  — pick the BIGGEST plausible plate anywhere in frame.
+  //  • maintaining— only accept a candidate whose snapped center is near the
+  //                 committed anchor's projected screen position (ROI gate), so
+  //                 we re-lock the same physical plate and ignore others.
+  // Draws the snapped plate (green=acquiring, cyan=maintaining) and stashes its
+  // world-space corners. In maintaining, also re-establishes the anchor to
+  // correct drift. Returns the world corners drawn, or null.
+  const scanOnce = useCallback(async (): Promise<Vec3[] | null> => {
+    const { w: W, h: H } = viewSize;
+    if (W <= 0 || H <= 0) return null;
+
+    // Maintain ROI: project the anchor center to screen; accept only candidates
+    // whose centroid lands within this normalized radius of it.
+    const MAINTAIN_ROI = 0.28; // ~28% of view diagonal
+    let roi: { x: number; y: number } | null = null;
+    if (autoPhaseRef.current === "maintaining" && anchorCenterRef.current) {
+      const c = anchorCenterRef.current;
+      const proj = await arRef.current?.projectWorldPoint(c.x, c.y, c.z).catch(() => null);
+      if (proj && proj.isInFront) roi = { x: proj.screenX, y: proj.screenY };
+      // If the anchor is off-screen/behind, skip this pass (keep last drawing).
+      else return candidateWorldRef.current;
+    }
+
     let contours: number[][];
     try {
-      contours = (await arRef.current?.detectPlateContours(6)) ?? [];
-    } catch (e) {
-      setPlateStatus(`Detect failed: ${(e as Error).message}`);
-      return;
+      contours = (await arRef.current?.detectPlateContours(8)) ?? [];
+    } catch {
+      return null;
     }
-    if (contours.length === 0) { setPlateStatus("No plate found — aim at the plate, good light."); return; }
+    if (contours.length === 0) { setPlacementCorners(null); candidateWorldRef.current = null; return null; }
 
-    // Pick the highest-confidence valid pentagon across candidate contours.
-    let best: { corners: Point2[]; confidence: number } | null = null;
+    // Evaluate every candidate contour; score by snap residual, but in acquiring
+    // mode bias toward the BIGGEST (largest snapped area) plausible plate.
+    type Cand = { snapPx: Point2[]; centroid: Point2; area: number; rms: number };
+    const cands: Cand[] = [];
     for (const flat of contours) {
       const pts: Point2[] = [];
-      for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]!, y: flat[i + 1]! });
-      const pent = detectPlatePentagon(pts, { minConfidence: 0.6 });
-      if (pent && (!best || pent.confidence > best.confidence)) best = pent;
+      for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]! * W, y: flat[i + 1]! * H });
+      const dbg = runPlatePipelineDebug(pts);
+      if (!dbg.snappedCorners) continue;
+      const snap = dbg.snappedCorners;
+      let cx = 0, cy = 0;
+      for (const p of snap) { cx += p.x; cy += p.y; }
+      cx /= snap.length; cy /= snap.length;
+      cands.push({
+        snapPx: snap,
+        centroid: { x: cx, y: cy },
+        area: polygonArea(snap),
+        rms: dbg.snappedRmsInches ?? Infinity,
+      });
     }
-    if (!best) { setPlateStatus("Found a shape but it's not plate-like — reposition."); return; }
+    if (cands.length === 0) { setPlacementCorners(null); candidateWorldRef.current = null; return null; }
 
-    // Raycast the 5 ordered corners (view-normalized) to the ground plane.
+    let chosen: Cand | undefined;
+    if (roi) {
+      // Maintain: nearest-to-ROI among those within the radius.
+      const diag = Math.hypot(W, H);
+      const within = cands
+        .map((c) => ({ c, d: Math.hypot(c.centroid.x - roi!.x * W, c.centroid.y - roi!.y * H) }))
+        .filter((x) => x.d <= MAINTAIN_ROI * diag)
+        .sort((a, b) => a.d - b.d);
+      chosen = within[0]?.c;
+      if (!chosen) return candidateWorldRef.current; // nothing near anchor this frame
+    } else {
+      // Acquire: the biggest plausible plate.
+      chosen = [...cands].sort((a, b) => b.area - a.area)[0];
+    }
+    if (!chosen) return null;
+
+    setPlacementCorners(chosen.snapPx);
+
+    // Raycast the snapped corners (back to normalized) to the ground plane.
     const world: Vec3[] = [];
-    for (const c of best.corners) {
-      const hit = await arRef.current?.raycastScreenPoint(c.x, c.y).catch(() => null);
-      if (!hit) { setPlateStatus("Corners didn't hit the ground — step closer / flatter."); return; }
+    for (const c of chosen.snapPx) {
+      const hit = await arRef.current?.raycastScreenPoint(c.x / W, c.y / H).catch(() => null);
+      if (!hit) { candidateWorldRef.current = null; return null; }
       world.push({ x: hit.worldX, y: hit.worldY, z: hit.worldZ });
     }
-    plateCornersRef.current = world;
-    setPlateCount(5);
-    setPlateStatus(`Detected (conf ${(best.confidence * 100).toFixed(0)}%) — solving…`);
-    await establishPlateWorld(world);
+    candidateWorldRef.current = world;
+    return world;
+  }, [viewSize]);
+
+  // Confirm the current acquiring candidate → establish the anchor and switch to
+  // maintaining (which re-locks the SAME plate to correct drift).
+  const confirmAnchor = useCallback(async () => {
+    const world = candidateWorldRef.current;
+    if (!world || world.length !== 5) { setPlateStatus("No plate detected yet — keep aiming."); return; }
+    const ok = await establishPlateWorld(world);
+    if (ok) setAutoPhase("maintaining");
   }, [establishPlateWorld]);
+
+  const startAuto = useCallback(() => {
+    anchorCenterRef.current = null;
+    candidateWorldRef.current = null;
+    setPlacementCorners(null);
+    setAutoPhase("acquiring");
+    setPlateStatus("Looking for home plate…");
+  }, []);
+
+  const stopAuto = useCallback(async () => {
+    setAutoPhase("off");
+    setPlacementCorners(null);
+    candidateWorldRef.current = null;
+    anchorCenterRef.current = null;
+    try { await arRef.current?.clearFieldLandmarks(); } catch { /* ignore */ }
+    setPlateStatus("Auto-detect off.");
+  }, []);
+
+  // Auto loop: scan ~4/sec while acquiring or maintaining. In maintaining, each
+  // successful scan re-establishes the anchor to correct drift.
+  useEffect(() => {
+    if (autoPhase === "off") return;
+    let cancelled = false;
+    (async () => {
+      while (!cancelled) {
+        const world = await scanOnce();
+        if (!cancelled && world && autoPhaseRef.current === "maintaining") {
+          await establishPlateWorld(world, { quiet: true });
+        }
+        await new Promise((r) => setTimeout(r, 220));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [autoPhase, scanOnce, establishPlateWorld]);
 
   // Save the current AR frame to the photo library to build a labeling dataset
   // for the §10 fallback (and for line-robustness testing, §7.3). Point the
@@ -237,6 +346,16 @@ export default function PlateScreen() {
     >
       <LidarARView ref={arRef} style={StyleSheet.absoluteFill} />
 
+      {/* Auto acquire/maintain placement overlay (green=candidate, cyan=anchored) */}
+      {autoPhase !== "off" && (
+        <PlatePlacementOverlay
+          corners={placementCorners}
+          width={viewSize.w}
+          height={viewSize.h}
+          confirmed={autoPhase === "maintaining"}
+        />
+      )}
+
       {/* Pipeline debug overlay (stroke-only, toggleable layers) */}
       {debugOn && (
         <PlateDebugOverlay
@@ -247,11 +366,13 @@ export default function PlateScreen() {
         />
       )}
 
-      {/* Crosshair — Capture raycasts against screen center */}
-      <View pointerEvents="none" style={styles.plateCrosshair}>
-        <View style={styles.crossH} />
-        <View style={styles.crossV} />
-      </View>
+      {/* Crosshair — only for the manual capture flow (hidden during Auto) */}
+      {autoPhase === "off" && (
+        <View pointerEvents="none" style={styles.plateCrosshair}>
+          <View style={styles.crossH} />
+          <View style={styles.crossV} />
+        </View>
+      )}
 
       <SafeAreaView style={styles.overlay} pointerEvents="box-none">
         <View style={styles.statsBar} pointerEvents="none">
@@ -274,24 +395,55 @@ export default function PlateScreen() {
         )}
 
         <View style={styles.controlBar}>
-          <TogglePill
-            label={plateCount >= 5 ? "Captured 5/5" : `Capture ${plateCount}/5`}
-            active={plateCount > 0 && plateCount < 5}
-            onPress={capturePlateCorner}
-            disabled={plateCount >= 5}
-          />
-          <TogglePill label="Auto" active={false} onPress={autoDetectPlate} />
-          <TogglePill label="Debug" active={debugOn} onPress={toggleDebug} />
-          <TogglePill label="Reset" active={false} onPress={resetPlateWorld} />
-          <TogglePill
-            label={trainingCount > 0 ? `Save Frame (${trainingCount})` : "Save Frame"}
-            active={false}
-            onPress={saveTrainingFrame}
-          />
+          {autoPhase === "off" && (
+            <>
+              <TogglePill
+                label={plateCount >= 5 ? "Captured 5/5" : `Capture ${plateCount}/5`}
+                active={plateCount > 0 && plateCount < 5}
+                onPress={capturePlateCorner}
+                disabled={plateCount >= 5}
+              />
+              <TogglePill label="Auto" active={false} onPress={startAuto} />
+              <TogglePill label="Debug" active={debugOn} onPress={toggleDebug} />
+              <TogglePill label="Reset" active={false} onPress={resetPlateWorld} />
+              <TogglePill
+                label={trainingCount > 0 ? `Save Frame (${trainingCount})` : "Save Frame"}
+                active={false}
+                onPress={saveTrainingFrame}
+              />
+            </>
+          )}
+          {autoPhase === "acquiring" && (
+            <>
+              <TogglePill
+                label="Confirm Anchor"
+                active={!!placementCorners}
+                onPress={confirmAnchor}
+                disabled={!placementCorners}
+              />
+              <TogglePill label="Cancel" active={false} onPress={stopAuto} />
+            </>
+          )}
+          {autoPhase === "maintaining" && (
+            <>
+              <TogglePill label="Re-acquire" active={false} onPress={startAuto} />
+              <TogglePill label="Stop Auto" active onPress={stopAuto} />
+            </>
+          )}
         </View>
       </SafeAreaView>
     </View>
   );
+}
+
+// Shoelace area of a polygon (pixel² ), for picking the biggest plate.
+function polygonArea(pts: Point2[]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!, q = pts[(i + 1) % pts.length]!;
+    a += p.x * q.y - q.x * p.y;
+  }
+  return Math.abs(a) / 2;
 }
 
 function TogglePill({

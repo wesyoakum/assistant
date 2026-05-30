@@ -123,3 +123,35 @@ export function PlateDebugOverlay({
     </Svg>
   );
 }
+
+// Placement overlay for the auto acquire/maintain flow: the snapped home plate
+// as a translucent fill where the app sees the plate. Green while acquiring
+// (candidate awaiting confirmation), cyan once the anchor is set (maintaining).
+// `corners` are in PIXEL space (caller scales the native normalized contour by
+// view size before fitting — see ar.tsx). width/height size the SVG canvas.
+export function PlatePlacementOverlay({
+  corners,
+  width,
+  height,
+  confirmed = false,
+}: {
+  corners: Point2[] | null;
+  width: number;
+  height: number;
+  confirmed?: boolean;
+}) {
+  if (!corners || corners.length !== 5 || width <= 0 || height <= 0) return null;
+  const color = confirmed ? COLORS.snapped : COLORS.region;
+  return (
+    <Svg style={StyleSheet.absoluteFill} pointerEvents="none" width={width} height={height}>
+      <Polygon
+        points={ptsAttr(corners)}
+        fill={color}
+        fillOpacity={confirmed ? 0.22 : 0.35}
+        stroke={color}
+        strokeWidth={2.5}
+        strokeOpacity={0.95}
+      />
+    </Svg>
+  );
+}
