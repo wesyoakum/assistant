@@ -39,6 +39,7 @@ interface NativeModule {
   startSession(gridW: number, gridH: number, throttleMs: number): Promise<void>;
   stopSession(): Promise<void>;
   captureAlignedFrame(jpegQuality: number): Promise<AlignedFrame>;
+  saveImageToPhotos(base64: string): Promise<boolean>;
   addListener: (event: string, callback: (payload: DepthFrame) => void) => EventSubscription;
 }
 
@@ -78,6 +79,11 @@ export const Lidar = {
   captureAlignedFrame(jpegQuality = 0.7): Promise<AlignedFrame> {
     if (!NativeLidar) return Promise.reject(new Error("LiDAR native module not in this build"));
     return NativeLidar.captureAlignedFrame(jpegQuality);
+  },
+  /** Save a base64 JPEG (with or without a data: URI prefix) to the photo library. Prompts for add-only permission. Returns true on success. */
+  saveImageToPhotos(base64: string): Promise<boolean> {
+    if (!NativeLidar) return Promise.reject(new Error("LiDAR native module not in this build"));
+    return NativeLidar.saveImageToPhotos(base64);
   },
   addDepthListener(cb: (frame: DepthFrame) => void): EventSubscription {
     if (!NativeLidar) return { remove: () => {} } as EventSubscription;

@@ -5,6 +5,7 @@ import CoreGraphics
 import CoreImage
 import AVFoundation
 import simd
+import Photos
 
 public final class LidarModule: Module {
   private var arSession: ARSession?

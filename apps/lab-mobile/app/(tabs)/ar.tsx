@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
+  Lidar,
   LidarARView,
   lidarARViewAvailable,
   type LidarARViewRef,
@@ -180,6 +181,8 @@ export default function ARScreen() {
   // pose; a virtual home_plate marker is dropped onto the real one.
   const plateCornersRef = useRef<Vec3[]>([]);
   const [plateCount, setPlateCount] = useState(0);
+  const trainingCountRef = useRef(0);
+  const [trainingCount, setTrainingCount] = useState(0);
   const [plateStatus, setPlateStatus] = useState(
     "Aim the crosshair at a home-plate corner, then tap Capture (0/5).",
   );
@@ -489,6 +492,11 @@ export default function ARScreen() {
                 disabled={plateCount >= 5}
               />
               <TogglePill label="Reset" active={false} onPress={resetPlateWorld} />
+              <TogglePill
+                label={trainingCount > 0 ? `Save Frame (${trainingCount})` : "Save Frame"}
+                active={false}
+                onPress={saveTrainingFrame}
+              />
             </View>
           </View>
 
