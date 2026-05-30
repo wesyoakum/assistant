@@ -89,10 +89,6 @@ function AuthGate() {
         options={{ headerShown: true, title: "Notification History" }}
       />
       <Stack.Screen
-        name="experiments"
-        options={{ headerShown: true, title: "Experiments" }}
-      />
-      <Stack.Screen
         name="email"
         options={{ headerShown: true, title: "Emails" }}
       />

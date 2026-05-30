@@ -18,7 +18,6 @@ import { useMe } from "../../src/hooks/useMe";
 import { apiFetch } from "../../src/api/client";
 import { useTheme, useAppearance, type Theme, type AppearanceMode } from "../../src/theme";
 import { useStyles } from "../../src/hooks/useStyles";
-import { ExperimentsContent } from "../experiments";
 
 interface UsageSummaryData {
   today: { calls: number; costCents: number };
@@ -542,13 +541,12 @@ function PreferencesList() {
 }
 
 
-type SettingsTab = "general" | "context" | "usage" | "experiments";
+type SettingsTab = "general" | "context" | "usage";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "general", label: "General" },
   { key: "context", label: "Context" },
   { key: "usage", label: "Usage" },
-  { key: "experiments", label: "Lab" },
 ];
 
 export default function SettingsScreen() {
@@ -856,9 +854,6 @@ export default function SettingsScreen() {
           </View>
         </>
       )}
-
-      {/* Experiments tab — sensor sandbox */}
-      {tab === "experiments" && <ExperimentsContent />}
 
       {/* Calendars section */}
       {tab === "context" && (
