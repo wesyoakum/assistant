@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -100,13 +100,24 @@ export default function PlateScreen() {
   }, [viewSize]);
 
   const toggleDebug = useCallback(() => {
-    setDebugOn((on) => {
-      const next = !on;
-      if (next) runDebug();
-      else setDebugData(null);
-      return next;
-    });
-  }, [runDebug]);
+    setDebugOn((on) => !on);
+  }, []);
+
+  // Continuous identify loop: while Debug is on, keep re-running detection and
+  // refreshing the overlay (~6/sec) so you can watch how well it picks up the
+  // plate as you move. Pure feedback — it does NOT anchor. The loop stops and the
+  // overlay clears when Debug is turned off or the screen unmounts.
+  useEffect(() => {
+    if (!debugOn) { setDebugData(null); return; }
+    let cancelled = false;
+    (async () => {
+      while (!cancelled) {
+        await runDebug();
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [debugOn, runDebug]);
 
   const toggleLayer = useCallback((key: keyof PlateDebugLayers) => {
     setDebugLayers((l) => ({ ...l, [key]: !l[key] }));
@@ -259,7 +270,6 @@ export default function PlateScreen() {
                 small
               />
             ))}
-            <TogglePill label="↻" active={false} onPress={runDebug} small />
           </View>
         )}
 
