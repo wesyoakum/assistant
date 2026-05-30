@@ -64,7 +64,15 @@ export default function PlateScreen() {
   // intermediate stage for the overlay. Picks the contour whose template snap
   // has the lowest residual (the most plate-like), so the overlay tracks the
   // real plate even with other white blobs (bases, chalk) in frame.
+  //
+  // The native contour points are view-normalized (0..1). We scale them into
+  // PIXEL space before running the pipeline, because fitPlateTemplate is a
+  // uniform-scale (isotropic) fit — feeding it normalized coords on a non-square
+  // screen stretches the snapped plate (the real 3D anchor is unaffected; it's
+  // solved in metric space). The overlay then plots these pixel coords directly.
   const runDebug = useCallback(async () => {
+    const { w: W, h: H } = viewSize;
+    if (W <= 0 || H <= 0) { setPlateStatus("Debug: view not measured yet — try again."); return; }
     let contours: number[][];
     try {
       contours = (await arRef.current?.detectPlateContours(6)) ?? [];
@@ -77,7 +85,7 @@ export default function PlateScreen() {
     let best: PlatePipelineDebug | null = null;
     for (const flat of contours) {
       const pts: Point2[] = [];
-      for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]!, y: flat[i + 1]! });
+      for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]! * W, y: flat[i + 1]! * H });
       const dbg = runPlatePipelineDebug(pts);
       const r = dbg.snappedRmsInches ?? Infinity;
       const bestR = best?.snappedRmsInches ?? Infinity;
@@ -89,7 +97,7 @@ export default function PlateScreen() {
     } else {
       setPlateStatus("Debug: contour found, no plate fit.");
     }
-  }, []);
+  }, [viewSize]);
 
   const toggleDebug = useCallback(() => {
     setDebugOn((on) => {

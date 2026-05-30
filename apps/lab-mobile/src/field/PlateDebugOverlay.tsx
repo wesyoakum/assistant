@@ -42,8 +42,11 @@ const COLORS = {
   snapped: "#32D7E0",  // cyan
 };
 
-function ptsAttr(points: Point2[], w: number, h: number): string {
-  return points.map((p) => `${p.x * w},${p.y * h}`).join(" ");
+// Pipeline points are already in PIXEL space (ar.tsx scales the native
+// normalized contour by the view size before fitting — fitPlateTemplate needs
+// isotropic coords). So we plot them directly; width/height only size the canvas.
+function ptsAttr(points: Point2[]): string {
+  return points.map((p) => `${p.x},${p.y}`).join(" ");
 }
 
 export function PlateDebugOverlay({
@@ -65,7 +68,7 @@ export function PlateDebugOverlay({
       {/* Region outline (stroke only — no fill) */}
       {layers.region && debug.contour.length >= 2 && (
         <Polyline
-          points={ptsAttr([...debug.contour, debug.contour[0]!], W, H)}
+          points={ptsAttr([...debug.contour, debug.contour[0]!])}
           fill="none"
           stroke={COLORS.region}
           strokeWidth={1.5}
@@ -77,8 +80,8 @@ export function PlateDebugOverlay({
       {layers.edges && debug.edgeLines.map((e, i) => (
         <Line
           key={`edge-${i}`}
-          x1={e.from.x * W} y1={e.from.y * H}
-          x2={e.to.x * W} y2={e.to.y * H}
+          x1={e.from.x} y1={e.from.y}
+          x2={e.to.x} y2={e.to.y}
           stroke={COLORS.edges}
           strokeWidth={2}
           strokeOpacity={0.95}
@@ -88,7 +91,7 @@ export function PlateDebugOverlay({
       {/* Snapped known-plate outline (cyan polygon) */}
       {layers.snapped && debug.snappedCorners && debug.snappedCorners.length === 5 && (
         <Polygon
-          points={ptsAttr(debug.snappedCorners, W, H)}
+          points={ptsAttr(debug.snappedCorners)}
           fill="none"
           stroke={COLORS.snapped}
           strokeWidth={2.5}
@@ -98,7 +101,7 @@ export function PlateDebugOverlay({
 
       {/* DP seed corners (orange dots) */}
       {layers.dp && debug.seedCorners?.map((p, i) => (
-        <Circle key={`dp-${i}`} cx={p.x * W} cy={p.y * H} r={4} fill={COLORS.dp} fillOpacity={0.9} />
+        <Circle key={`dp-${i}`} cx={p.x} cy={p.y} r={4} fill={COLORS.dp} fillOpacity={0.9} />
       ))}
 
       {/* Recovered corners from intersection (red dots; hollow if seed-fallback) */}
@@ -107,8 +110,8 @@ export function PlateDebugOverlay({
         return (
           <Circle
             key={`corner-${i}`}
-            cx={p.x * W}
-            cy={p.y * H}
+            cx={p.x}
+            cy={p.y}
             r={5}
             fill={ok ? COLORS.corners : "none"}
             stroke={COLORS.corners}
