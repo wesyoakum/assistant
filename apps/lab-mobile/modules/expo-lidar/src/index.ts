@@ -141,6 +141,13 @@ export interface LidarARViewRef {
   /** Raycast from a normalized screen point to the ground. Returns world position or null. */
   raycastScreenPoint: (nx: number, ny: number) => Promise<{ worldX: number; worldY: number; worldZ: number } | null>;
   /**
+   * Batch raycast many normalized screen points to the ground plane in one call.
+   * Input flat [nx0,ny0,nx1,ny1,...]; output flat [x0,y0,z0,...] world coords,
+   * with NaN,NaN,NaN for points that miss the plane. Used by foul-line detection
+   * (raycasts a whole contour per frame — too slow one-by-one).
+   */
+  raycastScreenPoints: (coords: number[]) => Promise<number[]>;
+  /**
    * Detect candidate white-region (home-plate) contours in the current camera
    * frame. Returns up to `maxContours` contours, each a flat array of
    * view-normalized points [x0,y0,x1,y1,...] (x,y in 0..1 over the view). Feed

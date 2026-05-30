@@ -119,6 +119,11 @@ public final class LidarModule: Module {
       AsyncFunction("raycastScreenPoint") { (view: LidarARView, nx: Double, ny: Double) -> [String: Any]? in
         return view.raycastScreenPoint(nx: CGFloat(nx), ny: CGFloat(ny))
       }
+      // Batch raycast: input flat [nx0,ny0,nx1,ny1,...] normalized screen points,
+      // output flat [x0,y0,z0,...] world coords (NaN triple for misses).
+      AsyncFunction("raycastScreenPoints") { (view: LidarARView, coords: [Double]) -> [Double] in
+        return view.raycastScreenPoints(coords)
+      }
       // Plate auto-detection: returns candidate white-region contours as flat
       // [x0,y0,x1,y1,...] arrays of view-normalized points (see plateDetect.ts).
       AsyncFunction("detectPlateContours") { (view: LidarARView, maxContours: Int) -> [[Double]] in

@@ -13,12 +13,13 @@ import {
   lidarARViewAvailable,
   type LidarARViewRef,
 } from "../../modules/expo-lidar/src";
-import { computeHomePlatePose, type Vec3 } from "../../src/field/coordinateFrame";
+import { computeHomePlatePose, transformPoint, type Vec3 } from "../../src/field/coordinateFrame";
 import {
   runPlatePipelineDebug,
   type Point2,
   type PlatePipelineDebug,
 } from "../../src/field/plateDetect";
+import { fitFoulLines, type GroundPointXZ } from "../../src/field/foulLine";
 import {
   PlateDebugOverlay,
   PlatePlacementOverlay,
@@ -77,6 +78,18 @@ export default function PlateScreen() {
   // The committed anchor's world center, used to gate maintain-mode scanning to
   // a region of interest around it (so we re-lock the SAME plate, not a new one).
   const anchorCenterRef = useRef<Vec3 | null>(null);
+
+  // ── Foul-line yaw maintenance (AR_WORLD_ANCHOR §5) ─────────────────────────
+  // Toggle so we can test plate-only (off = behaves exactly as before) vs.
+  // foul-line-assisted yaw correction (on). The latest accepted plate pose's
+  // worldToField matrix lets us express raycast ground points in the field frame
+  // for fitFoulLines; the recovered yaw drift refines the anchor heading.
+  const [foulLinesOn, setFoulLinesOn] = useState(false);
+  const foulLinesOnRef = useRef(false);
+  useEffect(() => { foulLinesOnRef.current = foulLinesOn; }, [foulLinesOn]);
+  const worldToFieldRef = useRef<number[] | null>(null);
+  // Smoothed yaw-drift correction (radians), low-passed to avoid jitter.
+  const yawCorrRef = useRef(0);
 
   // Run the full pipeline on the current frame's best contour and capture every
   // intermediate stage for the overlay. Picks the contour whose template snap
@@ -141,12 +154,17 @@ export default function PlateScreen() {
     setDebugLayers((l) => ({ ...l, [key]: !l[key] }));
   }, []);
 
-  const establishPlateWorld = useCallback(async (corners: Vec3[], opts: { quiet?: boolean } = {}) => {
+  const establishPlateWorld = useCallback(async (
+    corners: Vec3[],
+    opts: { quiet?: boolean; yawCorrDeg?: number } = {},
+  ) => {
     const p = computeHomePlatePose(corners);
     if (!p) { if (!opts.quiet) setPlateStatus("Couldn't solve the plate — tap Reset and recapture."); return false; }
     // Heading toward the pitcher = field "forward" (same atan2 convention as
-    // src/field/templates.ts), used to orient the rendered plate.
-    const headingDeg = (Math.atan2(p.forward.x, p.forward.z) * 180) / Math.PI;
+    // src/field/templates.ts), used to orient the rendered plate. When foul-line
+    // maintenance supplies a yaw correction, fold it into the plate's heading.
+    const baseHeadingDeg = (Math.atan2(p.forward.x, p.forward.z) * 180) / Math.PI;
+    const headingDeg = baseHeadingDeg + (opts.yawCorrDeg ?? 0);
     try {
       await arRef.current?.clearFieldLandmarks();
       await arRef.current?.addFieldLandmarkAtWorld(
@@ -155,12 +173,14 @@ export default function PlateScreen() {
     } catch {
       // Marker render is best-effort; the readout still stands.
     }
-    anchorCenterRef.current = p.center; // for maintain-mode ROI gating
+    anchorCenterRef.current = p.center;        // for maintain-mode ROI gating
+    worldToFieldRef.current = p.frame.worldToField; // for foul-line field-frame transform
     const frontIn = p.frontEdgeLengthM * 39.3701;
     const errPct = Math.round(p.scaleError * 100);
+    const foulNote = opts.yawCorrDeg != null ? ` · foul yaw ${opts.yawCorrDeg >= 0 ? "+" : ""}${opts.yawCorrDeg.toFixed(1)}°` : "";
     setPlateStatus(
       `${p.scaleError <= 0.2 ? "World anchored" : "Placed (size off?)"} · ` +
-      `${frontIn.toFixed(1)}in (${errPct}% off 17in) · heading ${headingDeg.toFixed(0)}°`,
+      `${frontIn.toFixed(1)}in (${errPct}% off 17in) · heading ${headingDeg.toFixed(0)}°${foulNote}`,
     );
     return true;
   }, []);
@@ -265,6 +285,52 @@ export default function PlateScreen() {
     return world;
   }, [viewSize]);
 
+  // Foul-line yaw pass (AR_WORLD_ANCHOR §5). Reuses the white-region contours we
+  // already detect, raycasts ALL their points to the ground in one batch call,
+  // transforms them into the plate's field frame, drops everything within 2m of
+  // the plate (batter's box), and fits the two foul lines. Returns the recovered
+  // yaw-drift (degrees) to fold into the heading, or null if not enough signal.
+  const scanFoulLineYaw = useCallback(async (): Promise<number | null> => {
+    const { w: W, h: H } = viewSize;
+    const w2f = worldToFieldRef.current;
+    if (W <= 0 || H <= 0 || !w2f) return null;
+
+    let contours: number[][];
+    try {
+      contours = (await arRef.current?.detectPlateContours(8)) ?? [];
+    } catch {
+      return null;
+    }
+    if (contours.length === 0) return null;
+
+    // Flatten all contour points to a single normalized [nx,ny,...] batch.
+    const flatNorm: number[] = [];
+    for (const c of contours) for (const v of c) flatNorm.push(v);
+    if (flatNorm.length < 12) return null;
+
+    let world: number[];
+    try {
+      world = (await arRef.current?.raycastScreenPoints(flatNorm)) ?? [];
+    } catch {
+      return null;
+    }
+
+    // World → field frame; keep near-ground points as XZ (x→1B, z→3B).
+    const ground: GroundPointXZ[] = [];
+    for (let i = 0; i + 2 < world.length; i += 3) {
+      const x = world[i]!, y = world[i + 1]!, z = world[i + 2]!;
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+      const f = transformPoint({ x, y, z }, w2f);
+      if (Math.abs(f.y) > 0.25) continue; // not on the ground plane
+      ground.push({ x: f.x, z: f.z });
+    }
+    if (ground.length < 12) return null;
+
+    const fit = fitFoulLines(ground, { excludeRadiusM: 2 });
+    if (fit.confidence < 0.35) return null;
+    return (fit.yawDriftRad * 180) / Math.PI;
+  }, [viewSize]);
+
   // Confirm the current acquiring candidate → establish the anchor and switch to
   // maintaining (which re-locks the SAME plate to correct drift).
   const confirmAnchor = useCallback(async () => {
@@ -277,6 +343,8 @@ export default function PlateScreen() {
   const startAuto = useCallback(() => {
     anchorCenterRef.current = null;
     candidateWorldRef.current = null;
+    worldToFieldRef.current = null;
+    yawCorrRef.current = 0;
     setPlacementCorners(null);
     setAutoPhase("acquiring");
     setPlateStatus("Looking for home plate…");
@@ -287,12 +355,16 @@ export default function PlateScreen() {
     setPlacementCorners(null);
     candidateWorldRef.current = null;
     anchorCenterRef.current = null;
+    worldToFieldRef.current = null;
+    yawCorrRef.current = 0;
     try { await arRef.current?.clearFieldLandmarks(); } catch { /* ignore */ }
     setPlateStatus("Auto-detect off.");
   }, []);
 
   // Auto loop: scan ~4/sec while acquiring or maintaining. In maintaining, each
-  // successful scan re-establishes the anchor to correct drift.
+  // successful scan re-establishes the anchor to correct drift — using the plate
+  // alone (foul lines OFF = original behavior, the B test mode) or refining the
+  // heading with the foul-line yaw drift (foul lines ON, §5), low-passed.
   useEffect(() => {
     if (autoPhase === "off") return;
     let cancelled = false;
@@ -300,13 +372,22 @@ export default function PlateScreen() {
       while (!cancelled) {
         const world = await scanOnce();
         if (!cancelled && world && autoPhaseRef.current === "maintaining") {
-          await establishPlateWorld(world, { quiet: true });
+          let yawCorrDeg: number | undefined;
+          if (foulLinesOnRef.current) {
+            const measured = await scanFoulLineYaw();
+            if (measured != null) {
+              // Low-pass: ease toward the measurement to damp per-frame jitter.
+              yawCorrRef.current = yawCorrRef.current * 0.7 + measured * 0.3;
+            }
+            yawCorrDeg = yawCorrRef.current;
+          }
+          if (!cancelled) await establishPlateWorld(world, { quiet: true, yawCorrDeg });
         }
         await new Promise((r) => setTimeout(r, 220));
       }
     })();
     return () => { cancelled = true; };
-  }, [autoPhase, scanOnce, establishPlateWorld]);
+  }, [autoPhase, scanOnce, scanFoulLineYaw, establishPlateWorld]);
 
   // Save the current AR frame to the photo library to build a labeling dataset
   // for the §10 fallback (and for line-robustness testing, §7.3). Point the
@@ -426,6 +507,11 @@ export default function PlateScreen() {
           )}
           {autoPhase === "maintaining" && (
             <>
+              <TogglePill
+                label="Foul Lines"
+                active={foulLinesOn}
+                onPress={() => setFoulLinesOn((v) => !v)}
+              />
               <TogglePill label="Re-acquire" active={false} onPress={startAuto} />
               <TogglePill label="Stop Auto" active onPress={stopAuto} />
             </>

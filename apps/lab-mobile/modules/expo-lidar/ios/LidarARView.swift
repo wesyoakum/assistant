@@ -438,6 +438,32 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     ]
   }
 
+  /// Batch raycast many normalized screen points to the estimated ground plane,
+  /// in one bridge call. Used by foul-line detection, which raycasts a whole
+  /// contour's worth of points per frame — doing those one-by-one across the JS
+  /// bridge would be far too slow for the maintain loop. Returns a flat array
+  /// [x0,y0,z0, x1,y1,z1, ...] of WORLD coords; points that miss the plane are
+  /// emitted as NaN,NaN,NaN so the caller can keep index alignment if needed.
+  func raycastScreenPoints(_ coords: [Double]) -> [Double] {
+    var out: [Double] = []
+    out.reserveCapacity(coords.count + coords.count / 2)
+    var i = 0
+    while i + 1 < coords.count {
+      let nx = CGFloat(coords[i])
+      let ny = CGFloat(coords[i + 1])
+      i += 2
+      let pt = CGPoint(x: nx * bounds.width, y: ny * bounds.height)
+      guard let query = sceneView.raycastQuery(from: pt, allowing: .estimatedPlane, alignment: .horizontal),
+            let hit = sceneView.session.raycast(query).first else {
+        out.append(Double.nan); out.append(Double.nan); out.append(Double.nan)
+        continue
+      }
+      let c = hit.worldTransform.columns.3
+      out.append(Double(c.x)); out.append(Double(c.y)); out.append(Double(c.z))
+    }
+    return out
+  }
+
   /// Place a field landmark (home plate, base, or rubber) at a screen point.
   func addFieldLandmark(nx: CGFloat, ny: CGFloat, kind: String) -> [String: Any]? {
     let pt = CGPoint(x: nx * bounds.width, y: ny * bounds.height)
