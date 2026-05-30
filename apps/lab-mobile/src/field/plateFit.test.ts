@@ -12,6 +12,7 @@ import {
   intersectLines,
   fitEdgesAndIntersect,
   fitPlateTemplate,
+  runPlatePipelineDebug,
   CANONICAL_PLATE_CORNERS_IN,
 } from "./plateDetect.ts";
 
@@ -164,4 +165,46 @@ test("weights let low-confidence corners pull the fit less", () => {
   const downweighted = fitPlateTemplate(obs, { weights: [0.05, 1, 1, 1, 1] })!;
   // Down-weighting the bad apex should reduce residual on the good corners.
   assert.ok(downweighted.rmsInches < equal.rmsInches, `${downweighted.rmsInches} < ${equal.rmsInches}`);
+});
+
+test("runPlatePipelineDebug fills every stage on a clean plate contour", () => {
+  const truth = makePlate(120, 90, 2.5, 0.5);
+  const contour = jitter(densify(truth, 30), 0.3, 5);
+  const dbg = runPlatePipelineDebug(contour);
+  assert.equal(dbg.contour.length, contour.length, "contour passed through");
+  assert.ok(dbg.seedCorners && dbg.seedCorners.length === 5, "DP seeds found");
+  assert.equal(dbg.edgeLines.length, 5, "all 5 edges fit");
+  assert.ok(dbg.intersections && dbg.intersections.length === 5, "5 intersections");
+  assert.ok(dbg.cornerOk?.every((ok) => ok), "all corners from intersection");
+  assert.ok(dbg.snappedCorners && dbg.snappedCorners.length === 5, "snapped plate present");
+  assert.ok((dbg.snappedRmsInches ?? 99) < 1.5, `snap residual ${dbg.snappedRmsInches}`);
+  // Each edge line has drawable, distinct endpoints.
+  for (const e of dbg.edgeLines) {
+    assert.ok(Math.hypot(e.to.x - e.from.x, e.to.y - e.from.y) > 1, "edge has length");
+  }
+});
+
+test("runPlatePipelineDebug degrades gracefully (snaps even with an occluded edge)", () => {
+  const truth = makePlate(60, 60, 1.8, -0.3);
+  let contour = densify(truth, 30);
+  // Occlude edge 0 (apex→side-right) by dropping its points.
+  const a = truth[0]!, b = truth[1]!;
+  contour = contour.filter((p) => {
+    const dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy;
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    const cxp = a.x + t * dx, cyp = a.y + t * dy;
+    return !(t > 0.05 && t < 0.95 && Math.hypot(p.x - cxp, p.y - cyp) < 0.5);
+  });
+  const dbg = runPlatePipelineDebug(jitter(contour, 0.2));
+  // Fewer than 5 edges fit, but the plate still snaps (no gate).
+  assert.ok(dbg.edgeLines.length < 5, "occluded edge not fit");
+  assert.ok(dbg.snappedCorners, "still snaps a full plate despite occlusion");
+});
+
+test("runPlatePipelineDebug never throws on junk input", () => {
+  for (const junk of [[], [{ x: 0, y: 0 }], [{ x: 1, y: 1 }, { x: 2, y: 2 }]]) {
+    const dbg = runPlatePipelineDebug(junk as Point2[]);
+    assert.ok(dbg, "returns a result object");
+    assert.equal(dbg.contour, junk, "echoes input contour");
+  }
 });

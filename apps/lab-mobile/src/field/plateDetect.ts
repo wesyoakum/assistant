@@ -608,16 +608,17 @@ function fitSimilarity(
  * @param opts.leniencyInches residual (inches) at which confidence ≈ 0.37.
  *                 Larger = more forgiving. Default 4".
  */
-export function fitPlateTemplate(
+/** Fit one specific template (canonical or mirrored) to the observation. */
+function fitOneTemplate(
+  template: Point2[],
   observed: (Point2 | null)[],
-  opts: { weights?: number[]; leniencyInches?: number } = {},
+  idx: number[],
+  weights: number[] | undefined,
+  leniency: number,
 ): PlateTemplateFit | null {
-  const idx: number[] = [];
-  for (let i = 0; i < 5; i++) if (observed[i]) idx.push(i);
-  if (idx.length < 2) return null;
-  const from = idx.map((i) => CANONICAL_PLATE_CORNERS_IN[i]!);
+  const from = idx.map((i) => template[i]!);
   const to = idx.map((i) => observed[i]!);
-  const w = opts.weights ? idx.map((i) => opts.weights![i] ?? 1) : undefined;
+  const w = weights ? idx.map((i) => weights[i] ?? 1) : undefined;
   const sim = fitSimilarity(from, to, w);
   if (!sim || sim.scale < 1e-9) return null;
 
@@ -629,7 +630,7 @@ export function fitPlateTemplate(
       y: sim.scale * (sinT * fx + cosT * fy) + sim.toC.y,
     };
   };
-  const snapped = CANONICAL_PLATE_CORNERS_IN.map(map) as PlateTemplateFit["snappedCorners"];
+  const snapped = template.map(map) as PlateTemplateFit["snappedCorners"];
 
   // Center, and forward = front-edge midpoint − apex (toward pitcher).
   let cx = 0, cy = 0;
@@ -642,7 +643,6 @@ export function fitPlateTemplate(
   fwdx /= fl; fwdy /= fl;
 
   const rmsInches = sim.rms / sim.scale;
-  const leniency = opts.leniencyInches ?? 4;
   const confidence = Math.exp(-rmsInches / leniency);
 
   return {
@@ -655,4 +655,148 @@ export function fitPlateTemplate(
     forward: { x: fwdx, y: fwdy },
     confidence,
   };
+}
+
+/** Canonical plate mirrored across the apex (y) axis — the other valid winding. */
+const CANONICAL_PLATE_MIRRORED_IN: Point2[] =
+  CANONICAL_PLATE_CORNERS_IN.map((p) => ({ x: -p.x, y: p.y }));
+
+export function fitPlateTemplate(
+  observed: (Point2 | null)[],
+  opts: { weights?: number[]; leniencyInches?: number } = {},
+): PlateTemplateFit | null {
+  const idx: number[] = [];
+  for (let i = 0; i < 5; i++) if (observed[i]) idx.push(i);
+  if (idx.length < 2) return null;
+  const leniency = opts.leniencyInches ?? 4;
+
+  // A 2D similarity has no reflection, so a clockwise-vs-CCW winding mismatch
+  // between the observed corners and the template would force a mirrored, garbage
+  // fit. Try both windings and keep the lower-residual one.
+  const a = fitOneTemplate(CANONICAL_PLATE_CORNERS_IN, observed, idx, opts.weights, leniency);
+  const b = fitOneTemplate(CANONICAL_PLATE_MIRRORED_IN, observed, idx, opts.weights, leniency);
+  if (!a) return b;
+  if (!b) return a;
+  return a.rmsInches <= b.rmsInches ? a : b;
+}
+
+// ===========================================================================
+// Pipeline aggregator — every intermediate, for the debug overlay
+// ===========================================================================
+//
+// Runs the full classical detect path on one contour and returns each stage's
+// output so a UI can draw them as toggleable layers:
+//   region/outline (the input contour) · DP seed corners · 5 edge lines ·
+//   line intersections (recovered corners) · snapped known-plate outline.
+// Pure function (no native/React) — unit-tested in plateFit.test.ts. The
+// `endpoints` on each edge line are just the segment between its two adjacent
+// recovered corners, so the UI can draw a finite blue segment instead of an
+// infinite line.
+
+export interface EdgeLineViz {
+  line: Line2;
+  /** Segment endpoints for drawing (between adjacent recovered corners). */
+  from: Point2;
+  to: Point2;
+  rms: number;
+  pointCount: number;
+}
+
+export interface PlatePipelineDebug {
+  /** The traced region boundary (input contour) — draw filled + stroked. */
+  contour: Point2[];
+  /** Douglas–Peucker seed corners (rough), or null if no clean 5-gon found. */
+  seedCorners: Point2[] | null;
+  /** Confidence of the DP pentagon gate (0–1), if seedCorners exists. */
+  seedConfidence: number | null;
+  /** The 5 fitted edge lines with drawable endpoints (only those that fit). */
+  edgeLines: EdgeLineViz[];
+  /** Recovered corners from line intersection (apex-first), or null. */
+  intersections: Point2[] | null;
+  /** Which recovered corners came from a real intersection vs seed fallback. */
+  cornerOk: boolean[] | null;
+  /** The known plate snapped onto the recovered (or seed) corners, or null. */
+  snappedCorners: Point2[] | null;
+  /** Snap residual in inches (lower = better), advisory only. */
+  snappedRmsInches: number | null;
+  /** Soft overall confidence from the template fit (0–1), advisory. */
+  confidence: number | null;
+}
+
+/**
+ * Run region→DP→edge-fit→intersect→template-snap on one contour, capturing
+ * every intermediate for visualization. Never throws; fills as much as it can
+ * and leaves later stages null if an earlier one can't produce input.
+ */
+export function runPlatePipelineDebug(
+  contour: Point2[],
+  opts: {
+    minConfidence?: number;
+    epsilonFracs?: number[];
+    cornerTrimFrac?: number;
+    minEdgePoints?: number;
+    leniencyInches?: number;
+  } = {},
+): PlatePipelineDebug {
+  const result: PlatePipelineDebug = {
+    contour,
+    seedCorners: null,
+    seedConfidence: null,
+    edgeLines: [],
+    intersections: null,
+    cornerOk: null,
+    snappedCorners: null,
+    snappedRmsInches: null,
+    confidence: null,
+  };
+  if (contour.length < 5) return result;
+
+  // Stage: DP seed corners (minConfidence 0 — we want the seeds even for a rough
+  // shape; the template fit, not a gate, decides final quality).
+  const pent = detectPlatePentagon(contour, {
+    minConfidence: opts.minConfidence ?? 0,
+    epsilonFracs: opts.epsilonFracs,
+  });
+  if (!pent) return result;
+  result.seedCorners = pent.corners;
+  result.seedConfidence = pent.confidence;
+
+  // Stage: edge-line fit + intersection.
+  const rec = fitEdgesAndIntersect(contour, pent.corners, {
+    cornerTrimFrac: opts.cornerTrimFrac,
+    minEdgePoints: opts.minEdgePoints,
+  });
+
+  // Determine the corner set to draw lines/snap against.
+  const cornerSet = rec ? rec.corners : pent.corners;
+
+  if (rec) {
+    result.intersections = rec.corners;
+    result.cornerOk = rec.cornerOk;
+    // Build drawable segments for each fitted edge (corner i → corner i+1).
+    rec.edgeFits.forEach((ef, i) => {
+      if (!ef.line) return;
+      result.edgeLines.push({
+        line: ef.line,
+        from: cornerSet[i]!,
+        to: cornerSet[(i + 1) % 5]!,
+        rms: ef.rms,
+        pointCount: ef.pointCount,
+      });
+    });
+  }
+
+  // Stage: snap the known plate. Weight intersection-backed corners fully,
+  // seed-fallback corners lightly (they're less trustworthy).
+  const weights = rec ? rec.cornerOk.map((ok) => (ok ? 1 : 0.25)) : undefined;
+  const fit = fitPlateTemplate(cornerSet, {
+    weights,
+    leniencyInches: opts.leniencyInches,
+  });
+  if (fit) {
+    result.snappedCorners = fit.snappedCorners;
+    result.snappedRmsInches = fit.rmsInches;
+    result.confidence = fit.confidence;
+  }
+  return result;
 }
