@@ -131,10 +131,18 @@ by the recovered heading, with a pose/scale readout in the status bar. This is
 the Stage 1 = manual stand-in: the 5 taps are exactly the interface a detector
 will later fill.
 
-**Phase 1b — classical (no-training) detector (next).** Replace the 5 manual taps
-with an automatic corner finder (white-region/contour fit, or `expo-vision-detect`
-rectangles as a starting point) feeding the same `computeHomePlatePose` → marker
-path. Nothing downstream changes.
+**Phase 1b — trained CoreML pose detector (in progress).** Replace the 5 manual
+taps with a **YOLO-pose model** that predicts home plate's 5 corners directly,
+feeding the same `computeHomePlatePose` → marker path. Nothing downstream changes
+— only Stage 1 (the 5 points) goes from taps to model output. Training pipeline
+(dataset config, train/export scripts, labeling + capture guide) lives in
+`training/plate-detector/`; it mirrors the baseball Ultralytics→CoreML flow and
+runs on a machine with the dataset + GPU. The native `expo-plate-detector` module
+and Plate-tab wiring follow once an exported `.mlpackage` exists.
+
+(Classical Apple Vision corner-finding was considered as a no-training fallback;
+superseded by the trained-model decision since a blank white pentagon is a weak
+classical target.)
 
 ### Phase 2 — train YOLO-pose corner model (only if Phase 1 is too brittle)
 If classical detection fails on dirt-covered/worn plates, shadows, night games,
