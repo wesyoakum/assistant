@@ -14,9 +14,27 @@ import {
   type LidarARViewRef,
 } from "../../modules/expo-lidar/src";
 import { computeHomePlatePose, type Vec3 } from "../../src/field/coordinateFrame";
-import { detectPlatePentagon, type Point2 } from "../../src/field/plateDetect";
+import {
+  detectPlatePentagon,
+  runPlatePipelineDebug,
+  type Point2,
+  type PlatePipelineDebug,
+} from "../../src/field/plateDetect";
+import {
+  PlateDebugOverlay,
+  DEFAULT_DEBUG_LAYERS,
+  type PlateDebugLayers,
+} from "../../src/field/PlateDebugOverlay";
 
 const { width: SCREEN_W } = Dimensions.get("window");
+
+const DEBUG_LAYER_KEYS: { key: keyof PlateDebugLayers; label: string }[] = [
+  { key: "region", label: "Region" },
+  { key: "dp", label: "DP" },
+  { key: "edges", label: "Edges" },
+  { key: "corners", label: "Corners" },
+  { key: "snapped", label: "Snapped" },
+];
 
 // Plate — establish an AR world anchored to home plate.
 //
@@ -35,6 +53,56 @@ export default function PlateScreen() {
   const [plateStatus, setPlateStatus] = useState(
     "Aim the crosshair at a home-plate corner, then tap Capture (0/5).",
   );
+
+  // Debug visualization of the detection pipeline (toggleable layers).
+  const [debugOn, setDebugOn] = useState(false);
+  const [debugLayers, setDebugLayers] = useState<PlateDebugLayers>(DEFAULT_DEBUG_LAYERS);
+  const [debugData, setDebugData] = useState<PlatePipelineDebug | null>(null);
+  const [viewSize, setViewSize] = useState({ w: 0, h: 0 });
+
+  // Run the full pipeline on the current frame's best contour and capture every
+  // intermediate stage for the overlay. Picks the contour whose template snap
+  // has the lowest residual (the most plate-like), so the overlay tracks the
+  // real plate even with other white blobs (bases, chalk) in frame.
+  const runDebug = useCallback(async () => {
+    let contours: number[][];
+    try {
+      contours = (await arRef.current?.detectPlateContours(6)) ?? [];
+    } catch (e) {
+      setPlateStatus(`Debug failed: ${(e as Error).message}`);
+      return;
+    }
+    if (contours.length === 0) { setDebugData(null); setPlateStatus("Debug: no white region found."); return; }
+
+    let best: PlatePipelineDebug | null = null;
+    for (const flat of contours) {
+      const pts: Point2[] = [];
+      for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]!, y: flat[i + 1]! });
+      const dbg = runPlatePipelineDebug(pts);
+      const r = dbg.snappedRmsInches ?? Infinity;
+      const bestR = best?.snappedRmsInches ?? Infinity;
+      if (best === null || r < bestR) best = dbg;
+    }
+    setDebugData(best);
+    if (best?.snappedRmsInches != null) {
+      setPlateStatus(`Debug: fit ${best.snappedRmsInches.toFixed(1)}in RMS · conf ${((best.confidence ?? 0) * 100).toFixed(0)}%`);
+    } else {
+      setPlateStatus("Debug: contour found, no plate fit.");
+    }
+  }, []);
+
+  const toggleDebug = useCallback(() => {
+    setDebugOn((on) => {
+      const next = !on;
+      if (next) runDebug();
+      else setDebugData(null);
+      return next;
+    });
+  }, [runDebug]);
+
+  const toggleLayer = useCallback((key: keyof PlateDebugLayers) => {
+    setDebugLayers((l) => ({ ...l, [key]: !l[key] }));
+  }, []);
 
   const establishPlateWorld = useCallback(async (corners: Vec3[]) => {
     const p = computeHomePlatePose(corners);
@@ -144,8 +212,21 @@ export default function PlateScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      style={styles.container}
+      onLayout={(e) => setViewSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+    >
       <LidarARView ref={arRef} style={StyleSheet.absoluteFill} />
+
+      {/* Pipeline debug overlay (stroke-only, toggleable layers) */}
+      {debugOn && (
+        <PlateDebugOverlay
+          debug={debugData}
+          layers={debugLayers}
+          width={viewSize.w}
+          height={viewSize.h}
+        />
+      )}
 
       {/* Crosshair — Capture raycasts against screen center */}
       <View pointerEvents="none" style={styles.plateCrosshair}>
@@ -158,6 +239,22 @@ export default function PlateScreen() {
           <Text style={styles.statsText}>{plateStatus}</Text>
         </View>
 
+        {/* Per-layer toggles (only while Debug is on) */}
+        {debugOn && (
+          <View style={styles.layerBar}>
+            {DEBUG_LAYER_KEYS.map(({ key, label }) => (
+              <TogglePill
+                key={key}
+                label={label}
+                active={debugLayers[key]}
+                onPress={() => toggleLayer(key)}
+                small
+              />
+            ))}
+            <TogglePill label="↻" active={false} onPress={runDebug} small />
+          </View>
+        )}
+
         <View style={styles.controlBar}>
           <TogglePill
             label={plateCount >= 5 ? "Captured 5/5" : `Capture ${plateCount}/5`}
@@ -166,6 +263,7 @@ export default function PlateScreen() {
             disabled={plateCount >= 5}
           />
           <TogglePill label="Auto" active={false} onPress={autoDetectPlate} />
+          <TogglePill label="Debug" active={debugOn} onPress={toggleDebug} />
           <TogglePill label="Reset" active={false} onPress={resetPlateWorld} />
           <TogglePill
             label={trainingCount > 0 ? `Save Frame (${trainingCount})` : "Save Frame"}
@@ -183,20 +281,22 @@ function TogglePill({
   active,
   onPress,
   disabled,
+  small,
 }: {
   label: string;
   active: boolean;
   onPress: () => void;
   disabled?: boolean;
+  small?: boolean;
 }) {
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled}
-      style={[styles.pill, active && styles.pillActive, disabled && styles.pillDisabled]}
+      style={[styles.pill, small && styles.pillSmall, active && styles.pillActive, disabled && styles.pillDisabled]}
       activeOpacity={0.7}
     >
-      <Text style={[styles.pillText, active && styles.pillTextActive]}>
+      <Text style={[styles.pillText, small && styles.pillTextSmall, active && styles.pillTextActive]}>
         {label}
       </Text>
     </TouchableOpacity>
@@ -240,9 +340,18 @@ const styles = StyleSheet.create({
   controlBar: {
     flexDirection: "row",
     justifyContent: "center",
+    flexWrap: "wrap",
     gap: 10,
     paddingHorizontal: 16,
     paddingBottom: 24,
+  },
+  layerBar: {
+    flexDirection: "row",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    paddingHorizontal: 16,
+    marginBottom: 10,
   },
   pill: {
     paddingHorizontal: 18,
@@ -251,6 +360,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.45)",
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  pillSmall: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
   },
   pillActive: {
     backgroundColor: "rgba(255, 255, 255, 0.85)",
@@ -263,6 +377,9 @@ const styles = StyleSheet.create({
     color: "rgba(255, 255, 255, 0.9)",
     fontSize: 14,
     fontWeight: "600",
+  },
+  pillTextSmall: {
+    fontSize: 12,
   },
   pillTextActive: {
     color: "#000",
