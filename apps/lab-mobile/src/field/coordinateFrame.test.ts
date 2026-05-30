@@ -62,7 +62,7 @@ test("front edge length matches 17in and scaleError is ~0", () => {
   approx(pose.scaleError, 0, 1e-9);
 });
 
-test("origin is the plate centroid", () => {
+test("center field still reports the plate centroid (kept for reference)", () => {
   const pose = computeHomePlatePose(CANONICAL_CORNERS)!;
   const expected: Vec3 = {
     x: 0,
@@ -70,19 +70,27 @@ test("origin is the plate centroid", () => {
     z: (FRONT_Z + FRONT_Z + 0 + APEX_DEPTH + APEX_DEPTH) / 5,
   };
   approxVec(pose.center, expected, 1e-9);
-  // fieldToWorld translation column == origin
-  approx(pose.frame.fieldToWorld[12]!, expected.x, 1e-9);
-  approx(pose.frame.fieldToWorld[14]!, expected.z, 1e-9);
 });
 
-test("worldToField maps a point 1B-ward of center onto the +X field axis", () => {
+test("field origin is the APEX, not the centroid", () => {
+  const pose = computeHomePlatePose(CANONICAL_CORNERS)!;
+  // fieldToWorld translation column == origin == apex.
+  approxVec(pose.apex, CANONICAL.apex, 1e-9);
+  approx(pose.frame.fieldToWorld[12]!, pose.apex.x, 1e-9);
+  approx(pose.frame.fieldToWorld[13]!, pose.apex.y, 1e-9);
+  approx(pose.frame.fieldToWorld[14]!, pose.apex.z, 1e-9);
+  // The apex maps to the field-frame origin.
+  approxVec(transformPoint(pose.apex, pose.frame.worldToField), { x: 0, y: 0, z: 0 }, 1e-6);
+});
+
+test("worldToField maps a point 1B-ward of the apex onto the +X field axis", () => {
   const pose = computeHomePlatePose(CANONICAL_CORNERS)!;
   const d = 27.4; // arbitrary distance toward first base
   // The +X field basis in world coords is column 0 of fieldToWorld.
   const world: Vec3 = {
-    x: pose.center.x + pose.frame.fieldToWorld[0]! * d,
-    y: pose.center.y + pose.frame.fieldToWorld[1]! * d,
-    z: pose.center.z + pose.frame.fieldToWorld[2]! * d,
+    x: pose.apex.x + pose.frame.fieldToWorld[0]! * d,
+    y: pose.apex.y + pose.frame.fieldToWorld[1]! * d,
+    z: pose.apex.z + pose.frame.fieldToWorld[2]! * d,
   };
   const field = transformPoint(world, pose.frame.worldToField);
   approxVec(field, { x: d, y: 0, z: 0 }, 1e-6);

@@ -1,7 +1,10 @@
 // Field coordinate frame computation.
 // Given detected/placed landmark positions in ARKit world space,
 // compute a transform from world coords to canonical field coords:
-//   Origin = home plate
+//   Origin = home plate APEX (the rear point) — the authoritative origin. It is
+//            the surveyed point from which the first/third-base foul lines
+//            radiate, so anchoring the world to it (rather than the plate
+//            centroid) makes both the anchor and foul-line yaw math correct.
 //   +X = toward first base (first-base foul line)
 //   +Y = up (field normal)
 //   +Z = toward third base (completing right-hand system)
@@ -183,9 +186,11 @@ function computeFromThree(hp: Vec3, fb: Vec3, tb: Vec3): FieldCoordinateFrame {
 export const HOME_PLATE_FRONT_EDGE_M = 17 * 0.0254; // 0.4318 m
 
 export interface HomePlatePose {
-  /** Plate centroid in world space (used as the field origin). */
+  /** Plate centroid in world space. Kept for reference; the field origin is the
+   *  apex, not this. */
   center: Vec3;
-  /** The back point of the plate (faces the catcher). */
+  /** The back point of the plate (faces the catcher). This is the field ORIGIN —
+   *  the authoritative driver of plate/world position. */
   apex: Vec3;
   /** Unit vector toward the pitcher / center field (apex → front edge). */
   forward: Vec3;
@@ -197,7 +202,7 @@ export interface HomePlatePose {
   frontEdgeLengthM: number;
   /** |measured / expected − 1| for the front edge. Use to reject bad detections. */
   scaleError: number;
-  /** Field coordinate frame anchored at the plate (origin = center, +X→1B, +Y up, +Z→3B). */
+  /** Field coordinate frame anchored at the plate APEX (origin = apex, +X→1B, +Y up, +Z→3B). */
   frame: FieldCoordinateFrame;
 }
 
@@ -287,7 +292,10 @@ export function computeHomePlatePose(
   // Field axes match field/templates.ts: X→1B and Z→3B are the 45° diagonals.
   const X = normalize(add(forward, right)); // to1b
   const Z = normalize(sub(forward, right)); // to3b
-  const fieldToWorld = mat4FromAxes(X, up, Z, centroid);
+  // Origin = the APEX (rear point), not the centroid: it's the authoritative,
+  // surveyed origin the foul lines radiate from. `center` (centroid) is kept for
+  // reference, but the world↔field transform is anchored at the apex.
+  const fieldToWorld = mat4FromAxes(X, up, Z, apex);
   const worldToField = invertAffine(fieldToWorld);
 
   return {
