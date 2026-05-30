@@ -3,6 +3,8 @@ import ARKit
 import SceneKit
 import UIKit
 import simd
+import Vision
+import CoreImage
 
 // A React Native native view backed by ARSCNView. ARKit owns the camera
 // feed + world tracking + plane detection + scene reconstruction. We
@@ -223,6 +225,128 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
       arr.append(c.x); arr.append(c.y); arr.append(c.z); arr.append(c.w)
     }
     return arr
+  }
+
+  // MARK: - Plate auto-detection (Phase A, steps 1-2: region + contour)
+  //
+  // Detects bright, low-saturation blobs (home plate is white-on-dirt) in the
+  // current camera frame and returns their contours as **view-normalized**
+  // points (x,y in 0..1 over the AR view's bounds), so JS can run the tested
+  // Douglas-Peucker + pentagon validation (src/field/plateDetect.ts), then
+  // raycast the 5 ordered corners back through raycastScreenPoint() and feed
+  // computeHomePlatePose(). No solvePnP, no OpenCV — Vision + Accelerate only.
+  // See apps/lab-mobile/AR_WORLD_ANCHOR.md §4 and the CV-stack decision.
+  //
+  // Returns an array of contours; each contour is a flat [x0,y0,x1,y1,...] list
+  // of view-normalized points. Empty array if no plausible region is found.
+  func detectPlateContours(maxContours: Int) -> [[CGFloat]] {
+    guard let frame = sceneView.session.currentFrame else { return [] }
+    let pixelBuffer = frame.capturedImage
+
+    // The captured image is camera-native (landscape) orientation. Build a CIImage
+    // and a brightness/saturation mask: high lightness, low saturation → white.
+    let ci = CIImage(cvPixelBuffer: pixelBuffer)
+    guard let mask = Self.whiteRegionMask(ci) else { return [] }
+
+    // Vision contour detection on the mask. We ask for a moderate amount of
+    // simplification up front; JS does the final Douglas-Peucker to 5 vertices.
+    let request = VNDetectContoursRequest()
+    request.contrastAdjustment = 1.0
+    request.detectsDarkOnLight = false       // plate is light on dark dirt
+    request.maximumImageDimension = 512       // downscale for speed
+
+    let handler = VNImageRequestHandler(ciImage: mask, options: [:])
+    do {
+      try handler.perform([request])
+    } catch {
+      return []
+    }
+    guard let observation = request.results?.first else { return [] }
+
+    // Collect top-level contours by descending point count (the plate outline is
+    // a large, dense contour), map each Vision point (normalized, origin
+    // bottom-left, in the *image's* frame) into AR-view-normalized coordinates.
+    let topContours = (0..<observation.topLevelContourCount).compactMap {
+      try? observation.contour(at: $0)
+    }
+    let sorted = topContours.sorted { $0.pointCount > $1.pointCount }
+
+    var out: [[CGFloat]] = []
+    let imageExtent = ci.extent
+    for contour in sorted.prefix(maxContours) {
+      // Skip tiny specks: require a minimum point count.
+      if contour.pointCount < 8 { continue }
+      var flat: [CGFloat] = []
+      flat.reserveCapacity(contour.pointCount * 2)
+      for p in contour.normalizedPoints {
+        // Vision normalized point: x,y in 0..1, origin bottom-left of the image.
+        let imgX = CGFloat(p.x) * imageExtent.width
+        let imgY = (1.0 - CGFloat(p.y)) * imageExtent.height  // flip to top-left
+        let view = Self.imagePointToViewNormalized(
+          imageX: imgX, imageY: imgY, imageExtent: imageExtent,
+          frame: frame, viewBounds: bounds,
+          orientation: Self.currentInterfaceOrientation()
+        )
+        flat.append(view.x)
+        flat.append(view.y)
+      }
+      if flat.count >= 16 { out.append(flat) }
+    }
+    return out
+  }
+
+  /// Build a binary mask of bright, low-saturation (white) regions. Returns a
+  /// CIImage where white pixels are the plate candidate. HSV-style threshold via
+  /// CIColorControls + a luminance/saturation kernel approximation.
+  private static func whiteRegionMask(_ input: CIImage) -> CIImage? {
+    // Convert to a saturation map: desaturate a copy and compare. White pixels
+    // have high brightness AND low saturation. We approximate with:
+    //   maxChannel ≈ brightness, (maxChannel - minChannel) ≈ saturation.
+    // CIMaximumComponent gives max(r,g,b); CIMinimumComponent gives min(r,g,b).
+    let maxC = input.applyingFilter("CIMaximumComponent")    // ~ value/brightness
+    let minC = input.applyingFilter("CIMinimumComponent")
+    // saturation ≈ maxC - minC ; we want high maxC (bright) and low (maxC-minC).
+    // Subtract blend (maxC - minC) then threshold brightness.
+    guard let diff = CIFilter(name: "CISubtractBlendMode", parameters: [
+      kCIInputImageKey: maxC,
+      kCIInputBackgroundImageKey: minC,
+    ])?.outputImage else { return nil }
+    // diff is low where saturation is low (white). Invert so white→high.
+    let lowSat = diff.applyingFilter("CIColorInvert")
+    // Combine: multiply low-saturation map by brightness, then hard-threshold.
+    guard let combined = CIFilter(name: "CIMultiplyBlendMode", parameters: [
+      kCIInputImageKey: lowSat,
+      kCIInputBackgroundImageKey: maxC,
+    ])?.outputImage else { return nil }
+    // Threshold ~0.7: CIColorClamp then a steep tone curve approximates a step.
+    return combined
+      .applyingFilter("CIColorControls", parameters: [kCIInputContrastKey: 4.0, kCIInputBrightnessKey: -0.4])
+      .applyingFilter("CIMaximumComponent")
+  }
+
+  private static func currentInterfaceOrientation() -> UIInterfaceOrientation {
+    if #available(iOS 15.0, *) {
+      let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+      return scene?.interfaceOrientation ?? .portrait
+    }
+    return .portrait
+  }
+
+  /// Map a point in the captured image (top-left origin, image pixels) into the
+  /// AR view's normalized coordinates (0..1), accounting for ARKit's
+  /// displayTransform (aspect-fill crop + orientation).
+  private static func imagePointToViewNormalized(
+    imageX: CGFloat, imageY: CGFloat, imageExtent: CGRect,
+    frame: ARFrame, viewBounds: CGRect, orientation: UIInterfaceOrientation
+  ) -> CGPoint {
+    // Normalize into 0..1 image space (top-left origin).
+    let nImg = CGPoint(x: imageX / imageExtent.width, y: imageY / imageExtent.height)
+    let viewSize = viewBounds.size == .zero ? CGSize(width: 1, height: 1) : viewBounds.size
+    // displayTransform maps normalized image space → normalized view space for
+    // the given orientation and viewport size.
+    let transform = frame.displayTransform(for: orientation, viewportSize: viewSize)
+    let mapped = nImg.applying(transform)
+    return CGPoint(x: mapped.x, y: mapped.y)
   }
 
   // MARK: - ARSCNViewDelegate

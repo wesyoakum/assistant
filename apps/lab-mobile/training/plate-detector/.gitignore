@@ -1,0 +1,11 @@
+# Dataset + training artifacts are large and machine-local — keep them out of git.
+# Commit only the config + scripts + README here, and the final exported model
+# (PlateDetector.mlpackage) into modules/expo-plate-detector/ios/.
+images/
+labels/
+datasets/
+runs/
+*.cache
+*.pt
+*.mlpackage
+*.mlmodel

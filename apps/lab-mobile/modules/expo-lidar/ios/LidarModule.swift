@@ -5,6 +5,7 @@ import CoreGraphics
 import CoreImage
 import AVFoundation
 import simd
+import Photos
 
 public final class LidarModule: Module {
   private var arSession: ARSession?
@@ -118,6 +119,11 @@ public final class LidarModule: Module {
       AsyncFunction("raycastScreenPoint") { (view: LidarARView, nx: Double, ny: Double) -> [String: Any]? in
         return view.raycastScreenPoint(nx: CGFloat(nx), ny: CGFloat(ny))
       }
+      // Plate auto-detection: returns candidate white-region contours as flat
+      // [x0,y0,x1,y1,...] arrays of view-normalized points (see plateDetect.ts).
+      AsyncFunction("detectPlateContours") { (view: LidarARView, maxContours: Int) -> [[Double]] in
+        return view.detectPlateContours(maxContours: maxContours).map { $0.map { Double($0) } }
+      }
       AsyncFunction("captureViewImage") { (view: LidarARView, jpegQuality: Double) -> [String: Any]? in
         // Snapshot exactly what the ARSCNView renders on screen so that
         // YOLO bounding-box coordinates map 1:1 to the visible view.
@@ -216,6 +222,38 @@ public final class LidarModule: Module {
         "timestamp": frame.timestamp,
       ]
     }
+
+    // Save a base64 JPEG to the user's photo library. Used by the Plate tab's
+    // "Save Frame" button to collect a labeling dataset for the home-plate
+    // corner detector. Returns true on success.
+    AsyncFunction("saveImageToPhotos") { (base64: String) -> Bool in
+      return try await Self.saveImageToPhotos(base64: base64)
+    }
+  }
+
+  // MARK: - Save image to photo library
+
+  private static func saveImageToPhotos(base64: String) async throws -> Bool {
+    let cleaned = base64.hasPrefix("data:")
+      ? String(base64.drop(while: { $0 != "," }).dropFirst())
+      : base64
+    guard let data = Data(base64Encoded: cleaned), let image = UIImage(data: data) else {
+      throw LidarError.imageDecodeFailed
+    }
+    let status = await withCheckedContinuation { (cont: CheckedContinuation<PHAuthorizationStatus, Never>) in
+      PHPhotoLibrary.requestAuthorization(for: .addOnly) { cont.resume(returning: $0) }
+    }
+    guard status == .authorized || status == .limited else {
+      throw LidarError.photoPermissionDenied
+    }
+    return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Bool, Error>) in
+      PHPhotoLibrary.shared().performChanges {
+        PHAssetChangeRequest.creationRequestForAsset(from: image)
+      } completionHandler: { success, error in
+        if let error = error { cont.resume(throwing: error) }
+        else { cont.resume(returning: success) }
+      }
+    }
   }
 }
 
@@ -225,6 +263,8 @@ enum LidarError: Error, LocalizedError {
   case noFrame
   case noDepth
   case imageEncodeFailed
+  case imageDecodeFailed
+  case photoPermissionDenied
   var errorDescription: String? {
     switch self {
     case .unsupported:       return "Device does not support ARKit scene depth (no LiDAR)."
@@ -232,6 +272,8 @@ enum LidarError: Error, LocalizedError {
     case .noFrame:           return "No ARFrame available yet — try again in a moment."
     case .noDepth:           return "Current frame has no scene depth."
     case .imageEncodeFailed: return "Failed to encode camera image / depth buffer."
+    case .imageDecodeFailed: return "Could not decode image data to save."
+    case .photoPermissionDenied: return "Photo library add permission denied."
     }
   }
 }

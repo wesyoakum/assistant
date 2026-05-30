@@ -10,6 +10,18 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.7.0",
+    title: "Slim to Plate + Tracker; auto-detect home plate (needs rebuild)",
+    notes: [
+      "App trimmed to two features: Plate and Tracker, plus a minimal Settings tab. The old Lab screen (Vision / Audio / Sensors / Device / Info) and the 7-page AR pager are archived — kept in the repo, out of the build",
+      "Plate tab: new 'Auto' button auto-detects home plate from the camera (white-region contour → Douglas-Peucker pentagon → raycast the 5 corners to the ground plane → solve pose), replacing the 5 manual taps when it works. Manual capture, Reset, and Save Frame remain",
+      "Plate detection is all Apple-native (Vision + Accelerate/Metal) — no OpenCV. The pose solve reuses ARKit's ground plane + the existing tested geometry, so no PnP solver is needed",
+      "Dropped 4 unused native modules (YOLO, baseball, vision-detect, gamecontroller) and their bundled CoreML models from the build — smaller, faster builds. TrackNet and the tracker modules are unaffected",
+      "Plate corner geometry is unit-tested (22 tests). First on-device test of the auto-detect: expect the white-mask thresholds to need field tuning",
+    ],
+    pr: 140,
+  },
+  {
     version: "v1.6.2",
     title: "Tracker: enable Run button in TrackNet mode",
     notes: [

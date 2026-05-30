@@ -60,7 +60,7 @@ function AuthGate() {
   }
 
   if (isAuthenticated && onSignIn) {
-    return <Redirect href="/(tabs)/lab" />;
+    return <Redirect href="/(tabs)/ar" />;
   }
 
   return (
