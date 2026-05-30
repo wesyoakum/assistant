@@ -61,28 +61,23 @@ function mat4FromAxes(x: Vec3, y: Vec3, z: Vec3, origin: Vec3): number[] {
   ];
 }
 
-/** Invert a 4x4 column-major affine matrix (rotation + translation). */
+/** Invert a 4x4 column-major affine matrix (orthonormal rotation + translation). */
 function invertAffine(m: number[]): number[] {
-  // For an affine matrix [R | t; 0 0 0 1], inverse is [R^T | -R^T * t; 0 0 0 1]
-  const r00 = m[0], r10 = m[1], r20 = m[2];
-  const r01 = m[4], r11 = m[5], r21 = m[6];
-  const r02 = m[8], r12 = m[9], r22 = m[10];
-  const tx = m[12], ty = m[13], tz = m[14];
+  // For an affine matrix [R | t; 0 0 0 1], inverse is [R^T | -R^T * t; 0 0 0 1].
+  // Column-major storage: element (row, col) lives at m[col * 4 + row], so the
+  // rotation entries are R[row][col] = m[col*4 + row]. The transpose R^T, stored
+  // column-major, is therefore just the rows of R read as columns.
+  const tx = m[12]!, ty = m[13]!, tz = m[14]!;
 
-  // R^T
-  const it00 = r00, it01 = r10, it02 = r20;
-  const it10 = r01, it11 = r11, it12 = r21;
-  const it20 = r02, it21 = r12, it22 = r22;
-
-  // -R^T * t
-  const itx = -(it00 * tx + it10 * ty + it20 * tz);
-  const ity = -(it01 * tx + it11 * ty + it21 * tz);
-  const itz = -(it02 * tx + it12 * ty + it22 * tz);
+  // -R^T * t  (R^T row i dotted with t uses column i of R, i.e. m[i], m[1+i*?]…)
+  const itx = -(m[0]! * tx + m[1]! * ty + m[2]! * tz);
+  const ity = -(m[4]! * tx + m[5]! * ty + m[6]! * tz);
+  const itz = -(m[8]! * tx + m[9]! * ty + m[10]! * tz);
 
   return [
-    it00, it01, it02, 0,
-    it10, it11, it12, 0,
-    it20, it21, it22, 0,
+    m[0]!, m[4]!, m[8]!, 0,
+    m[1]!, m[5]!, m[9]!, 0,
+    m[2]!, m[6]!, m[10]!, 0,
     itx, ity, itz, 1,
   ];
 }
@@ -166,6 +161,161 @@ function computeFromThree(hp: Vec3, fb: Vec3, tb: Vec3): FieldCoordinateFrame {
     foulLineAngleDeg,
     landmarksUsed: ["home_plate", "first_base", "third_base"],
   };
+}
+
+// ─── Home plate pose from detected corners ──────────────────────────────────
+//
+// Phase 0 of the AR world-anchor work (see apps/lab-mobile/AR_WORLD_ANCHOR.md).
+// Given the 5 corners of home plate in ARKit world space (from a corner
+// detector — classical or learned — back-projected to 3D), recover the plate's
+// pose purely from geometry: no model, no compass.
+//
+// Why no compass/camera hint is needed: home plate's apex (the back point that
+// faces the catcher) is the single vertex opposite the 17" front edge, which is
+// the longest of the five edges. The apex and the front-edge midpoint both lie
+// ON the plate's mirror-symmetry axis, so "toward the pitcher" =
+// apex → front-edge-midpoint is unambiguous and invariant under the plate's
+// left/right symmetry. Given that forward direction and gravity-up, the
+// first-base side is fixed by the world's handedness — matching the convention
+// in field/templates.ts (right = toward 1B = cross(up, forward)).
+
+/** Official home plate front edge: 17 inches. */
+export const HOME_PLATE_FRONT_EDGE_M = 17 * 0.0254; // 0.4318 m
+
+export interface HomePlatePose {
+  /** Plate centroid in world space (used as the field origin). */
+  center: Vec3;
+  /** The back point of the plate (faces the catcher). */
+  apex: Vec3;
+  /** Unit vector toward the pitcher / center field (apex → front edge). */
+  forward: Vec3;
+  /** Unit vector toward first base (cross(up, forward)). */
+  right: Vec3;
+  /** Ground normal, oriented up. */
+  up: Vec3;
+  /** Measured length of the detected front (longest) edge, meters. */
+  frontEdgeLengthM: number;
+  /** |measured / expected − 1| for the front edge. Use to reject bad detections. */
+  scaleError: number;
+  /** Field coordinate frame anchored at the plate (origin = center, +X→1B, +Y up, +Z→3B). */
+  frame: FieldCoordinateFrame;
+}
+
+function scale(v: Vec3, s: number): Vec3 {
+  return { x: v.x * s, y: v.y * s, z: v.z * s };
+}
+
+function add(a: Vec3, b: Vec3): Vec3 {
+  return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+}
+
+/** Component of v removed along n (n must be unit), then renormalized. */
+function projectOntoPlane(v: Vec3, n: Vec3): Vec3 {
+  const d = dot(v, n);
+  return { x: v.x - d * n.x, y: v.y - d * n.y, z: v.z - d * n.z };
+}
+
+/** Best-fit plane normal for the (convex, ordered) ring via Newell's method. */
+function newellNormal(ring: Vec3[]): Vec3 {
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]!;
+    const b = ring[(i + 1) % ring.length]!;
+    nx += (a.y - b.y) * (a.z + b.z);
+    ny += (a.z - b.z) * (a.x + b.x);
+    nz += (a.x - b.x) * (a.y + b.y);
+  }
+  return normalize({ x: nx, y: ny, z: nz });
+}
+
+/** Order corners counter-clockwise (as seen from +normal) around their centroid. */
+function orderAroundCentroid(corners: Vec3[], centroid: Vec3, normal: Vec3): Vec3[] {
+  // In-plane basis from the first corner.
+  let u = projectOntoPlane(sub(corners[0]!, centroid), normal);
+  if (length(u) < 1e-9) u = projectOntoPlane(sub(corners[1]!, centroid), normal);
+  u = normalize(u);
+  const v = cross(normal, u);
+  return [...corners].sort((a, b) => {
+    const ra = sub(a, centroid);
+    const rb = sub(b, centroid);
+    const angA = Math.atan2(dot(ra, v), dot(ra, u));
+    const angB = Math.atan2(dot(rb, v), dot(rb, u));
+    return angA - angB;
+  });
+}
+
+/**
+ * Recover home plate's pose from its 5 detected corners in world space.
+ *
+ * @param corners exactly 5 world-space points, one per plate corner, in any order.
+ * @param opts.groundNormal optional ARKit ground normal; defaults to world up (0,1,0).
+ * @returns the plate pose + field frame, or null if the input is degenerate.
+ */
+export function computeHomePlatePose(
+  corners: Vec3[],
+  opts: { groundNormal?: Vec3 } = {},
+): HomePlatePose | null {
+  if (corners.length !== 5) return null;
+
+  const centroid = scale(corners.reduce(add, { x: 0, y: 0, z: 0 }), 1 / 5);
+
+  // Up: prefer the supplied ground normal; else fit the plate's plane.
+  const worldUp: Vec3 = { x: 0, y: 1, z: 0 };
+  let up = opts.groundNormal ? normalize(opts.groundNormal) : newellNormal(corners);
+  if (length(up) < 1e-9) return null;
+  if (dot(up, worldUp) < 0) up = scale(up, -1); // orient up
+
+  const ring = orderAroundCentroid(corners, centroid, up);
+
+  // Longest edge = 17" front edge. Track its lower ring index.
+  let frontIdx = 0;
+  let frontLen = -1;
+  for (let i = 0; i < 5; i++) {
+    const len = length(sub(ring[(i + 1) % 5]!, ring[i]!));
+    if (len > frontLen) { frontLen = len; frontIdx = i; }
+  }
+  const fA = ring[frontIdx]!;
+  const fB = ring[(frontIdx + 1) % 5]!;
+  const apex = ring[(frontIdx + 3) % 5]!; // vertex opposite the front edge
+  const frontMid = scale(add(fA, fB), 0.5);
+
+  // Forward (toward pitcher) = apex → front-edge midpoint, flattened to ground.
+  const forward = normalize(projectOntoPlane(sub(frontMid, apex), up));
+  if (length(forward) < 1e-9) return null;
+  const right = normalize(cross(up, forward)); // toward first base
+
+  // Field axes match field/templates.ts: X→1B and Z→3B are the 45° diagonals.
+  const X = normalize(add(forward, right)); // to1b
+  const Z = normalize(sub(forward, right)); // to3b
+  const fieldToWorld = mat4FromAxes(X, up, Z, centroid);
+  const worldToField = invertAffine(fieldToWorld);
+
+  return {
+    center: centroid,
+    apex,
+    forward,
+    right,
+    up,
+    frontEdgeLengthM: frontLen,
+    scaleError: Math.abs(frontLen / HOME_PLATE_FRONT_EDGE_M - 1),
+    frame: {
+      worldToField,
+      fieldToWorld,
+      foulLineAngleDeg: 90,
+      landmarksUsed: ["home_plate(corners)"],
+    },
+  };
+}
+
+/**
+ * Convenience wrapper: the field coordinate frame from detected plate corners.
+ * Returns null if the input is degenerate.
+ */
+export function computeFieldFrameFromCorners(
+  corners: Vec3[],
+  opts: { groundNormal?: Vec3 } = {},
+): FieldCoordinateFrame | null {
+  return computeHomePlatePose(corners, opts)?.frame ?? null;
 }
 
 function computeFromTwo(hp: Vec3, base: Vec3, which: "first" | "third"): FieldCoordinateFrame {

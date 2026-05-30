@@ -93,13 +93,30 @@ and bad depth.
 
 ## Phased plan
 
-### Phase 0 — geometry helper (no ML, unit-testable)
-Add `computeFieldFrameFromCorners(corners3D)` alongside
-`src/field/coordinateFrame.ts`: take 5 world-space corners → identify apex vs
-front edge → return origin (plate center), heading (apex → front-edge midpoint),
-up (ground normal), plus a scale-check against the known 17" edge. Pure
-function; cover with unit tests. Output plugs straight into the existing
-`FieldRegistration` path.
+### Phase 0 — geometry helper (no ML, unit-testable) — ✅ DONE
+`computeHomePlatePose(corners)` / `computeFieldFrameFromCorners(corners)` in
+`src/field/coordinateFrame.ts`: take 5 world-space corners → order them, pick the
+17" front edge (longest) → apex = vertex opposite it → return origin (plate
+centroid), forward (apex → front-edge midpoint = toward pitcher, no compass
+needed), up (ground normal), right (toward 1B), a scale-check against the known
+17" edge (`scaleError`, to reject false positives), and a `FieldCoordinateFrame`
+consistent with `field/templates.ts`. Pure function.
+
+Tests: `src/field/coordinateFrame.test.ts` (Node's built-in runner, no new deps):
+
+```
+cd apps/lab-mobile
+node --experimental-strip-types --test src/field/coordinateFrame.test.ts
+```
+
+**Bug fixed along the way:** `invertAffine` (used by both the existing
+`computeFieldFrame` and the new code, and consumed by `field/classify.ts` for
+foul/infield/outfield zoning) wrote the transposed rotation into the wrong
+column-major slots. `worldToField` was only correct when the field happened to be
+axis-aligned to ARKit's arbitrary world axes — i.e. wrong for essentially every
+real field. Now a true inverse; covered by a round-trip regression test.
+
+Output plugs straight into the existing `FieldRegistration` path.
 
 ### Phase 1 — classical prototype (no training)  ← selected starting point
 In the Experiments AR screen, add a **"Detect home plate"** action:
