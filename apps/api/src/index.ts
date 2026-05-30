@@ -12,6 +12,7 @@ import { control } from "./routes/control";
 import { usage } from "./routes/usage";
 import { groupme } from "./routes/groupme";
 import { vision } from "./routes/vision";
+import { datasets } from "./routes/datasets";
 import { syncIcalFeed } from "./services/ical";
 import { authMiddleware, type AuthVariables } from "./middleware/auth";
 import { getValidAccessToken, fetchNewMessages, TokenExpiredError } from "./services/gmail";
@@ -52,6 +53,7 @@ app.route("/control", control);
 app.route("/usage", usage);
 app.route("/groupme", groupme);
 app.route("/vision", vision);
+app.route("/datasets", datasets);
 
 // Fresh start: clear triage + chat + summaries, re-evaluate from source data.
 // Keeps user_context, feedback, auth, push tokens.
