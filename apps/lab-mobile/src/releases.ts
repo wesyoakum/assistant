@@ -10,6 +10,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.5.1",
+    title: "Template tracker: tight crop + wider search (needs rebuild)",
+    notes: [
+      "Template now crops the central ~67% of the user-drawn box. Stops NCC locking onto background pixels around a small target",
+      "Search window minimum is now image-relative (~6.5% of width, min 40 px) and 3× wider on the very first non-template frame where there's no velocity yet to predict from",
+      "Confidence cutoff lowered to 0.15 so brief motion-blur dips don't end tracking",
+    ],
+  },
+  {
     version: "v1.5.0",
     title: "Tracker: template-matching + motion prediction mode (needs rebuild)",
     notes: [
