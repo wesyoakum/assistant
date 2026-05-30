@@ -120,15 +120,16 @@ Output plugs straight into the existing `FieldRegistration` path.
 
 ### Phase 1 — standalone "Plate World" test + classical detection
 
-**Phase 1a — standalone test screen (✅ DONE, manual corner capture).**
-`app/plate-world.tsx` is a self-contained AR screen, **completely separate from
-the Field registration flow** (which lives in `app/experiments.tsx`). Reached
-from the AR tab's settings drawer ("Plate World test"). You aim the crosshair at
-each of home plate's 5 corners and tap Capture; each capture raycasts to the
-ground (`raycastScreenPoint`). At 5 corners it runs `computeHomePlatePose`
+**Phase 1a — Plate World mode (✅ DONE, manual corner capture).**
+The **first** swipeable mode in the AR tab pager (`app/(tabs)/ar.tsx`, page 0,
+so it's what you land on), **completely separate from the Field registration
+flow** (which lives in `app/experiments.tsx`). A center crosshair is shown; you
+aim it at each of home plate's 5 corners and tap Capture. Each capture raycasts
+to the ground (`raycastScreenPoint`). At 5 corners it runs `computeHomePlatePose`
 (Phase 0) and drops a virtual `home_plate` marker onto the real plate, oriented
-by the recovered heading, with a pose/scale readout. This is the Stage 1 = manual
-stand-in: the 5 taps are exactly the interface a detector will later fill.
+by the recovered heading, with a pose/scale readout in the status bar. This is
+the Stage 1 = manual stand-in: the 5 taps are exactly the interface a detector
+will later fill.
 
 **Phase 1b — classical (no-training) detector (next).** Replace the 5 manual taps
 with an automatic corner finder (white-region/contour fit, or `expo-vision-detect`

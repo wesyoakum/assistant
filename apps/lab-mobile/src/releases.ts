@@ -10,6 +10,18 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.6.0",
+    title: "Plate World: anchor an AR world to home plate (needs rebuild)",
+    notes: [
+      "New 'Plate World' mode — now the first swipeable mode in the AR tab. Aim the crosshair at each of home plate's 5 corners and tap Capture; at 5 corners it solves the plate's position, orientation, and size purely from geometry and drops a virtual home plate onto the real one, oriented by the recovered heading",
+      "Orientation comes from the plate's shape (the apex/back point vs the 17in front edge), not from which way the phone is pointed — so the world is anchored correctly regardless of where you stand",
+      "Status bar reports the measured front-edge length vs the expected 17in (a built-in sanity check) and the heading. Reset clears and starts over",
+      "Kept completely separate from the Field registration flow",
+      "Fixed a latent bug in the field coordinate-frame inverse (worldToField) that produced wrong fair/foul/infield/outfield zoning on any field not aligned to ARKit's arbitrary world axes",
+    ],
+    pr: 138,
+  },
+  {
     version: "v1.5.0",
     title: "Tracker: template-matching + motion prediction mode (needs rebuild)",
     notes: [
