@@ -33,6 +33,11 @@ const MODE_LABEL: Record<TrackerMode, string> = {
   baseball: "Baseball",
 };
 
+// Modes shown in the UI. The others stay implemented (and selectable in code)
+// but hidden — YOLO ball was the only one that tracked real footage reliably.
+// Re-add any here to bring it back; all remain wired in runTracker.
+const VISIBLE_MODES: TrackerMode[] = ["yolo"];
+
 interface ViewState {
   scale: number;
   tx: number;
@@ -52,7 +57,7 @@ export function TrackerTab() {
   const [box, setBox] = useState<NormalizedBox | null>(null);
   const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number; mode: TrackerMode } | null>(null);
   const [reviewIdx, setReviewIdx] = useState(0);
-  const [trackerMode, setTrackerMode] = useState<TrackerMode>("template");
+  const [trackerMode, setTrackerMode] = useState<TrackerMode>("yolo");
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -499,7 +504,7 @@ export function TrackerTab() {
 
       {frame && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-          {(["template", "vision", "tracknet", "blob", "yolo", "baseball"] as const).map((m) => (
+          {VISIBLE_MODES.map((m) => (
             <Pressable
               key={m}
               onPress={() => setTrackerMode(m)}
