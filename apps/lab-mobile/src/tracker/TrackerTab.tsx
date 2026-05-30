@@ -276,12 +276,15 @@ export function TrackerTab() {
   }, [box, vp, canvas]);
 
   const runTracker = async () => {
-    if (!videoUri || !box) return;
+    if (!videoUri) return;
+    // TrackNet finds the ball itself — no initial box required. The other
+    // modes need a user-drawn box.
+    if (!box && trackerMode !== "tracknet") return;
     setBusy(`tracking (${trackerMode})…`);
     setErr(null);
     try {
       const r = trackerMode === "vision"
-        ? await VisionTracker.trackInVideo(videoUri, box, {
+        ? await VisionTracker.trackInVideo(videoUri, box!, {
             sampleStride: 1,
             maxFrames: 0,
             confidenceCutoff: 0.05,
@@ -294,7 +297,7 @@ export function TrackerTab() {
             startTimeSec: frameTimeSec,
             confidenceCutoff: 0.10,
           })
-        : await TemplateTracker.trackInVideo(videoUri, box, {
+        : await TemplateTracker.trackInVideo(videoUri, box!, {
             sampleStride: 1,
             maxFrames: 0,
             startTimeSec: frameTimeSec,

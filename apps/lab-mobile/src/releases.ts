@@ -10,6 +10,13 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.6.2",
+    title: "Tracker: enable Run button in TrackNet mode",
+    notes: [
+      "runTracker bailed before checking which mode was selected, so even though TrackNet doesn't need a box the button silently did nothing. Now the no-box short-circuit only applies to Template / Apple Vision modes",
+    ],
+  },
+  {
     version: "v1.6.1",
     title: "Tracker: TrackNet mode (needs rebuild)",
     notes: [
