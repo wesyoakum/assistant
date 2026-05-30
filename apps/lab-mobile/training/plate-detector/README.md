@@ -1,10 +1,18 @@
 # Home-plate corner detector (CoreML training)
 
+> **⚠️ Deprioritized (2026-05).** The field-registration plan in
+> `apps/lab-mobile/AR_WORLD_ANCHOR.md` was reframed: the initial fix is now
+> **automatic and training-free** (region → contour → `approxPolyDP` →
+> `solvePnP`), and orientation is owned by **foul-line vanishing points**, not a
+> plate keypoint model. This trained YOLO-pose detector is now only the **§10
+> fallback** — built only if the classical region/line CV proves too brittle on
+> real fields. Kept here, not deleted, for that contingency. Don't start here.
+
 Trains a **YOLO-pose** model that finds home plate in a camera frame and predicts
 its **5 corners** as keypoints. Those 5 points feed
 `src/field/coordinateFrame.ts` → `computeHomePlatePose()`, which recovers the
 plate's position, orientation, and scale to anchor the AR "world" (see
-`apps/lab-mobile/AR_WORLD_ANCHOR.md`). This is the automatic replacement for the
+`apps/lab-mobile/AR_WORLD_ANCHOR.md`). This was the automatic replacement for the
 manual 5-corner tapping.
 
 Same pipeline as the baseball detector (Ultralytics YOLO26n → CoreML), but a
