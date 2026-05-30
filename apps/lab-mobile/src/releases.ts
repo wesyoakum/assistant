@@ -10,6 +10,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.0",
+    title: "Field tab: reconcile video to the field (OTA)",
+    notes: [
+      "New Field tab: import a clip, scrub to a clear frame, tap field landmarks (home/bases/rubber/foul poles) and label each, then Solve to fit the ground homography.",
+      "Once solved it overlays the projected field — foul lines, base path, rubber — onto the frame, and 'Detect ball path' runs YOLO across frames to draw the 2D ball track.",
+      "Pick the level of play (Little League / Intermediate / High School) so the field proportions match; the fit absorbs small real-field size differences.",
+      "All on-ground (no 3D ball from one camera, by design). JS-only — delivered over-the-air.",
+    ],
+    pr: 159,
+  },
+  {
     version: "v1.7.1",
     title: "Tracker: YOLO ball only (OTA)",
     notes: [

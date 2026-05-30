@@ -41,6 +41,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="field"
+        options={{
+          title: "Field",
+          tabBarIcon: tabIcon("grid-outline"),
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: "Settings",
