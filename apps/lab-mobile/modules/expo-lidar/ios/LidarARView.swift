@@ -718,13 +718,17 @@ public final class LidarARView: ExpoView, ARSCNViewDelegate {
     let backDepth: CGFloat = 0.1524   // 6 inches (back rectangle depth)
     let height: CGFloat = 0.0508      // 2 inches tall
 
-    // Pentagon path: tip at +Y (toward backstop after rotation)
+    // Pentagon path. SAME shape/orientation as before, just translated down by
+    // frontDepth so the APEX sits at the local origin (0,0) — the field anchor
+    // is now at the apex, so the mesh must be apex-relative. (Previously the
+    // origin was the front-edge midpoint at y=0.) Pure translation: every y is
+    // the old y minus frontDepth, so facing direction is unchanged.
     let path = UIBezierPath()
-    path.move(to: CGPoint(x: 0, y: frontDepth))
-    path.addLine(to: CGPoint(x: halfW, y: 0))
-    path.addLine(to: CGPoint(x: halfW, y: -backDepth))
-    path.addLine(to: CGPoint(x: -halfW, y: -backDepth))
-    path.addLine(to: CGPoint(x: -halfW, y: 0))
+    path.move(to: CGPoint(x: 0, y: 0))                              // apex (origin)
+    path.addLine(to: CGPoint(x: halfW, y: -frontDepth))            // front-right
+    path.addLine(to: CGPoint(x: halfW, y: -frontDepth - backDepth)) // back-right
+    path.addLine(to: CGPoint(x: -halfW, y: -frontDepth - backDepth))// back-left
+    path.addLine(to: CGPoint(x: -halfW, y: -frontDepth))           // front-left
     path.close()
 
     let shape = SCNShape(path: path, extrusionDepth: height)

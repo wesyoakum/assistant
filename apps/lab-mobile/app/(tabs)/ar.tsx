@@ -167,13 +167,16 @@ export default function PlateScreen() {
     const headingDeg = baseHeadingDeg + (opts.yawCorrDeg ?? 0);
     try {
       await arRef.current?.clearFieldLandmarks();
+      // Anchor at the APEX — the authoritative origin (drives plate/world
+      // position). The rendered plate geometry has its apex at the local origin
+      // so it draws over the real plate and pivots about the apex on heading.
       await arRef.current?.addFieldLandmarkAtWorld(
-        p.center.x, p.center.y, p.center.z, "home_plate", headingDeg,
+        p.apex.x, p.apex.y, p.apex.z, "home_plate", headingDeg,
       );
     } catch {
       // Marker render is best-effort; the readout still stands.
     }
-    anchorCenterRef.current = p.center;        // for maintain-mode ROI gating
+    anchorCenterRef.current = p.apex;          // apex drives maintain-mode ROI gating
     worldToFieldRef.current = p.frame.worldToField; // for foul-line field-frame transform
     const frontIn = p.frontEdgeLengthM * 39.3701;
     const errPct = Math.round(p.scaleError * 100);
