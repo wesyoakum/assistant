@@ -621,6 +621,35 @@ export function TrackerTab() {
                   <Text style={{ color: "#bbb", fontSize: 11 }}>(no image loaded — try Prev/Next)</Text>
                 </View>
               )}
+              {/* Trail: a dot at the center of every frame's box from 0..reviewIdx,
+                  so prior detections persist on screen as you scrub forward.
+                  Older points fade; the current point is rendered as a full box below. */}
+              {result.frames.slice(0, reviewIdx).map((f, i) => {
+                if (!f.box) return null;
+                const cx = f.box.x + f.box.width / 2;
+                const cy = f.box.y + f.box.height / 2;
+                // Fade with age: oldest at 0.25 alpha, most-recent prior at 0.95.
+                const denom = Math.max(1, reviewIdx - 1);
+                const ageFrac = i / denom;
+                const alpha = 0.25 + ageFrac * 0.7;
+                return (
+                  <View
+                    key={`trail-${i}`}
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: `${cx * 100}%`,
+                      top: `${cy * 100}%`,
+                      width: 8,
+                      height: 8,
+                      marginLeft: -4,
+                      marginTop: -4,
+                      borderRadius: 4,
+                      backgroundColor: f.lost ? `rgba(255,59,48,${alpha})` : `rgba(255,204,0,${alpha})`,
+                    }}
+                  />
+                );
+              })}
               {reviewedFrame.box && (
                 <View
                   pointerEvents="none"

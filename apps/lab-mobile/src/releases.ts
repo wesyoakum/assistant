@@ -10,6 +10,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.2",
+    title: "Tracker: ball trail overlay (OTA)",
+    notes: [
+      "Tracker review now draws a fading dot at every prior frame's ball position, so as you scrub forward through the result the trajectory builds up on the displayed image. The current frame's box still renders as the green outline; older positions fade out behind it.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.8.1",
     title: "Tracker: Copy trace JSON (OTA)",
     notes: [
