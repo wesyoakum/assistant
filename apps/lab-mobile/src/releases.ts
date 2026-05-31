@@ -10,6 +10,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.1",
+    title: "Tracker: Copy trace JSON (OTA)",
+    notes: [
+      "New 'Copy trace' button in the tracker review section — copies the run as JSON (per-frame timestamps, boxes, confidences) to the clipboard so you can paste it back into chat for analysis.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.8.0",
     title: "Field tab: reconcile video to the field (OTA)",
     notes: [
