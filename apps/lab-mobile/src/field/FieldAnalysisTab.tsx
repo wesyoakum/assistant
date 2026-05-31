@@ -52,8 +52,6 @@ interface Viewport { scale: number; tx: number; ty: number }
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
-const touchDist = (t: any[]) => Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
-const sameActive = (a: Active, b: Active) => a.kind === b.kind && a.id === b.id;
 
 export function FieldAnalysisTab() {
   const theme = useTheme();
@@ -98,6 +96,17 @@ export function FieldAnalysisTab() {
   const autoSolveRef = useRef(false);
 
   const setViewport = useCallback((v: Viewport) => { vpRef.current = v; setVp(v); }, []);
+
+  // Zoom about the canvas center by a multiplicative factor, keeping the center
+  // point fixed (so +/- feel anchored). Used by the +/- buttons.
+  const zoomBy = useCallback((factor: number) => {
+    const v = vpRef.current;
+    const ns = clamp(v.scale * factor, 1, 8);
+    if (ns === v.scale) return;
+    // Center-anchored: scale the existing translation so the view's center stays put.
+    const k = ns / v.scale;
+    setViewport({ scale: ns, tx: v.tx * k, ty: v.ty * k });
+  }, [setViewport]);
 
   const imageRect = useMemo<Rect | null>(() => {
     if (!frame) return null;
@@ -196,21 +205,19 @@ export function FieldAnalysisTab() {
     }
   }, [reflow]);
 
-  // ── gestures ──
-  const gestureRef = useRef({ startTx: 0, startTy: 0, startScale: 1, startDist: 0, lastDx: 0, lastDy: 0, startLX: 0, startLY: 0, startNx: 0, startNy: 0, moved: false });
+  // ── gestures (pan via drag; zoom via +/- buttons) ──
+  const gestureRef = useRef({ startTx: 0, startTy: 0, lastDx: 0, lastDy: 0, startLX: 0, startLY: 0, startNx: 0, startNy: 0, moved: false });
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
         measureCanvas();
-        const t = evt.nativeEvent.touches;
         const off = canvasOffsetRef.current;
         const lx = evt.nativeEvent.pageX - off.x, ly = evt.nativeEvent.pageY - off.y;
         const norm = screenToImageNorm(lx, ly);
         gestureRef.current = {
-          startTx: vpRef.current.tx, startTy: vpRef.current.ty, startScale: vpRef.current.scale,
-          startDist: t.length >= 2 ? touchDist(t as any[]) : 0,
+          startTx: vpRef.current.tx, startTy: vpRef.current.ty,
           lastDx: 0, lastDy: 0, startLX: lx, startLY: ly,
           startNx: norm?.nx ?? 0, startNy: norm?.ny ?? 0, moved: false,
         };
@@ -219,13 +226,8 @@ export function FieldAnalysisTab() {
         const g = gestureRef.current;
         if (Math.hypot(gesture.dx, gesture.dy) > 6) g.moved = true;
         if (modeRef.current === "navigate") {
-          const t = evt.nativeEvent.touches;
-          if (t.length >= 2 && g.startDist > 0) {
-            const d = touchDist(t as any[]);
-            setViewport({ ...vpRef.current, scale: clamp(g.startScale * (d / g.startDist), 1, 8) });
-          } else {
-            setViewport({ scale: vpRef.current.scale, tx: g.startTx + gesture.dx, ty: g.startTy + gesture.dy });
-          }
+          // Pan only — drag moves the view; zoom is the +/- buttons.
+          setViewport({ scale: vpRef.current.scale, tx: g.startTx + gesture.dx, ty: g.startTy + gesture.dy });
         } else {
           const rect = imageRectRef.current; if (!rect) return;
           const incDx = gesture.dx - g.lastDx, incDy = gesture.dy - g.lastDy;
@@ -389,11 +391,21 @@ export function FieldAnalysisTab() {
           <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
             {(["place", "navigate"] as Mode[]).map((m) => (
               <Pressable key={m} onPress={() => setMode(m)} style={[styles.btn, { flex: 1, backgroundColor: mode === m ? theme.primary : theme.surfaceAlt }]}>
-                <Text style={[styles.btnText, { color: mode === m ? "#fff" : theme.text }]}>{m === "place" ? "Place / Edit" : "Zoom / Pan"}</Text>
+                <Text style={[styles.btnText, { color: mode === m ? "#fff" : theme.text }]}>{m === "place" ? "Place / Edit" : "Pan"}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={() => setViewport({ scale: 1, tx: 0, ty: 0 })} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
-              <Text style={[styles.btnText, { color: theme.text }]}>Reset view</Text>
+          </View>
+          {/* Zoom controls: +/- buttons (pinch removed); drag pans in Pan mode. */}
+          <View style={{ flexDirection: "row", gap: 6, marginTop: 6, alignItems: "center" }}>
+            <Pressable onPress={() => zoomBy(1 / 1.5)} style={[styles.btn, { flex: 1, backgroundColor: theme.surfaceAlt }]}>
+              <Text style={[styles.btnText, { color: theme.text, fontSize: 18 }]}>−</Text>
+            </Pressable>
+            <Text style={{ color: theme.textMuted, fontSize: 13, width: 56, textAlign: "center", fontVariant: ["tabular-nums"] }}>{vp.scale.toFixed(1)}×</Text>
+            <Pressable onPress={() => zoomBy(1.5)} style={[styles.btn, { flex: 1, backgroundColor: theme.surfaceAlt }]}>
+              <Text style={[styles.btnText, { color: theme.text, fontSize: 18 }]}>+</Text>
+            </Pressable>
+            <Pressable onPress={() => setViewport({ scale: 1, tx: 0, ty: 0 })} style={[styles.btn, { flex: 1, backgroundColor: theme.surfaceAlt }]}>
+              <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
             </Pressable>
           </View>
 
@@ -465,7 +477,7 @@ export function FieldAnalysisTab() {
           </View>
           <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>
             {frameTimeSec.toFixed(2)}s / {frame.durationSec.toFixed(2)}s{frame.frameRate > 0 ? ` · ${frame.frameRate.toFixed(0)} fps` : ""}
-            {mode === "place" ? (active.kind === "line" ? "  ·  tap two points on the chalk" : "  ·  tap to place, drag to fine-tune") : "  ·  pinch zoom, drag pan"}
+            {mode === "place" ? (active.kind === "line" ? "  ·  tap two points on the chalk" : "  ·  tap to place, drag to fine-tune") : "  ·  drag to pan · +/- to zoom"}
           </Text>
 
           {/* LINE picker */}
