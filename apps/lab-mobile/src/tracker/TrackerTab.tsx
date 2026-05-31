@@ -11,6 +11,7 @@ import {
   type LayoutChangeEvent,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as Clipboard from "expo-clipboard";
 import { VisionTracker, type NormalizedBox, type TrackedFrame, type FirstFrameResult } from "expo-vision-tracker";
 import { TemplateTracker } from "expo-template-tracker";
 import { TrackNet } from "expo-tracknet";
@@ -58,6 +59,7 @@ export function TrackerTab() {
   const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number; mode: TrackerMode } | null>(null);
   const [reviewIdx, setReviewIdx] = useState(0);
   const [trackerMode, setTrackerMode] = useState<TrackerMode>("yolo");
+  const [copyHint, setCopyHint] = useState<string | null>(null);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -356,6 +358,38 @@ export function TrackerTab() {
 
   const resetViewport = () => setVp({ scale: 1, tx: 0, ty: 0 });
 
+  const copyTrace = async () => {
+    if (!result) return;
+    const trace = {
+      schema: "whyapp.tracker.trace/v1",
+      capturedAt: new Date().toISOString(),
+      mode: result.mode,
+      videoWidth: result.videoWidth,
+      videoHeight: result.videoHeight,
+      frameRate: result.frameRate,
+      elapsedMs: result.elapsedMs,
+      startTimeSec: frameTimeSec,
+      initialBox: box,
+      frames: result.frames.map((f) => ({
+        t: Number(f.timeSec.toFixed(4)),
+        box: f.box
+          ? {
+              x: Number(f.box.x.toFixed(5)),
+              y: Number(f.box.y.toFixed(5)),
+              w: Number(f.box.width.toFixed(5)),
+              h: Number(f.box.height.toFixed(5)),
+            }
+          : null,
+        c: Number(f.confidence.toFixed(3)),
+        lost: !!f.lost,
+      })),
+    };
+    const json = JSON.stringify(trace);
+    await Clipboard.setStringAsync(json);
+    setCopyHint(`Copied ${(json.length / 1024).toFixed(1)} KB — paste into chat`);
+    setTimeout(() => setCopyHint(null), 3000);
+  };
+
   const reviewedFrame = result?.frames[reviewIdx] ?? null;
 
   // Review section: load the actual frame at the reviewed timestamp instead
@@ -619,7 +653,13 @@ export function TrackerTab() {
             <Pressable onPress={() => setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1))} disabled={reviewIdx >= result.frames.length - 1} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx >= result.frames.length - 1 ? 0.4 : 1 }]}>
               <Text style={[styles.btnText, { color: theme.text }]}>Next ›</Text>
             </Pressable>
+            <Pressable onPress={copyTrace} style={[styles.btn, { backgroundColor: theme.primary, flex: 1 }]}>
+              <Text style={styles.btnText}>Copy trace</Text>
+            </Pressable>
           </View>
+          {copyHint && (
+            <Text style={{ color: theme.textSubtle, fontSize: 11, marginTop: 6, textAlign: "center" }}>{copyHint}</Text>
+          )}
         </View>
       )}
     </ScrollView>
