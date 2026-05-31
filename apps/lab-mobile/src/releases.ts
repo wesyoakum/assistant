@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.5",
+    title: "Tracker: spline + restart + zoom & pan (OTA)",
+    notes: [
+      "A smooth Catmull-Rom spline is now drawn through every real ball detection up to the current frame (cyan curve), so the trajectory reads as a continuous line instead of a chain of dots.",
+      "New ⏮ Start button rewinds playback to frame 1.",
+      "Result canvas now supports zoom: − Zoom / + Zoom / Reset zoom buttons step the scale by 1.5×, two-finger pinch also works, and one-finger drag pans the image around once you're zoomed in.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.8.4",
     title: "Tracker: play at speed + result in top pane (OTA)",
     notes: [
