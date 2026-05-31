@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Clipboard from "expo-clipboard";
+import Svg, { Path } from "react-native-svg";
 import { VisionTracker, type NormalizedBox, type TrackedFrame, type FirstFrameResult } from "expo-vision-tracker";
 import { TemplateTracker } from "expo-template-tracker";
 import { TrackNet } from "expo-tracknet";
@@ -283,6 +284,78 @@ export function TrackerTab() {
     [remeasure, pageToLocal, localToImage, drawingBoxScreen],
   );
 
+  // Separate responder for the result canvas: pan + pinch only (no box
+  // drawing). Reuses the same vp/canvas/gestureBase state and refs since
+  // only one of the two canvases is rendered at a time.
+  const resultResponder = useMemo(() =>
+    PanResponder.create({
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: (e) => {
+        remeasure();
+        setScrollEnabled(false);
+        gestureBase.current.vp = vpRef.current;
+        const touches = e.nativeEvent.touches;
+        if (touches.length >= 2) {
+          const t0 = touches[0]!, t1 = touches[1]!;
+          gestureBase.current.isPinch = true;
+          gestureBase.current.pinchD = Math.max(1, distance(t0.pageX, t0.pageY, t1.pageX, t1.pageY));
+          gestureBase.current.pinchMid = { x: (t0.pageX + t1.pageX) / 2, y: (t0.pageY + t1.pageY) / 2 };
+        } else {
+          gestureBase.current.isPinch = false;
+          const t0 = touches[0]!;
+          // Reuse pinchMid as the 1-finger drag anchor for simplicity.
+          gestureBase.current.pinchMid = { x: t0.pageX, y: t0.pageY };
+        }
+      },
+      onPanResponderMove: (e) => {
+        const touches = e.nativeEvent.touches;
+        if (touches.length >= 2 && !gestureBase.current.isPinch) {
+          gestureBase.current.isPinch = true;
+          gestureBase.current.vp = vpRef.current;
+          const t0 = touches[0]!, t1 = touches[1]!;
+          gestureBase.current.pinchD = Math.max(1, distance(t0.pageX, t0.pageY, t1.pageX, t1.pageY));
+          gestureBase.current.pinchMid = { x: (t0.pageX + t1.pageX) / 2, y: (t0.pageY + t1.pageY) / 2 };
+          return;
+        }
+        if (gestureBase.current.isPinch && touches.length >= 2) {
+          const t0 = touches[0]!, t1 = touches[1]!;
+          const curD = Math.max(1, distance(t0.pageX, t0.pageY, t1.pageX, t1.pageY));
+          const curMid = { x: (t0.pageX + t1.pageX) / 2, y: (t0.pageY + t1.pageY) / 2 };
+          const base = gestureBase.current;
+          const newScale = clamp(base.vp.scale * (curD / base.pinchD), MIN_SCALE, MAX_SCALE);
+          const newTx = base.vp.tx + (curMid.x - base.pinchMid.x);
+          const newTy = base.vp.ty + (curMid.y - base.pinchMid.y);
+          setVp({ scale: newScale, tx: newTx, ty: newTy });
+          return;
+        }
+        // 1-finger drag → pan (most useful when zoomed in).
+        if (touches.length >= 1) {
+          const t0 = touches[0]!;
+          const base = gestureBase.current;
+          setVp({
+            scale: base.vp.scale,
+            tx: base.vp.tx + (t0.pageX - base.pinchMid.x),
+            ty: base.vp.ty + (t0.pageY - base.pinchMid.y),
+          });
+        }
+      },
+      onPanResponderRelease: () => {
+        setScrollEnabled(true);
+        setVp((v) => clampViewport(v, canvasRef.current));
+        gestureBase.current.isPinch = false;
+      },
+      onPanResponderTerminate: () => {
+        setScrollEnabled(true);
+        gestureBase.current.isPinch = false;
+      },
+    }),
+    [remeasure],
+  );
+
   // Render the committed box on the canvas in screen coords.
   const committedBoxScreen = useMemo(() => {
     if (!box) return null;
@@ -359,6 +432,14 @@ export function TrackerTab() {
   };
 
   const resetViewport = () => setVp({ scale: 1, tx: 0, ty: 0 });
+  const zoomBy = (factor: number) =>
+    setVp((v) => {
+      const newScale = clamp(v.scale * factor, MIN_SCALE, MAX_SCALE);
+      // Keep the current pan but rescale it proportionally so the same point
+      // stays under the center of the canvas across the zoom step.
+      const k = v.scale === 0 ? 1 : newScale / v.scale;
+      return clampViewport({ scale: newScale, tx: v.tx * k, ty: v.ty * k }, canvasRef.current);
+    });
 
   // Per-frame box with gaps (lost or null) filled by linear interpolation in
   // time between the nearest real detections. Edges (before the first / after
@@ -368,6 +449,25 @@ export function TrackerTab() {
     if (!result) return null;
     return interpolateBoxes(result.frames);
   }, [result]);
+
+  // Smooth Catmull-Rom path through every real detection center, up to and
+  // including the current frame. Drawn over the image so the user sees a
+  // curve, not just a chain of dots. Interpolated frames are skipped here —
+  // the spline already smooths between real detections, which is what the
+  // interpolation was approximating anyway.
+  const splinePath = useMemo(() => {
+    if (!result || !interpolated) return "";
+    const pts: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i <= reviewIdx && i < result.frames.length; i++) {
+      const f = result.frames[i]!;
+      if (!f.box || f.lost) continue;
+      pts.push({
+        x: f.box.x + f.box.width / 2,
+        y: f.box.y + f.box.height / 2,
+      });
+    }
+    return catmullRomPath(pts);
+  }, [result, interpolated, reviewIdx]);
 
   // Playback: advance reviewIdx on a timer. Interval is one source-frame
   // duration divided by the current playSpeed (1x = real-time; 1/8x = 8x slower).
@@ -640,15 +740,119 @@ export function TrackerTab() {
             {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
           </Text>
           {reviewedFrame && (
-            <View style={{ aspectRatio: result.videoWidth / result.videoHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginBottom: 8, position: "relative" }}>
-              {reviewImage && (
-                <Image
-                  source={{ uri: `data:image/jpeg;base64,${reviewImage.base64}` }}
-                  style={{ width: "100%", height: "100%" }}
-                  fadeDuration={0}
-                  resizeMode="cover"
-                />
-              )}
+            <View
+              ref={canvasRef2}
+              {...resultResponder.panHandlers}
+              onLayout={onCanvasLayout}
+              style={{ aspectRatio: result.videoWidth / result.videoHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginBottom: 8, position: "relative" }}
+            >
+              {/* Image + overlays are wrapped in a transformed View so they
+                  pan and zoom together. Stroke width of the spline stays
+                  constant via vectorEffect="non-scaling-stroke". */}
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
+                }}
+              >
+                {reviewImage && (
+                  <Image
+                    source={{ uri: `data:image/jpeg;base64,${reviewImage.base64}` }}
+                    style={{ width: "100%", height: "100%" }}
+                    fadeDuration={0}
+                    resizeMode="cover"
+                  />
+                )}
+                {splinePath !== "" && (
+                  <Svg
+                    style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
+                    viewBox="0 0 1 1"
+                    preserveAspectRatio="none"
+                  >
+                    <Path
+                      d={splinePath}
+                      stroke="rgba(0,200,255,0.95)"
+                      strokeWidth={2}
+                      fill="none"
+                      vectorEffect="non-scaling-stroke"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </Svg>
+                )}
+                {interpolated?.slice(0, reviewIdx).map((p, i) => {
+                  if (!p.box) return null;
+                  const cx = p.box.x + p.box.width / 2;
+                  const cy = p.box.y + p.box.height / 2;
+                  const denom = Math.max(1, reviewIdx - 1);
+                  const alpha = 0.25 + (i / denom) * 0.7;
+                  if (p.interpolated) {
+                    return (
+                      <View
+                        key={`trail-${i}`}
+                        pointerEvents="none"
+                        style={{
+                          position: "absolute",
+                          left: `${cx * 100}%`,
+                          top: `${cy * 100}%`,
+                          width: 6,
+                          height: 6,
+                          marginLeft: -3,
+                          marginTop: -3,
+                          borderRadius: 3,
+                          borderWidth: 1,
+                          borderColor: `rgba(255,204,0,${alpha})`,
+                          backgroundColor: "transparent",
+                        }}
+                      />
+                    );
+                  }
+                  return (
+                    <View
+                      key={`trail-${i}`}
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: `${cx * 100}%`,
+                        top: `${cy * 100}%`,
+                        width: 8,
+                        height: 8,
+                        marginLeft: -4,
+                        marginTop: -4,
+                        borderRadius: 4,
+                        backgroundColor: `rgba(255,204,0,${alpha})`,
+                      }}
+                    />
+                  );
+                })}
+                {(() => {
+                  const cur = interpolated?.[reviewIdx];
+                  if (!cur?.box) return null;
+                  const isInterp = cur.interpolated;
+                  return (
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: `${cur.box.x * 100}%`,
+                        top: `${cur.box.y * 100}%`,
+                        width: `${cur.box.width * 100}%`,
+                        height: `${cur.box.height * 100}%`,
+                        borderWidth: 2,
+                        borderColor: isInterp ? "#FF9500" : "#34C759",
+                        borderStyle: isInterp ? "dashed" : "solid",
+                      }}
+                    />
+                  );
+                })()}
+              </View>
+              {/* Overlays OUTSIDE the transformed wrapper — stay readable
+                  regardless of zoom level. */}
               {reviewLoading && (
                 <View style={{ position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
                   <Text style={{ color: "#fff", fontSize: 10 }}>
@@ -662,79 +866,15 @@ export function TrackerTab() {
                 </View>
               )}
               {!reviewImage && !reviewLoading && !reviewError && reviewedFrame && (
-                <View style={{ position: "absolute", inset: 0, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: "#bbb", fontSize: 11 }}>(no image loaded — try Prev/Next)</Text>
+                <View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ color: "#bbb", fontSize: 11 }}>(loading frame…)</Text>
                 </View>
               )}
-              {/* Trail: a dot at the center of every frame's box from 0..reviewIdx,
-                  using interpolated fill for lost/missing frames so the trajectory
-                  is continuous. Real detections render solid; interpolated points
-                  render as a smaller hollow ring. */}
-              {interpolated?.slice(0, reviewIdx).map((p, i) => {
-                if (!p.box) return null;
-                const cx = p.box.x + p.box.width / 2;
-                const cy = p.box.y + p.box.height / 2;
-                const denom = Math.max(1, reviewIdx - 1);
-                const alpha = 0.25 + (i / denom) * 0.7;
-                if (p.interpolated) {
-                  return (
-                    <View
-                      key={`trail-${i}`}
-                      pointerEvents="none"
-                      style={{
-                        position: "absolute",
-                        left: `${cx * 100}%`,
-                        top: `${cy * 100}%`,
-                        width: 6,
-                        height: 6,
-                        marginLeft: -3,
-                        marginTop: -3,
-                        borderRadius: 3,
-                        borderWidth: 1,
-                        borderColor: `rgba(255,204,0,${alpha})`,
-                        backgroundColor: "transparent",
-                      }}
-                    />
-                  );
-                }
-                return (
-                  <View
-                    key={`trail-${i}`}
-                    pointerEvents="none"
-                    style={{
-                      position: "absolute",
-                      left: `${cx * 100}%`,
-                      top: `${cy * 100}%`,
-                      width: 8,
-                      height: 8,
-                      marginLeft: -4,
-                      marginTop: -4,
-                      borderRadius: 4,
-                      backgroundColor: `rgba(255,204,0,${alpha})`,
-                    }}
-                  />
-                );
-              })}
-              {(() => {
-                const cur = interpolated?.[reviewIdx];
-                if (!cur?.box) return null;
-                const isInterp = cur.interpolated;
-                return (
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: "absolute",
-                      left: `${cur.box.x * 100}%`,
-                      top: `${cur.box.y * 100}%`,
-                      width: `${cur.box.width * 100}%`,
-                      height: `${cur.box.height * 100}%`,
-                      borderWidth: 2,
-                      borderColor: isInterp ? "#FF9500" : "#34C759",
-                      borderStyle: isInterp ? "dashed" : "solid",
-                    }}
-                  />
-                );
-              })()}
+              {vp.scale > 1.01 && (
+                <View style={{ position: "absolute", top: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
+                </View>
+              )}
               <View style={{ position: "absolute", bottom: 8, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
                 <Text style={{ color: "#fff", fontSize: 11 }}>
                   frame {reviewIdx + 1}/{result.frames.length}
@@ -748,6 +888,13 @@ export function TrackerTab() {
           )}
           <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
             <Pressable
+              onPress={() => setReviewIdx(0)}
+              disabled={reviewIdx === 0}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx === 0 ? 0.4 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>⏮ Start</Text>
+            </Pressable>
+            <Pressable
               onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }}
               disabled={reviewIdx === 0}
               style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx === 0 ? 0.4 : 1 }]}
@@ -757,7 +904,6 @@ export function TrackerTab() {
             <Pressable
               onPress={() => {
                 if (reviewIdx >= result.frames.length - 1) {
-                  // Restart from the beginning when tapping Play at the end.
                   setReviewIdx(0);
                 }
                 setIsPlaying((p) => !p);
@@ -795,12 +941,35 @@ export function TrackerTab() {
               </Pressable>
             ))}
           </View>
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+            <Pressable
+              onPress={() => zoomBy(1 / 1.5)}
+              disabled={vp.scale <= MIN_SCALE + 0.001}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: vp.scale <= MIN_SCALE + 0.001 ? 0.4 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>− Zoom</Text>
+            </Pressable>
+            <Pressable
+              onPress={resetViewport}
+              disabled={vp.scale <= MIN_SCALE + 0.001 && vp.tx === 0 && vp.ty === 0}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: vp.scale <= MIN_SCALE + 0.001 && vp.tx === 0 && vp.ty === 0 ? 0.4 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>Reset zoom</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => zoomBy(1.5)}
+              disabled={vp.scale >= MAX_SCALE - 0.001}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: vp.scale >= MAX_SCALE - 0.001 ? 0.4 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>+ Zoom</Text>
+            </Pressable>
+          </View>
           <View style={{ flexDirection: "row", gap: 6 }}>
             <Pressable onPress={copyTrace} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
               <Text style={[styles.btnText, { color: theme.text }]}>Copy trace</Text>
             </Pressable>
             <Pressable
-              onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); }}
+              onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }}
               style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
             >
               <Text style={[styles.btnText, { color: theme.text }]}>New tracking</Text>
@@ -847,6 +1016,31 @@ function clampViewport(v: ViewState, c: { width: number; height: number }): View
     tx: clamp(v.tx, -maxOffsetX, maxOffsetX),
     ty: clamp(v.ty, -maxOffsetY, maxOffsetY),
   };
+}
+
+// Build an SVG path d-string from a Catmull-Rom spline through the given
+// points, converted to cubic-bezier segments. Endpoints are duplicated so
+// the curve passes through the first and last points cleanly. Output uses
+// the same coordinate system as the input (the caller picks the viewBox).
+function catmullRomPath(points: Array<{ x: number; y: number }>): string {
+  if (points.length === 0) return "";
+  if (points.length === 1) {
+    // A degenerate "path" — a tiny dot via M then a zero-length line.
+    return `M ${points[0]!.x} ${points[0]!.y}`;
+  }
+  let d = `M ${points[0]!.x} ${points[0]!.y}`;
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)]!;
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
+    const p3 = points[Math.min(points.length - 1, i + 2)]!;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
 }
 
 // For each frame, return either the real detection (cloned) or, when the
