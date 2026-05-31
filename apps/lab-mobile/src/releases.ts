@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.3",
+    title: "Tracker: interpolate missing detections (OTA)",
+    notes: [
+      "Frames where the tracker didn't find the ball now get a linearly-interpolated position between the nearest real detections, so the trail stays continuous through gaps.",
+      "Visual distinction: real detections render as solid yellow dots / solid green box; interpolated positions render as hollow rings / dashed orange box. Edges (before the first or after the last real detection) stay empty.",
+      "Copy trace JSON bumped to schema v2 — each frame now also carries an `ibox` field when its position was interpolated.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.8.2",
     title: "Tracker: ball trail overlay (OTA)",
     notes: [

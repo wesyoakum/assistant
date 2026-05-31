@@ -358,10 +358,20 @@ export function TrackerTab() {
 
   const resetViewport = () => setVp({ scale: 1, tx: 0, ty: 0 });
 
+  // Per-frame box with gaps (lost or null) filled by linear interpolation in
+  // time between the nearest real detections. Edges (before the first / after
+  // the last real detection) stay null since we have nothing to interpolate
+  // against. Aligned 1:1 with result.frames.
+  const interpolated = useMemo(() => {
+    if (!result) return null;
+    return interpolateBoxes(result.frames);
+  }, [result]);
+
   const copyTrace = async () => {
     if (!result) return;
+    const interp = interpolated ?? [];
     const trace = {
-      schema: "whyapp.tracker.trace/v1",
+      schema: "whyapp.tracker.trace/v2",
       capturedAt: new Date().toISOString(),
       mode: result.mode,
       videoWidth: result.videoWidth,
@@ -370,19 +380,31 @@ export function TrackerTab() {
       elapsedMs: result.elapsedMs,
       startTimeSec: frameTimeSec,
       initialBox: box,
-      frames: result.frames.map((f) => ({
-        t: Number(f.timeSec.toFixed(4)),
-        box: f.box
-          ? {
-              x: Number(f.box.x.toFixed(5)),
-              y: Number(f.box.y.toFixed(5)),
-              w: Number(f.box.width.toFixed(5)),
-              h: Number(f.box.height.toFixed(5)),
-            }
-          : null,
-        c: Number(f.confidence.toFixed(3)),
-        lost: !!f.lost,
-      })),
+      frames: result.frames.map((f, i) => {
+        const ip = interp[i];
+        const interpBox = ip?.interpolated && ip.box ? ip.box : null;
+        return {
+          t: Number(f.timeSec.toFixed(4)),
+          box: f.box
+            ? {
+                x: Number(f.box.x.toFixed(5)),
+                y: Number(f.box.y.toFixed(5)),
+                w: Number(f.box.width.toFixed(5)),
+                h: Number(f.box.height.toFixed(5)),
+              }
+            : null,
+          c: Number(f.confidence.toFixed(3)),
+          lost: !!f.lost,
+          ...(interpBox && {
+            ibox: {
+              x: Number(interpBox.x.toFixed(5)),
+              y: Number(interpBox.y.toFixed(5)),
+              w: Number(interpBox.width.toFixed(5)),
+              h: Number(interpBox.height.toFixed(5)),
+            },
+          }),
+        };
+      }),
     };
     const json = JSON.stringify(trace);
     await Clipboard.setStringAsync(json);
@@ -622,16 +644,36 @@ export function TrackerTab() {
                 </View>
               )}
               {/* Trail: a dot at the center of every frame's box from 0..reviewIdx,
-                  so prior detections persist on screen as you scrub forward.
-                  Older points fade; the current point is rendered as a full box below. */}
-              {result.frames.slice(0, reviewIdx).map((f, i) => {
-                if (!f.box) return null;
-                const cx = f.box.x + f.box.width / 2;
-                const cy = f.box.y + f.box.height / 2;
-                // Fade with age: oldest at 0.25 alpha, most-recent prior at 0.95.
+                  using interpolated fill for lost/missing frames so the trajectory
+                  is continuous. Real detections render solid; interpolated points
+                  render as a smaller hollow ring. */}
+              {interpolated?.slice(0, reviewIdx).map((p, i) => {
+                if (!p.box) return null;
+                const cx = p.box.x + p.box.width / 2;
+                const cy = p.box.y + p.box.height / 2;
                 const denom = Math.max(1, reviewIdx - 1);
-                const ageFrac = i / denom;
-                const alpha = 0.25 + ageFrac * 0.7;
+                const alpha = 0.25 + (i / denom) * 0.7;
+                if (p.interpolated) {
+                  return (
+                    <View
+                      key={`trail-${i}`}
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: `${cx * 100}%`,
+                        top: `${cy * 100}%`,
+                        width: 6,
+                        height: 6,
+                        marginLeft: -3,
+                        marginTop: -3,
+                        borderRadius: 3,
+                        borderWidth: 1,
+                        borderColor: `rgba(255,204,0,${alpha})`,
+                        backgroundColor: "transparent",
+                      }}
+                    />
+                  );
+                }
                 return (
                   <View
                     key={`trail-${i}`}
@@ -645,25 +687,31 @@ export function TrackerTab() {
                       marginLeft: -4,
                       marginTop: -4,
                       borderRadius: 4,
-                      backgroundColor: f.lost ? `rgba(255,59,48,${alpha})` : `rgba(255,204,0,${alpha})`,
+                      backgroundColor: `rgba(255,204,0,${alpha})`,
                     }}
                   />
                 );
               })}
-              {reviewedFrame.box && (
-                <View
-                  pointerEvents="none"
-                  style={{
-                    position: "absolute",
-                    left: `${reviewedFrame.box.x * 100}%`,
-                    top: `${reviewedFrame.box.y * 100}%`,
-                    width: `${reviewedFrame.box.width * 100}%`,
-                    height: `${reviewedFrame.box.height * 100}%`,
-                    borderWidth: 2,
-                    borderColor: reviewedFrame.lost ? "#FF3B30" : "#34C759",
-                  }}
-                />
-              )}
+              {(() => {
+                const cur = interpolated?.[reviewIdx];
+                if (!cur?.box) return null;
+                const isInterp = cur.interpolated;
+                return (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      left: `${cur.box.x * 100}%`,
+                      top: `${cur.box.y * 100}%`,
+                      width: `${cur.box.width * 100}%`,
+                      height: `${cur.box.height * 100}%`,
+                      borderWidth: 2,
+                      borderColor: isInterp ? "#FF9500" : "#34C759",
+                      borderStyle: isInterp ? "dashed" : "solid",
+                    }}
+                  />
+                );
+              })()}
               <View style={{ position: "absolute", bottom: 8, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
                 <Text style={{ color: "#fff", fontSize: 11 }}>
                   frame {reviewIdx + 1}/{result.frames.length}
@@ -727,4 +775,49 @@ function clampViewport(v: ViewState, c: { width: number; height: number }): View
     tx: clamp(v.tx, -maxOffsetX, maxOffsetX),
     ty: clamp(v.ty, -maxOffsetY, maxOffsetY),
   };
+}
+
+// For each frame, return either the real detection (cloned) or, when the
+// detection is missing/lost, a linearly-interpolated box between the nearest
+// real detections on either side. Edges (no detection before/after) return
+// null. The `interpolated` flag distinguishes filled gaps from real boxes.
+function interpolateBoxes(
+  frames: TrackedFrame[],
+): Array<{ box: NormalizedBox | null; interpolated: boolean }> {
+  const out: Array<{ box: NormalizedBox | null; interpolated: boolean }> = frames.map((f) => ({
+    box: f.box && !f.lost ? { ...f.box } : null,
+    interpolated: false,
+  }));
+  let i = 0;
+  while (i < out.length) {
+    if (out[i]!.box) { i++; continue; }
+    let prev = i - 1;
+    while (prev >= 0 && !out[prev]!.box) prev--;
+    let next = i;
+    while (next < out.length && !out[next]!.box) next++;
+    if (prev < 0 || next >= out.length) {
+      // Can't bracket this gap — leave null and skip past it.
+      i = next;
+      continue;
+    }
+    const bPrev = out[prev]!.box!;
+    const bNext = out[next]!.box!;
+    const tPrev = frames[prev]!.timeSec;
+    const tNext = frames[next]!.timeSec;
+    const dt = tNext - tPrev;
+    for (let k = prev + 1; k < next; k++) {
+      const u = dt > 0 ? (frames[k]!.timeSec - tPrev) / dt : (k - prev) / (next - prev);
+      out[k] = {
+        box: {
+          x: bPrev.x + (bNext.x - bPrev.x) * u,
+          y: bPrev.y + (bNext.y - bPrev.y) * u,
+          width: bPrev.width + (bNext.width - bPrev.width) * u,
+          height: bPrev.height + (bNext.height - bPrev.height) * u,
+        },
+        interpolated: true,
+      };
+    }
+    i = next;
+  }
+  return out;
 }
