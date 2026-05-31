@@ -20,6 +20,21 @@ export interface Correspondence {
   image: { u: number; v: number };
 }
 
+/**
+ * A field line ↔ image line correspondence. The line is given by TWO points on
+ * it in each space — they need not be the line's true endpoints (e.g. tap any
+ * two spots on the visible foul chalk; give two field points on that foul line,
+ * like the apex (0,0) and 1B (basePath,0)). A line constrains the homography as
+ * tightly as a point pair (2 DLT rows), and lets you register when a line's true
+ * endpoints (plate apex, foul pole) aren't both in frame.
+ */
+export interface LineCorrespondence {
+  /** Two distinct field points (x,z) lying on the field line. */
+  field: [{ x: number; z: number }, { x: number; z: number }];
+  /** Two distinct image points (u,v) lying on the observed image line (the taps). */
+  image: [{ u: number; v: number }, { u: number; v: number }];
+}
+
 /** Row-major 3×3 homography (h[0..8]). Maps homogeneous [x z 1] → [u v 1]. */
 export type Homography = number[];
 
@@ -54,14 +69,34 @@ export function imageToField(Hinv: Homography, q: { u: number; v: number }): { x
 }
 
 /**
- * Fit the field→image homography from ≥4 correspondences (normalized DLT).
- * Returns null if degenerate (too few points, collinear, singular).
+ * Fit the field→image homography from point and/or line correspondences
+ * (normalized DLT). Each point gives 2 equations; each line also gives 2 (via
+ * its two defining points), so the constraint count is 2·(points + lines) and we
+ * need ≥4 total (e.g. 4 points, or 2 lines + a point, or 2 lines + 2 points).
+ *
+ * Lines are handled by feeding their two defining points into the SAME point-DLT
+ * — a homography that maps two field points onto two image points on the
+ * observed line necessarily maps the field line onto the image line. Since the
+ * defining points are arbitrary points on each line (not matched endpoints),
+ * this is exactly a line constraint, and the apex etc. come out as intersections
+ * for free. Returns null if degenerate (too few constraints, collinear, singular).
  */
-export function fitHomography(corr: Correspondence[]): HomographyFit | null {
-  if (corr.length < 4) return null;
+export function fitHomography(
+  corr: Correspondence[],
+  lines: LineCorrespondence[] = [],
+): HomographyFit | null {
+  // Expand each line into its two point pairs for the DLT. (These extra points
+  // are used only to constrain the fit; RMS is still reported on the real point
+  // correspondences plus a line-distance term below.)
+  const pointPairs: Correspondence[] = [...corr];
+  for (const ln of lines) {
+    pointPairs.push({ field: ln.field[0], image: ln.image[0] });
+    pointPairs.push({ field: ln.field[1], image: ln.image[1] });
+  }
+  if (pointPairs.length < 4) return null;
 
-  const src = corr.map((c) => ({ x: c.field.x, y: c.field.z }));
-  const dst = corr.map((c) => ({ x: c.image.u, y: c.image.v }));
+  const src = pointPairs.map((c) => ({ x: c.field.x, y: c.field.z }));
+  const dst = pointPairs.map((c) => ({ x: c.image.u, y: c.image.v }));
 
   // Normalize both point sets (Hartley): translate to centroid, scale so mean
   // distance is √2. Greatly improves DLT conditioning.
@@ -92,16 +127,42 @@ export function fitHomography(corr: Correspondence[]): HomographyFit | null {
   const Hinv = inv3(H);
   if (!Hinv) return null;
 
-  // Reprojection RMS.
+  // RMS: point reprojection error, plus for each line the perpendicular distance
+  // of each projected field-line point to the observed image line (so the metric
+  // reflects line fit, not the arbitrary chosen points).
   let se = 0;
+  let terms = 0;
   for (const c of corr) {
     const p = fieldToImage(H, c.field);
     if (!p) return null;
     se += (p.x - c.image.u) ** 2 + (p.y - c.image.v) ** 2;
+    terms++;
   }
-  const rmsPx = Math.sqrt(se / corr.length);
+  for (const ln of lines) {
+    const line = lineThrough(ln.image[0], ln.image[1]); // image line a·u+b·v+c=0, (a,b) unit
+    if (!line) continue;
+    for (const fp of ln.field) {
+      const p = fieldToImage(H, fp);
+      if (!p) return null;
+      const d = line.a * p.x + line.b * p.y + line.c; // signed perp distance
+      se += d * d;
+      terms++;
+    }
+  }
+  if (terms === 0) return null;
+  const rmsPx = Math.sqrt(se / terms);
 
-  return { H, Hinv, rmsPx, count: corr.length };
+  return { H, Hinv, rmsPx, count: corr.length + lines.length };
+}
+
+/** Image line through two points, normal form a·u+b·v+c=0 with (a,b) unit. Null if coincident. */
+function lineThrough(p: { u: number; v: number }, q: { u: number; v: number }): { a: number; b: number; c: number } | null {
+  let a = q.v - p.v;
+  let b = p.u - q.u;
+  const n = Math.hypot(a, b);
+  if (n < 1e-12) return null;
+  a /= n; b /= n;
+  return { a, b, c: -(a * p.u + b * p.v) };
 }
 
 // ── linear-algebra helpers (3×3 + small SVD) ───────────────────────────────
