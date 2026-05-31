@@ -10,6 +10,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.6",
+    title: "Tracker: don't truncate on miss streaks (OTA)",
+    notes: [
+      "The YOLO ball walk no longer stops after 12 consecutive frames with no detection. It now processes every frame in the clip from the chosen start to the end, so the trail stays present for the full duration even if the detector loses the ball for a long stretch (interpolation + the spline fill the gap).",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.8.5",
     title: "Tracker: spline + restart + zoom & pan (OTA)",
     notes: [

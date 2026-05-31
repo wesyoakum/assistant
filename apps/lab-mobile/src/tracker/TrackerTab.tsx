@@ -413,6 +413,10 @@ export function TrackerTab() {
             stepSec: 1 / fps,
             durationSec: frame?.durationSec ?? 9999,
             maxFrames: 0,
+            // Keep walking the whole clip even through long miss streaks —
+            // gaps get filled by interpolation downstream, and we don't want
+            // to truncate the result early.
+            maxMisses: Number.POSITIVE_INFINITY,
             labelFilter: trackerMode === "yolo" ? (l) => l === "sports ball" : undefined,
           },
         );
