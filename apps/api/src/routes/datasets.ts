@@ -17,10 +17,15 @@ datasets.use("*", authMiddleware);
 // No D1 schema change — listing enumerates R2 directly.
 
 interface LabelKeypoint {
-  id: string;       // landmark id, e.g. "apex", "first_base"
+  id: string;       // landmark id, e.g. "first_base", "rubber"
   nx: number;       // normalized 0..1
   ny: number;
   visible: boolean; // false = labeled-but-occluded / absent
+}
+interface LabelLine {
+  id: string;                       // "foul_1b" | "foul_3b"
+  p1: { nx: number; ny: number };   // two points on the chalk (normalized)
+  p2: { nx: number; ny: number };
 }
 interface LabelPayload {
   dataset: string;
@@ -29,6 +34,7 @@ interface LabelPayload {
   imageHeight: number;
   fieldSpec?: string;        // level of play used when labeling
   keypoints: LabelKeypoint[];
+  lines?: LabelLine[];       // foul lines, each two tapped points on the chalk
   sourceVideo?: string;      // optional provenance
   timeSec?: number;
 }
@@ -49,8 +55,9 @@ datasets.post("/sample", async (c) => {
   if (!DATASET_RE.test(dataset)) {
     return c.json({ error: "dataset must be 1-64 chars [A-Za-z0-9_-]" }, 400);
   }
-  if (!body.imageBase64 || !body.keypoints?.length) {
-    return c.json({ error: "imageBase64 and keypoints are required" }, 400);
+  const hasLabels = (body.keypoints?.length ?? 0) > 0 || (body.lines?.length ?? 0) > 0;
+  if (!body.imageBase64 || !hasLabels) {
+    return c.json({ error: "imageBase64 and at least one keypoint or line are required" }, 400);
   }
 
   // Decode the base64 JPEG.
@@ -75,7 +82,8 @@ datasets.post("/sample", async (c) => {
     imageWidth: body.imageWidth,
     imageHeight: body.imageHeight,
     fieldSpec: body.fieldSpec ?? null,
-    keypoints: body.keypoints,
+    keypoints: body.keypoints ?? [],
+    lines: body.lines ?? [],
     sourceVideo: body.sourceVideo ?? null,
     timeSec: body.timeSec ?? null,
     createdAt: new Date().toISOString(),

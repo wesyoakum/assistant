@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  View, Text, Pressable, StyleSheet, ScrollView, Image, ActivityIndicator,
+  View, Text, Pressable, StyleSheet, ScrollView, Image, ActivityIndicator, TextInput,
   PanResponder, type LayoutChangeEvent,
 } from "react-native";
 import Svg, { Circle, Line, Polyline, Polygon, Text as SvgText } from "react-native-svg";
@@ -8,40 +8,44 @@ import * as ImagePicker from "expo-image-picker";
 import { VisionTracker, type FirstFrameResult } from "expo-vision-tracker";
 import { Yolo } from "expo-yolo";
 import { useTheme } from "../theme";
+import { apiFetch } from "../api/client";
+import { FIELD_SPECS, buildFieldLandmarks, type GroundPoint } from "./fieldTemplate";
 import {
-  FIELD_SPECS, buildFieldLandmarks, type LandmarkId, type GroundPoint,
-} from "./fieldTemplate";
-import {
-  fitHomography, fieldToImage, type Correspondence, type Homography,
+  fitHomography, fieldToImage, type Correspondence, type LineCorrespondence, type Homography,
 } from "./videoHomography";
 
 // Field Analysis: reconcile a non-AR clip to the field (VIDEO_ANALYSIS.md).
-// Flow: import clip → scrub → tap field landmarks and label each → fit the ground
-// homography → overlay the projected field + run YOLO for a 2D ball path.
 //
-// Interaction:
-//   • Mode toggle: NAVIGATE (pinch-zoom / one-finger pan) vs PLACE (tap to set
-//     the active landmark; one-finger drag anywhere to fine-tune it).
-//   • Landmark pills select the active landmark; placed pills show ✓ and a ✕ to
-//     clear just that one.
-//   • After a solve, editing a landmark (tap or drag) re-solves live so the
-//     overlay updates as you fine-tune.
+// Foul-line-centric model (per the field-use reframe):
+//   • LINES: the 1B and 3B foul lines, each labeled by TWO taps anywhere on the
+//     visible chalk (not endpoints). The apex is their intersection — never
+//     tapped. Foul poles / outfield fences are not used.
+//   • POINTS: 1B, 2B, 3B, rubber — tapped to pin scale/position along the lines.
+//   The homography is fit from points + lines (videoHomography.fitHomography).
+//
+// Also: a Dataset mode to capture the labeled frame (image + point/line labels)
+// to the backend (/datasets/sample) for ML training.
 
 type SpecKey = keyof typeof FIELD_SPECS;
 type Mode = "navigate" | "place";
+type PointId = "first_base" | "second_base" | "third_base" | "rubber";
+type LineId = "foul_1b" | "foul_3b";
+type Active = { kind: "point"; id: PointId } | { kind: "line"; id: LineId };
 
-const LABEL_CHOICES: { id: LandmarkId; label: string }[] = [
-  { id: "apex", label: "Home" },
+const POINT_CHOICES: { id: PointId; label: string }[] = [
   { id: "first_base", label: "1B" },
   { id: "second_base", label: "2B" },
   { id: "third_base", label: "3B" },
   { id: "rubber", label: "Rubber" },
-  { id: "foul_pole_first", label: "RF pole" },
-  { id: "foul_pole_third", label: "LF pole" },
-  { id: "plate_front", label: "Plate front" },
+];
+const LINE_CHOICES: { id: LineId; label: string }[] = [
+  { id: "foul_1b", label: "1B foul line" },
+  { id: "foul_3b", label: "3B foul line" },
 ];
 
-interface PlacedLabel { id: LandmarkId; nx: number; ny: number }
+interface Pt { nx: number; ny: number }
+interface PlacedPoint { id: PointId; nx: number; ny: number }
+interface PlacedLine { id: LineId; p1: Pt | null; p2: Pt | null }
 interface BallPoint { nx: number; ny: number; conf: number; t: number }
 interface Rect { x: number; y: number; w: number; h: number }
 interface Viewport { scale: number; tx: number; ty: number }
@@ -49,6 +53,7 @@ interface Viewport { scale: number; tx: number; ty: number }
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 const touchDist = (t: any[]) => Math.hypot(t[0].pageX - t[1].pageX, t[0].pageY - t[1].pageY);
+const sameActive = (a: Active, b: Active) => a.kind === b.kind && a.id === b.id;
 
 export function FieldAnalysisTab() {
   const theme = useTheme();
@@ -59,14 +64,20 @@ export function FieldAnalysisTab() {
   const [err, setErr] = useState<string | null>(null);
 
   const [specKey, setSpecKey] = useState<SpecKey>("highSchool");
-  const [labels, setLabels] = useState<PlacedLabel[]>([]);
-  const [pendingId, setPendingId] = useState<LandmarkId>("apex");
+  const [points, setPoints] = useState<PlacedPoint[]>([]);
+  const [lines, setLines] = useState<PlacedLine[]>([]);
+  const [active, setActive] = useState<Active>({ kind: "line", id: "foul_1b" });
   const [homography, setHomography] = useState<{ H: Homography; rmsPx: number } | null>(null);
   const [ballPath, setBallPath] = useState<BallPoint[] | null>(null);
   const [mode, setMode] = useState<Mode>("place");
   const [vp, setVp] = useState<Viewport>({ scale: 1, tx: 0, ty: 0 });
   const [canvas, setCanvas] = useState({ width: 1, height: 1 });
-  // The canvas view + its measured window offset, for page→canvas-local taps.
+
+  // Dataset capture
+  const [datasetMode, setDatasetMode] = useState(false);
+  const [datasetName, setDatasetName] = useState("field-v1");
+  const [addedCount, setAddedCount] = useState(0);
+
   const canvasViewRef = useRef<View>(null);
   const canvasOffsetRef = useRef({ x: 0, y: 0 });
   const measureCanvas = useCallback(() => {
@@ -75,19 +86,19 @@ export function FieldAnalysisTab() {
 
   const landmarks = useMemo(() => buildFieldLandmarks(FIELD_SPECS[specKey]!), [specKey]);
 
-  // ── refs the PanResponder reads (closures would otherwise be stale) ─────────
+  // refs the PanResponder reads
   const vpRef = useRef(vp); useEffect(() => { vpRef.current = vp; }, [vp]);
   const modeRef = useRef(mode); useEffect(() => { modeRef.current = mode; }, [mode]);
-  const pendingIdRef = useRef(pendingId); useEffect(() => { pendingIdRef.current = pendingId; }, [pendingId]);
-  const labelsRef = useRef(labels); useEffect(() => { labelsRef.current = labels; }, [labels]);
+  const activeRef = useRef(active); useEffect(() => { activeRef.current = active; }, [active]);
+  const pointsRef = useRef(points); useEffect(() => { pointsRef.current = points; }, [points]);
+  const linesRef = useRef(lines); useEffect(() => { linesRef.current = lines; }, [lines]);
   const canvasRef = useRef(canvas); useEffect(() => { canvasRef.current = canvas; }, [canvas]);
   const frameRef = useRef(frame); useEffect(() => { frameRef.current = frame; }, [frame]);
-  // Auto re-solve after the first manual solve, so fine-tuning updates live.
+  const specRef = useRef(specKey); useEffect(() => { specRef.current = specKey; }, [specKey]);
   const autoSolveRef = useRef(false);
 
   const setViewport = useCallback((v: Viewport) => { vpRef.current = v; setVp(v); }, []);
 
-  // Contain-fit image rect inside the canvas (pre-transform, scale 1).
   const imageRect = useMemo<Rect | null>(() => {
     if (!frame) return null;
     const ar = frame.imageWidth / frame.imageHeight;
@@ -99,7 +110,6 @@ export function FieldAnalysisTab() {
   }, [frame, canvas]);
   const imageRectRef = useRef(imageRect); useEffect(() => { imageRectRef.current = imageRect; }, [imageRect]);
 
-  // Screen (canvas-local) point → normalized image coords, undoing the viewport.
   const screenToImageNorm = useCallback((lx: number, ly: number) => {
     const c = canvasRef.current; const v = vpRef.current; const rect = imageRectRef.current;
     if (!rect) return null;
@@ -109,70 +119,100 @@ export function FieldAnalysisTab() {
     return { nx: (preX - rect.x) / rect.w, ny: (preY - rect.y) / rect.h };
   }, []);
 
-  // Compute + set the homography from current labels (used by the button and the
-  // live auto-resolve). Returns true on success.
-  const solveFrom = useCallback((ls: PlacedLabel[], quiet = false): boolean => {
+  // ── solve from current points + lines ──────────────────────────────────────
+  const solveFrom = useCallback((pts: PlacedPoint[], lns: PlacedLine[], quiet = false): boolean => {
     const f = frameRef.current;
-    if (!f || ls.length < 4) { if (!quiet) setErr("Place at least 4 landmarks to solve."); return false; }
-    const lm = buildFieldLandmarks(FIELD_SPECS[specKey]!);
-    const corr: Correspondence[] = ls.map((l) => ({
-      field: lm[l.id] as GroundPoint,
-      image: { u: l.nx * f.imageWidth, v: l.ny * f.imageHeight },
+    if (!f) return false;
+    const lm = buildFieldLandmarks(FIELD_SPECS[specRef.current]!);
+    const W = f.imageWidth, H = f.imageHeight;
+    const corr: Correspondence[] = pts.map((p) => ({
+      field: lm[p.id] as GroundPoint,
+      image: { u: p.nx * W, v: p.ny * H },
     }));
-    const fit = fitHomography(corr);
-    if (!fit) { if (!quiet) setErr("Couldn't solve — spread the landmarks out (avoid a line)."); return false; }
+    const completeLines = lns.filter((l): l is { id: LineId; p1: Pt; p2: Pt } => !!l.p1 && !!l.p2);
+    const lineCorr: LineCorrespondence[] = completeLines.map((l) => ({
+      field: l.id === "foul_1b"
+        ? [lm.apex as GroundPoint, lm.first_base as GroundPoint]
+        : [lm.apex as GroundPoint, lm.third_base as GroundPoint],
+      image: [{ u: l.p1.nx * W, v: l.p1.ny * H }, { u: l.p2.nx * W, v: l.p2.ny * H }],
+    }));
+    const constraintPairs = corr.length + completeLines.length * 2;
+    if (constraintPairs < 4) {
+      if (!quiet) setErr("Add more: e.g. both foul lines + a base, or 4 points.");
+      return false;
+    }
+    const fit = fitHomography(corr, lineCorr);
+    if (!fit) { if (!quiet) setErr("Couldn't solve — spread the labels out (avoid a single line)."); return false; }
     setErr(null);
     setHomography({ H: fit.H, rmsPx: fit.rmsPx });
     return true;
-  }, [specKey]);
+  }, []);
 
-  // Apply a labels change, and live-resolve if we've solved before.
-  const updateLabels = useCallback((next: PlacedLabel[]) => {
-    labelsRef.current = next;
-    setLabels(next);
-    setBallPath(null);
-    if (autoSolveRef.current) solveFrom(next, true);
+  const reflow = useCallback((pts: PlacedPoint[], lns: PlacedLine[]) => {
+    pointsRef.current = pts; linesRef.current = lns;
+    setPoints(pts); setLines(lns); setBallPath(null);
+    if (autoSolveRef.current) solveFrom(pts, lns, true);
     else setHomography(null);
   }, [solveFrom]);
 
-  const placeActive = useCallback((nx: number, ny: number) => {
-    const id = pendingIdRef.current;
-    const wasPlaced = labelsRef.current.some((l) => l.id === id);
-    const next = [...labelsRef.current.filter((l) => l.id !== id), { id, nx: clamp01(nx), ny: clamp01(ny) }];
-    updateLabels(next);
-    if (!wasPlaced) {
-      const placed = new Set(next.map((l) => l.id));
-      const adv = LABEL_CHOICES.find((c) => !placed.has(c.id));
-      if (adv) setPendingId(adv.id);
+  // Place a tap for the active point or line.
+  const placeAt = useCallback((nx: number, ny: number) => {
+    const a = activeRef.current;
+    if (a.kind === "point") {
+      const next = [...pointsRef.current.filter((p) => p.id !== a.id), { id: a.id, nx: clamp01(nx), ny: clamp01(ny) }];
+      reflow(next, linesRef.current);
+    } else {
+      const cur = linesRef.current.find((l) => l.id === a.id) ?? { id: a.id, p1: null, p2: null };
+      let upd: PlacedLine;
+      if (!cur.p1) upd = { ...cur, p1: { nx: clamp01(nx), ny: clamp01(ny) } };
+      else if (!cur.p2) upd = { ...cur, p2: { nx: clamp01(nx), ny: clamp01(ny) } };
+      else {
+        // both set → replace the nearer endpoint
+        const d1 = Math.hypot(cur.p1.nx - nx, cur.p1.ny - ny);
+        const d2 = Math.hypot(cur.p2.nx - nx, cur.p2.ny - ny);
+        upd = d1 <= d2 ? { ...cur, p1: { nx: clamp01(nx), ny: clamp01(ny) } } : { ...cur, p2: { nx: clamp01(nx), ny: clamp01(ny) } };
+      }
+      reflow(pointsRef.current, [...linesRef.current.filter((l) => l.id !== a.id), upd]);
     }
-  }, [updateLabels]);
+  }, [reflow]);
 
-  const nudgeActive = useCallback((dnx: number, dny: number) => {
-    const id = pendingIdRef.current;
-    const cur = labelsRef.current;
-    if (!cur.some((l) => l.id === id)) return; // only fine-tune an already-placed anchor
-    updateLabels(cur.map((l) => (l.id === id ? { ...l, nx: clamp01(l.nx + dnx), ny: clamp01(l.ny + dny) } : l)));
-  }, [updateLabels]);
+  // Drag fine-tune the active point, or the nearer endpoint of the active line.
+  const nudge = useCallback((dnx: number, dny: number, atNx: number, atNy: number) => {
+    const a = activeRef.current;
+    if (a.kind === "point") {
+      const cur = pointsRef.current;
+      if (!cur.some((p) => p.id === a.id)) return;
+      reflow(cur.map((p) => (p.id === a.id ? { ...p, nx: clamp01(p.nx + dnx), ny: clamp01(p.ny + dny) } : p)), linesRef.current);
+    } else {
+      const cur = linesRef.current.find((l) => l.id === a.id);
+      if (!cur || (!cur.p1 && !cur.p2)) return;
+      const d1 = cur.p1 ? Math.hypot(cur.p1.nx - atNx, cur.p1.ny - atNy) : Infinity;
+      const d2 = cur.p2 ? Math.hypot(cur.p2.nx - atNx, cur.p2.ny - atNy) : Infinity;
+      const moveP1 = d1 <= d2;
+      const upd: PlacedLine = moveP1 && cur.p1
+        ? { ...cur, p1: { nx: clamp01(cur.p1.nx + dnx), ny: clamp01(cur.p1.ny + dny) } }
+        : cur.p2 ? { ...cur, p2: { nx: clamp01(cur.p2.nx + dnx), ny: clamp01(cur.p2.ny + dny) } } : cur;
+      reflow(pointsRef.current, [...linesRef.current.filter((l) => l.id !== a.id), upd]);
+    }
+  }, [reflow]);
 
-  // ── gesture handling ────────────────────────────────────────────────────
-  const gestureRef = useRef({ startTx: 0, startTy: 0, startScale: 1, startDist: 0, lastDx: 0, lastDy: 0, startLX: 0, startLY: 0, moved: false });
+  // ── gestures ──
+  const gestureRef = useRef({ startTx: 0, startTy: 0, startScale: 1, startDist: 0, lastDx: 0, lastDy: 0, startLX: 0, startLY: 0, startNx: 0, startNy: 0, moved: false });
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
-        measureCanvas(); // refresh offset (scroll position may have shifted it)
+        measureCanvas();
         const t = evt.nativeEvent.touches;
-        // Use PAGE coords minus the canvas's measured window offset. locationX/Y
-        // is relative to whichever (possibly transformed/scaled) subview received
-        // the touch, so it's wrong under zoom — pageX/Y is consistent.
         const off = canvasOffsetRef.current;
+        const lx = evt.nativeEvent.pageX - off.x, ly = evt.nativeEvent.pageY - off.y;
+        const norm = screenToImageNorm(lx, ly);
         gestureRef.current = {
           startTx: vpRef.current.tx, startTy: vpRef.current.ty, startScale: vpRef.current.scale,
           startDist: t.length >= 2 ? touchDist(t as any[]) : 0,
-          lastDx: 0, lastDy: 0,
-          startLX: evt.nativeEvent.pageX - off.x, startLY: evt.nativeEvent.pageY - off.y,
-          moved: false,
+          lastDx: 0, lastDy: 0, startLX: lx, startLY: ly,
+          startNx: norm?.nx ?? 0, startNy: norm?.ny ?? 0, moved: false,
         };
       },
       onPanResponderMove: (evt, gesture) => {
@@ -182,57 +222,51 @@ export function FieldAnalysisTab() {
           const t = evt.nativeEvent.touches;
           if (t.length >= 2 && g.startDist > 0) {
             const d = touchDist(t as any[]);
-            const scale = clamp(g.startScale * (d / g.startDist), 1, 8);
-            setViewport({ ...vpRef.current, scale });
+            setViewport({ ...vpRef.current, scale: clamp(g.startScale * (d / g.startDist), 1, 8) });
           } else {
             setViewport({ scale: vpRef.current.scale, tx: g.startTx + gesture.dx, ty: g.startTy + gesture.dy });
           }
         } else {
-          // PLACE mode: one-finger drag fine-tunes the active (placed) anchor.
           const rect = imageRectRef.current; if (!rect) return;
           const incDx = gesture.dx - g.lastDx, incDy = gesture.dy - g.lastDy;
           g.lastDx = gesture.dx; g.lastDy = gesture.dy;
-          nudgeActive((incDx / vpRef.current.scale) / rect.w, (incDy / vpRef.current.scale) / rect.h);
+          nudge((incDx / vpRef.current.scale) / rect.w, (incDy / vpRef.current.scale) / rect.h, g.startNx, g.startNy);
         }
       },
       onPanResponderRelease: () => {
         const g = gestureRef.current;
         if (modeRef.current === "place" && !g.moved) {
           const p = screenToImageNorm(g.startLX, g.startLY);
-          if (p && p.nx >= 0 && p.nx <= 1 && p.ny >= 0 && p.ny <= 1) placeActive(p.nx, p.ny);
+          if (p && p.nx >= 0 && p.nx <= 1 && p.ny >= 0 && p.ny <= 1) placeAt(p.nx, p.ny);
         }
       },
     })
   ).current;
 
-  // ── video / frame ───────────────────────────────────────────────────────
+  // ── video / frame ──
+  const loadFrame = useCallback(async (uri: string, timeSec: number) => {
+    setBusy("loading frame…");
+    try {
+      const f = timeSec === 0 ? await VisionTracker.firstFrame(uri, 0.9) : await VisionTracker.frameAtTime(uri, timeSec, 0.9);
+      setFrame(f); setFrameTimeSec(timeSec);
+    } catch (e) { setErr(`frame load failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
+  }, []);
+
   const pickVideo = useCallback(async () => {
     setErr(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { setErr("Photo library permission denied."); return; }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions?.Videos ?? ("videos" as any), quality: 1,
-    });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions?.Videos ?? ("videos" as any), quality: 1 });
     if (res.canceled || !res.assets?.[0]) return;
     const uri = res.assets[0].uri;
     setVideoUri(uri);
-    setFrame(null); setFrameTimeSec(0); setLabels([]); labelsRef.current = [];
+    setFrame(null); setFrameTimeSec(0);
+    setPoints([]); pointsRef.current = []; setLines([]); linesRef.current = [];
     setHomography(null); setBallPath(null); autoSolveRef.current = false;
     setViewport({ scale: 1, tx: 0, ty: 0 });
     await loadFrame(uri, 0);
-  }, [setViewport]);
-
-  const loadFrame = useCallback(async (uri: string, timeSec: number) => {
-    setBusy("loading frame…");
-    try {
-      const f = timeSec === 0
-        ? await VisionTracker.firstFrame(uri, 0.9)
-        : await VisionTracker.frameAtTime(uri, timeSec, 0.9);
-      setFrame(f); setFrameTimeSec(timeSec);
-    } catch (e) {
-      setErr(`frame load failed: ${(e as Error).message}`);
-    } finally { setBusy(null); }
-  }, []);
+  }, [setViewport, loadFrame]);
 
   const frameStep = useCallback((deltaSec: number) => {
     if (!videoUri || !frame) return;
@@ -243,18 +277,19 @@ export function FieldAnalysisTab() {
   const frameStepSec = frame && frame.frameRate > 0 ? 1 / frame.frameRate : 1 / 30;
 
   const solve = useCallback(() => {
-    if (solveFrom(labelsRef.current)) autoSolveRef.current = true;
+    if (solveFrom(pointsRef.current, linesRef.current)) autoSolveRef.current = true;
   }, [solveFrom]);
 
-  const clearLandmark = useCallback((id: LandmarkId) => {
-    updateLabels(labelsRef.current.filter((l) => l.id !== id));
-    setPendingId(id); // make the cleared one active for easy re-placement
-  }, [updateLabels]);
+  const clearActive = useCallback(() => {
+    const a = activeRef.current;
+    if (a.kind === "point") reflow(pointsRef.current.filter((p) => p.id !== a.id), linesRef.current);
+    else reflow(pointsRef.current, linesRef.current.filter((l) => l.id !== a.id));
+  }, [reflow]);
 
   const clearAll = useCallback(() => {
     autoSolveRef.current = false;
-    setLabels([]); labelsRef.current = [];
-    setHomography(null); setBallPath(null); setPendingId("apex");
+    setPoints([]); pointsRef.current = []; setLines([]); linesRef.current = [];
+    setHomography(null); setBallPath(null); setActive({ kind: "line", id: "foul_1b" });
   }, []);
 
   const runBallPath = useCallback(async () => {
@@ -275,12 +310,37 @@ export function FieldAnalysisTab() {
       }
       setBallPath(pts);
       if (pts.length === 0) setErr("No ball detected in this clip segment.");
-    } catch (e) {
-      setErr(`ball detection failed: ${(e as Error).message}`);
-    } finally { setBusy(null); }
+    } catch (e) { setErr(`ball detection failed: ${(e as Error).message}`); }
+    finally { setBusy(null); }
   }, [videoUri, frame, frameTimeSec]);
 
-  // Projected field (normalized image coords) for the overlay.
+  const addToDataset = useCallback(async () => {
+    const f = frameRef.current;
+    if (!f) return;
+    if (points.length === 0 && lines.length === 0) { setErr("Label something before adding to the dataset."); return; }
+    setBusy("uploading sample…"); setErr(null);
+    try {
+      await apiFetch("/datasets/sample", {
+        method: "POST",
+        body: JSON.stringify({
+          dataset: datasetName.trim() || "field-v1",
+          imageBase64: f.imageBase64,
+          imageWidth: f.imageWidth,
+          imageHeight: f.imageHeight,
+          fieldSpec: specKey,
+          keypoints: points.map((p) => ({ id: p.id, nx: p.nx, ny: p.ny, visible: true })),
+          lines: lines.filter((l) => l.p1 && l.p2).map((l) => ({ id: l.id, p1: l.p1, p2: l.p2 })),
+          sourceVideo: videoUri ?? undefined,
+          timeSec: frameTimeSec,
+        }),
+      });
+      setAddedCount((n) => n + 1);
+    } catch (e) {
+      setErr(`upload failed: ${(e as Error).message}`);
+    } finally { setBusy(null); }
+  }, [points, lines, datasetName, specKey, videoUri, frameTimeSec]);
+
+  // ── overlay projection ──
   const projectedField = useMemo(() => {
     if (!homography || !frame) return null;
     const toImg = (p: GroundPoint) => {
@@ -288,27 +348,28 @@ export function FieldAnalysisTab() {
       return px ? { nx: px.x / frame.imageWidth, ny: px.y / frame.imageHeight } : null;
     };
     const L = landmarks;
+    const ext = FIELD_SPECS[specKey]!.foulLineLength; // draw the foul lines out to the fence dist
     return {
-      foulFirst: [toImg(L.apex), toImg(L.foul_pole_first)] as const,
-      foulThird: [toImg(L.apex), toImg(L.foul_pole_third)] as const,
+      foul1: [toImg(L.apex), toImg({ x: ext, z: 0 })] as const,
+      foul3: [toImg(L.apex), toImg({ x: 0, z: ext })] as const,
       bases: [toImg(L.apex), toImg(L.first_base), toImg(L.second_base), toImg(L.third_base), toImg(L.apex)],
       rubber: toImg(L.rubber),
     };
-  }, [homography, frame, landmarks]);
-
-  const placedIds = new Set(labels.map((l) => l.id));
+  }, [homography, frame, landmarks, specKey]);
 
   if (!VisionTracker.available()) {
     return <View style={[styles.center, { backgroundColor: theme.background }]}><Text style={{ color: theme.text }}>Video frame extraction not available in this build.</Text></View>;
   }
 
-  // Normalized image coords → on-screen (pre-transform canvas) coords for SVG.
   const toCanvas = (nx: number, ny: number) => imageRect ? { x: imageRect.x + nx * imageRect.w, y: imageRect.y + ny * imageRect.h } : { x: 0, y: 0 };
+  const placedLine = (id: LineId) => lines.find((l) => l.id === id);
+  const lineComplete = (l: PlacedLine | undefined) => !!l?.p1 && !!l?.p2;
+  const constraintPairs = points.length + lines.filter((l) => lineComplete(l)).length * 2;
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.background }} contentContainerStyle={{ padding: 12 }} scrollEnabled={mode === "navigate" ? false : true}>
+    <ScrollView style={{ flex: 1, backgroundColor: theme.background }} contentContainerStyle={{ padding: 12 }} scrollEnabled={mode !== "navigate"}>
       <Text style={[styles.h1, { color: theme.text }]}>Field Analysis</Text>
-      <Text style={[styles.sub, { color: theme.textMuted }]}>Import a clip, tap field landmarks to label them, solve, then overlay the field + ball path.</Text>
+      <Text style={[styles.sub, { color: theme.textMuted }]}>Label the two foul lines (two taps each) + a base or two, solve, then overlay the field / ball path. Apex = where the foul lines cross.</Text>
 
       <Pressable onPress={pickVideo} style={[styles.btn, { backgroundColor: theme.primary }]}>
         <Text style={styles.btnText}>{videoUri ? "Pick a different video" : "Pick video"}</Text>
@@ -316,7 +377,7 @@ export function FieldAnalysisTab() {
 
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
         {(Object.keys(FIELD_SPECS) as SpecKey[]).map((k) => (
-          <Pressable key={k} onPress={() => { setSpecKey(k); if (autoSolveRef.current) solveFrom(labelsRef.current, true); }}
+          <Pressable key={k} onPress={() => { setSpecKey(k); if (autoSolveRef.current) solveFrom(pointsRef.current, linesRef.current, true); }}
             style={[styles.pill, { backgroundColor: specKey === k ? theme.primary : theme.surfaceAlt, borderColor: theme.border }]}>
             <Text style={{ color: specKey === k ? "#fff" : theme.text, fontSize: 12, fontWeight: "600" }}>{FIELD_SPECS[k]!.name}</Text>
           </Pressable>
@@ -325,11 +386,9 @@ export function FieldAnalysisTab() {
 
       {frame && imageRect && (
         <>
-          {/* Mode toggle */}
           <View style={{ flexDirection: "row", gap: 6, marginTop: 10 }}>
             {(["place", "navigate"] as Mode[]).map((m) => (
-              <Pressable key={m} onPress={() => setMode(m)}
-                style={[styles.btn, { flex: 1, backgroundColor: mode === m ? theme.primary : theme.surfaceAlt }]}>
+              <Pressable key={m} onPress={() => setMode(m)} style={[styles.btn, { flex: 1, backgroundColor: mode === m ? theme.primary : theme.surfaceAlt }]}>
                 <Text style={[styles.btnText, { color: mode === m ? "#fff" : theme.text }]}>{m === "place" ? "Place / Edit" : "Zoom / Pan"}</Text>
               </Pressable>
             ))}
@@ -338,7 +397,6 @@ export function FieldAnalysisTab() {
             </Pressable>
           </View>
 
-          {/* Frame canvas (clips zoom); inner view carries the viewport transform */}
           <View
             ref={canvasViewRef}
             {...panResponder.panHandlers}
@@ -348,36 +406,50 @@ export function FieldAnalysisTab() {
             <View style={[StyleSheet.absoluteFill, { transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }] }]}>
               <Image source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }} style={StyleSheet.absoluteFill} resizeMode="contain" />
               <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+                {/* Solved field overlay */}
                 {projectedField && (() => {
-                  const ln = (a: { nx: number; ny: number } | null, b: { nx: number; ny: number } | null) => {
-                    if (!a || !b) return null; const pa = toCanvas(a.nx, a.ny), pb = toCanvas(b.nx, b.ny);
-                    return { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y };
-                  };
-                  const f1 = ln(projectedField.foulFirst[0], projectedField.foulFirst[1]);
-                  const f3 = ln(projectedField.foulThird[0], projectedField.foulThird[1]);
+                  const ln = (a: Pt | null, b: Pt | null) => { if (!a || !b) return null; const pa = toCanvas(a.nx, a.ny), pb = toCanvas(b.nx, b.ny); return { x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y }; };
+                  const f1 = ln(projectedField.foul1[0], projectedField.foul1[1]);
+                  const f3 = ln(projectedField.foul3[0], projectedField.foul3[1]);
                   const ring = projectedField.bases.every(Boolean) ? projectedField.bases.map((b) => { const p = toCanvas(b!.nx, b!.ny); return `${p.x},${p.y}`; }).join(" ") : null;
                   const r = projectedField.rubber ? toCanvas(projectedField.rubber.nx, projectedField.rubber.ny) : null;
-                  const sw = 2 / vp.scale; // keep stroke ~constant on screen when zoomed
-                  return (
-                    <>
-                      {f1 && <Line {...f1} stroke="#FFD60A" strokeWidth={sw} strokeOpacity={0.9} />}
-                      {f3 && <Line {...f3} stroke="#FFD60A" strokeWidth={sw} strokeOpacity={0.9} />}
-                      {ring && <Polygon points={ring} fill="none" stroke="#0A84FF" strokeWidth={sw} strokeOpacity={0.9} />}
-                      {r && <Circle cx={r.x} cy={r.y} r={5 / vp.scale} fill="#0A84FF" />}
-                    </>
-                  );
+                  const sw = 2 / vp.scale;
+                  return (<>
+                    {f1 && <Line {...f1} stroke="#FFD60A" strokeWidth={sw} strokeOpacity={0.85} />}
+                    {f3 && <Line {...f3} stroke="#FFD60A" strokeWidth={sw} strokeOpacity={0.85} />}
+                    {ring && <Polygon points={ring} fill="none" stroke="#0A84FF" strokeWidth={sw} strokeOpacity={0.85} />}
+                    {r && <Circle cx={r.x} cy={r.y} r={5 / vp.scale} fill="#0A84FF" />}
+                  </>);
                 })()}
                 {ballPath && ballPath.length >= 2 && (
                   <Polyline points={ballPath.map((p) => { const c = toCanvas(p.nx, p.ny); return `${c.x},${c.y}`; }).join(" ")} fill="none" stroke="#FF3B30" strokeWidth={2 / vp.scale} strokeOpacity={0.9} />
                 )}
                 {ballPath?.map((p, i) => { const c = toCanvas(p.nx, p.ny); return <Circle key={i} cx={c.x} cy={c.y} r={2.5 / vp.scale} fill="#FF3B30" />; })}
-                {labels.map((l) => {
-                  const c = toCanvas(l.nx, l.ny);
-                  const active = l.id === pendingId;
+
+                {/* Labeled LINES (two taps → segment) */}
+                {lines.map((l) => {
+                  const isActive = active.kind === "line" && active.id === l.id;
+                  const col = isActive ? "#FF9F0A" : "#30D158";
+                  const sw = 2.5 / vp.scale;
+                  const c1 = l.p1 ? toCanvas(l.p1.nx, l.p1.ny) : null;
+                  const c2 = l.p2 ? toCanvas(l.p2.nx, l.p2.ny) : null;
                   return (
                     <React.Fragment key={l.id}>
-                      <Circle cx={c.x} cy={c.y} r={(active ? 7 : 6) / vp.scale} fill={active ? "#FF9F0A" : "#34C759"} fillOpacity={0.9} stroke="#fff" strokeWidth={1 / vp.scale} />
-                      <SvgText x={c.x + 9 / vp.scale} y={c.y + 4 / vp.scale} fill={active ? "#FF9F0A" : "#34C759"} fontSize={11 / vp.scale} fontWeight="bold">{l.id}</SvgText>
+                      {c1 && c2 && <Line x1={c1.x} y1={c1.y} x2={c2.x} y2={c2.y} stroke={col} strokeWidth={sw} />}
+                      {c1 && <Circle cx={c1.x} cy={c1.y} r={5 / vp.scale} fill={col} stroke="#fff" strokeWidth={1 / vp.scale} />}
+                      {c2 && <Circle cx={c2.x} cy={c2.y} r={5 / vp.scale} fill={col} stroke="#fff" strokeWidth={1 / vp.scale} />}
+                    </React.Fragment>
+                  );
+                })}
+                {/* Labeled POINTS */}
+                {points.map((p) => {
+                  const isActive = active.kind === "point" && active.id === p.id;
+                  const c = toCanvas(p.nx, p.ny);
+                  const col = isActive ? "#FF9F0A" : "#34C759";
+                  return (
+                    <React.Fragment key={p.id}>
+                      <Circle cx={c.x} cy={c.y} r={(isActive ? 7 : 6) / vp.scale} fill={col} fillOpacity={0.9} stroke="#fff" strokeWidth={1 / vp.scale} />
+                      <SvgText x={c.x + 9 / vp.scale} y={c.y + 4 / vp.scale} fill={col} fontSize={11 / vp.scale} fontWeight="bold">{p.id}</SvgText>
                     </React.Fragment>
                   );
                 })}
@@ -385,7 +457,6 @@ export function FieldAnalysisTab() {
             </View>
           </View>
 
-          {/* Scrub */}
           <View style={{ flexDirection: "row", gap: 6, marginTop: 8 }}>
             <Pressable onPress={() => frameStep(-1)} style={[styles.smBtn, { backgroundColor: theme.surfaceAlt }]}><Text style={{ color: theme.text }}>«1s</Text></Pressable>
             <Pressable onPress={() => frameStep(-frameStepSec)} style={[styles.smBtn, { backgroundColor: theme.surfaceAlt }]}><Text style={{ color: theme.text }}>‹ frame</Text></Pressable>
@@ -394,36 +465,60 @@ export function FieldAnalysisTab() {
           </View>
           <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>
             {frameTimeSec.toFixed(2)}s / {frame.durationSec.toFixed(2)}s{frame.frameRate > 0 ? ` · ${frame.frameRate.toFixed(0)} fps` : ""}
-            {mode === "place" ? "  ·  tap to place, drag to fine-tune" : "  ·  pinch to zoom, drag to pan"}
+            {mode === "place" ? (active.kind === "line" ? "  ·  tap two points on the chalk" : "  ·  tap to place, drag to fine-tune") : "  ·  pinch zoom, drag pan"}
           </Text>
 
-          {/* Landmark picker — tap pill to make active; ✕ clears that one */}
-          <Text style={[styles.label, { color: theme.text }]}>Active: <Text style={{ fontWeight: "700" }}>{LABEL_CHOICES.find((c) => c.id === pendingId)?.label}</Text></Text>
+          {/* LINE picker */}
+          <Text style={[styles.label, { color: theme.text }]}>Foul lines</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-            {LABEL_CHOICES.map((c) => {
-              const isPlaced = placedIds.has(c.id);
-              const isActive = pendingId === c.id;
+            {LINE_CHOICES.map((c) => {
+              const l = placedLine(c.id);
+              const complete = lineComplete(l);
+              const half = !!l && !complete;
+              const isActive = active.kind === "line" && active.id === c.id;
+              return (
+                <View key={c.id} style={[styles.pill, { flexDirection: "row", alignItems: "center", gap: 6,
+                  backgroundColor: isActive ? theme.primary : complete ? theme.surface : theme.surfaceAlt,
+                  borderColor: complete ? "#30D158" : theme.border }]}>
+                  <Pressable onPress={() => setActive({ kind: "line", id: c.id })}>
+                    <Text style={{ color: isActive ? "#fff" : theme.text, fontSize: 12 }}>{complete ? "✓ " : half ? "½ " : ""}{c.label}</Text>
+                  </Pressable>
+                  {!!l && <Pressable onPress={() => reflow(pointsRef.current, linesRef.current.filter((x) => x.id !== c.id))} hitSlop={8}>
+                    <Text style={{ color: isActive ? "#fff" : theme.textMuted, fontSize: 13, fontWeight: "700" }}>✕</Text>
+                  </Pressable>}
+                </View>
+              );
+            })}
+          </View>
+
+          {/* POINT picker */}
+          <Text style={[styles.label, { color: theme.text }]}>Bases / rubber</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+            {POINT_CHOICES.map((c) => {
+              const isPlaced = points.some((p) => p.id === c.id);
+              const isActive = active.kind === "point" && active.id === c.id;
               return (
                 <View key={c.id} style={[styles.pill, { flexDirection: "row", alignItems: "center", gap: 6,
                   backgroundColor: isActive ? theme.primary : isPlaced ? theme.surface : theme.surfaceAlt,
                   borderColor: isPlaced ? "#34C759" : theme.border }]}>
-                  <Pressable onPress={() => setPendingId(c.id)}>
+                  <Pressable onPress={() => setActive({ kind: "point", id: c.id })}>
                     <Text style={{ color: isActive ? "#fff" : theme.text, fontSize: 12 }}>{isPlaced ? "✓ " : ""}{c.label}</Text>
                   </Pressable>
-                  {isPlaced && (
-                    <Pressable onPress={() => clearLandmark(c.id)} hitSlop={8}>
-                      <Text style={{ color: isActive ? "#fff" : theme.textMuted, fontSize: 13, fontWeight: "700" }}>✕</Text>
-                    </Pressable>
-                  )}
+                  {isPlaced && <Pressable onPress={() => reflow(pointsRef.current.filter((p) => p.id !== c.id), linesRef.current)} hitSlop={8}>
+                    <Text style={{ color: isActive ? "#fff" : theme.textMuted, fontSize: 13, fontWeight: "700" }}>✕</Text>
+                  </Pressable>}
                 </View>
               );
             })}
           </View>
 
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-            <Pressable onPress={solve} disabled={labels.length < 4 || !!busy}
-              style={[styles.btn, { flex: 1, backgroundColor: theme.highlight, opacity: labels.length < 4 || busy ? 0.4 : 1 }]}>
-              <Text style={styles.btnText}>Solve field ({labels.length})</Text>
+            <Pressable onPress={solve} disabled={constraintPairs < 4 || !!busy}
+              style={[styles.btn, { flex: 1, backgroundColor: theme.highlight, opacity: constraintPairs < 4 || busy ? 0.4 : 1 }]}>
+              <Text style={styles.btnText}>Solve field</Text>
+            </Pressable>
+            <Pressable onPress={clearActive} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
+              <Text style={[styles.btnText, { color: theme.text }]}>Clear active</Text>
             </Pressable>
             <Pressable onPress={clearAll} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
               <Text style={[styles.btnText, { color: theme.text }]}>Clear all</Text>
@@ -439,6 +534,25 @@ export function FieldAnalysisTab() {
               {ballPath && <Text style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>Ball detected in {ballPath.length} frames.</Text>}
             </>
           )}
+
+          {/* Dataset capture */}
+          <Pressable onPress={() => setDatasetMode((v) => !v)} style={[styles.btn, { backgroundColor: theme.surfaceAlt, marginTop: 12 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>{datasetMode ? "▾ Dataset capture" : "▸ Dataset capture"}</Text>
+          </Pressable>
+          {datasetMode && (
+            <View style={{ marginTop: 8, gap: 8 }}>
+              <Text style={{ color: theme.textMuted, fontSize: 12 }}>Save this labeled frame (image + labels) to a training dataset on the server.</Text>
+              <TextInput
+                value={datasetName} onChangeText={setDatasetName} placeholder="dataset name" placeholderTextColor={theme.textMuted}
+                autoCapitalize="none" autoCorrect={false}
+                style={{ color: theme.text, backgroundColor: theme.surfaceAlt, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}
+              />
+              <Pressable onPress={addToDataset} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.4 : 1 }]}>
+                <Text style={styles.btnText}>{busy === "uploading sample…" ? "Uploading…" : `Add to dataset (${points.length + lines.filter((l) => lineComplete(l)).length} labels)`}</Text>
+              </Pressable>
+              {addedCount > 0 && <Text style={{ color: theme.textMuted, fontSize: 12 }}>Added {addedCount} sample{addedCount === 1 ? "" : "s"} this session.</Text>}
+            </View>
+          )}
         </>
       )}
 
@@ -452,7 +566,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   h1: { fontSize: 22, fontWeight: "700", marginBottom: 2 },
   sub: { fontSize: 13, marginBottom: 12 },
-  label: { fontSize: 13, marginTop: 12, marginBottom: 6 },
+  label: { fontSize: 13, marginTop: 12, marginBottom: 6, fontWeight: "600" },
   btn: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, alignItems: "center" },
   btnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
   smBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center" },
