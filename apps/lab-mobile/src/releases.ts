@@ -10,6 +10,17 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.8.4",
+    title: "Tracker: play at speed + result in top pane (OTA)",
+    notes: [
+      "Once a tracking run finishes, the result now takes over the top pane (replacing the source preview) — the tracked image with trail + box overlay is the main thing on screen.",
+      "Play / Pause button advances the result automatically. Frame-by-frame ‹ Frame / Frame › buttons still work and pause playback.",
+      "Speed control: 1× / ½× / ¼× / ⅛× — the playback timer divides the source frame duration by the selected speed. At slower speeds the frame fetches keep up smoothly; at 1× it's best-effort (decode latency limits the real frame rate).",
+      "'New tracking' button clears the result and returns to the source picker view so you can re-run from a different frame or with a different box.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.8.3",
     title: "Tracker: interpolate missing detections (OTA)",
     notes: [

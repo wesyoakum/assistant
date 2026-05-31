@@ -60,6 +60,8 @@ export function TrackerTab() {
   const [reviewIdx, setReviewIdx] = useState(0);
   const [trackerMode, setTrackerMode] = useState<TrackerMode>("yolo");
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playSpeed, setPlaySpeed] = useState<1 | 0.5 | 0.25 | 0.125>(1);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -367,6 +369,27 @@ export function TrackerTab() {
     return interpolateBoxes(result.frames);
   }, [result]);
 
+  // Playback: advance reviewIdx on a timer. Interval is one source-frame
+  // duration divided by the current playSpeed (1x = real-time; 1/8x = 8x slower).
+  // Frame fetches (frameAtTime) may not keep up at higher speeds — the timer
+  // still fires, the image just lags behind. Best-effort; the trail still
+  // advances synchronously with the index.
+  useEffect(() => {
+    if (!isPlaying || !result) return;
+    const sourceFrameMs = result.frameRate > 0 ? 1000 / result.frameRate : 33;
+    const intervalMs = Math.max(16, sourceFrameMs / playSpeed);
+    const id = setInterval(() => {
+      setReviewIdx((i) => {
+        if (i + 1 >= result.frames.length) {
+          setIsPlaying(false);
+          return i;
+        }
+        return i + 1;
+      });
+    }, intervalMs);
+    return () => clearInterval(id);
+  }, [isPlaying, playSpeed, result]);
+
   const copyTrace = async () => {
     if (!result) return;
     const interp = interpolated ?? [];
@@ -476,7 +499,7 @@ export function TrackerTab() {
         </View>
       )}
 
-      {frame && (
+      {!result && frame && (
         <View
           ref={canvasRef2}
           {...responder.panHandlers}
@@ -541,7 +564,7 @@ export function TrackerTab() {
         </View>
       )}
 
-      {frame && (
+      {!result && frame && (
         <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
           <Pressable onPress={() => frameStep(-1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
             <Text style={[styles.btnText, { color: theme.text }]}>«1s</Text>
@@ -558,7 +581,7 @@ export function TrackerTab() {
         </View>
       )}
 
-      {frame && (
+      {!result && frame && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
           {VISIBLE_MODES.map((m) => (
             <Pressable
@@ -583,7 +606,7 @@ export function TrackerTab() {
         </View>
       )}
 
-      {frame && (
+      {!result && frame && (
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
             onPress={runTracker}
@@ -723,15 +746,64 @@ export function TrackerTab() {
               </View>
             </View>
           )}
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+            <Pressable
+              onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }}
+              disabled={reviewIdx === 0}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx === 0 ? 0.4 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>‹ Frame</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                if (reviewIdx >= result.frames.length - 1) {
+                  // Restart from the beginning when tapping Play at the end.
+                  setReviewIdx(0);
+                }
+                setIsPlaying((p) => !p);
+              }}
+              style={[styles.btn, { backgroundColor: theme.primary, flex: 1.4 }]}
+            >
+              <Text style={styles.btnText}>{isPlaying ? "⏸ Pause" : "▶ Play"}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }}
+              disabled={reviewIdx >= result.frames.length - 1}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx >= result.frames.length - 1 ? 0.4 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>Frame ›</Text>
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+            {([1, 0.5, 0.25, 0.125] as const).map((s) => (
+              <Pressable
+                key={s}
+                onPress={() => setPlaySpeed(s)}
+                style={[
+                  styles.btn,
+                  {
+                    flex: 1,
+                    backgroundColor: playSpeed === s ? theme.primary : theme.surfaceAlt,
+                    borderWidth: playSpeed === s ? 0 : StyleSheet.hairlineWidth,
+                    borderColor: theme.border,
+                  },
+                ]}
+              >
+                <Text style={[styles.btnText, { color: playSpeed === s ? "#fff" : theme.text }]}>
+                  {s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
           <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable onPress={() => setReviewIdx((i) => Math.max(0, i - 1))} disabled={reviewIdx === 0} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx === 0 ? 0.4 : 1 }]}>
-              <Text style={[styles.btnText, { color: theme.text }]}>‹ Prev</Text>
+            <Pressable onPress={copyTrace} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+              <Text style={[styles.btnText, { color: theme.text }]}>Copy trace</Text>
             </Pressable>
-            <Pressable onPress={() => setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1))} disabled={reviewIdx >= result.frames.length - 1} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx >= result.frames.length - 1 ? 0.4 : 1 }]}>
-              <Text style={[styles.btnText, { color: theme.text }]}>Next ›</Text>
-            </Pressable>
-            <Pressable onPress={copyTrace} style={[styles.btn, { backgroundColor: theme.primary, flex: 1 }]}>
-              <Text style={styles.btnText}>Copy trace</Text>
+            <Pressable
+              onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); }}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text }]}>New tracking</Text>
             </Pressable>
           </View>
           {copyHint && (
