@@ -396,9 +396,15 @@ export function TrackerTab() {
       } else if (trackerMode === "yolo" || trackerMode === "baseball") {
         // JS frame-walk: run the object detector on each frame's JPEG. COCO YOLO
         // is filtered to the ball class; the baseball model emits only baseballs.
+        // When the user drew a box, pass it as a region-of-interest to YOLO so
+        // Vision crops to that rectangle before running the model — improves
+        // small-ball detection (the crop gets upscaled to 640×640) and
+        // eliminates false positives outside the box. The returned detections
+        // are still in full-image coordinates.
+        const roi = box ?? undefined;
         const detect = async (uri: string): Promise<RawDetection[]> => {
           const res = trackerMode === "yolo"
-            ? await Yolo.detect(uri, { minConfidence: 0.10 })
+            ? await Yolo.detect(uri, { minConfidence: 0.10, roi })
             : await Baseball.detect(uri, { minConfidence: 0.10 });
           return res.detections.map((d) => ({ label: d.label, confidence: d.confidence, box: d.box }));
         };
