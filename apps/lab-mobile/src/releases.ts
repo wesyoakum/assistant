@@ -10,6 +10,16 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.9.0",
+    title: "Tracker: draw a box → YOLO inference ROI (NATIVE rebuild)",
+    notes: [
+      "If you draw a box before running YOLO, the detector now runs only inside that rectangle — Vision crops to the box first, then runs the model on the crop. Detections are still returned in full-image coordinates so the overlay, trail, and spline don't need any changes.",
+      "Why this matters: a tightly-cropped ROI gets upscaled to YOLO's 640×640 input, so small balls that the full-frame pass missed become much easier to detect. Also kills false positives from outside the box.",
+      "If no box is drawn, YOLO still scans the whole frame (existing behavior).",
+      "Requires a new TestFlight build — bumps runtimeVersion to 1.9.0 so OTAs going forward target this native build.",
+    ],
+  },
+  {
     version: "v1.8.6",
     title: "Tracker: don't truncate on miss streaks (OTA)",
     notes: [

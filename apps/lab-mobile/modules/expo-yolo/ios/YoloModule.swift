@@ -65,6 +65,23 @@ public final class YoloModule: Module {
       // YOLO was trained with letterbox preprocessing; scaleFit matches.
       request.imageCropAndScaleOption = .scaleFit
 
+      // Optional region-of-interest. JS passes a top-left-origin rect in
+      // normalized image coords; Vision expects bottom-left origin. The
+      // resulting observations are still normalized to the full image,
+      // so the caller doesn't need to remap.
+      if let roi = opts["roi"] as? [String: Any],
+         let rx = (roi["x"] as? Double).map({ CGFloat($0) }),
+         let ry = (roi["y"] as? Double).map({ CGFloat($0) }),
+         let rw = (roi["width"] as? Double).map({ CGFloat($0) }),
+         let rh = (roi["height"] as? Double).map({ CGFloat($0) }) {
+        let clampedX = max(0, min(1 - 0.001, rx))
+        let clampedY = max(0, min(1 - 0.001, ry))
+        let clampedW = max(0.001, min(1 - clampedX, rw))
+        let clampedH = max(0.001, min(1 - clampedY, rh))
+        let visionY = 1.0 - clampedY - clampedH
+        request.regionOfInterest = CGRect(x: clampedX, y: visionY, width: clampedW, height: clampedH)
+      }
+
       let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
       let t0 = Date()
       try handler.perform([request])
