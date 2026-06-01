@@ -8,6 +8,7 @@ import {
   ScrollView,
   PanResponder,
   ActivityIndicator,
+  Modal,
   type LayoutChangeEvent,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -45,10 +46,8 @@ const MODE_LABEL: Record<TrackerMode, string> = {
   baseball: "Baseball",
 };
 
-// Modes shown in the UI. The others stay implemented (and selectable in code)
-// but hidden — YOLO ball was the only one that tracked real footage reliably.
-// Re-add any here to bring it back; all remain wired in runTracker.
-const VISIBLE_MODES: TrackerMode[] = ["yolo"];
+// All modes available for selection.
+const ALL_MODES: TrackerMode[] = ["yolo", "baseball", "blob", "tracknet", "vision", "template"];
 const BOX_COLOR_TEXT = "rgba(0,200,255,1)";
 
 interface ViewState {
@@ -99,6 +98,7 @@ export function TrackerTab() {
   const [playSpeed, setPlaySpeed] = useState<1 | 0.5 | 0.25 | 0.125>(1);
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -739,14 +739,20 @@ export function TrackerTab() {
         </View>
       )}
 
-      {/* Run / Clear */}
+      {/* Model selector + Run / Clear */}
       <View style={{ flexDirection: "row", gap: 6 }}>
+        <Pressable
+          onPress={() => setShowModelPicker(true)}
+          style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
+        >
+          <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>{MODE_LABEL[trackerMode]} ▾</Text>
+        </Pressable>
         <Pressable
           onPress={runTracker}
           disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
           style={[styles.btn, { backgroundColor: theme.highlight, flex: 2, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
         >
-          <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
+          <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : "Run"}</Text>
         </Pressable>
         <Pressable
           onPress={() => { setBox(null); setResult(null); setCameraPose(null); setCameraXYZ(null); setCameraAngles(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
@@ -856,6 +862,7 @@ export function TrackerTab() {
   ) : null;
 
   return (
+    <>
     <ScrollView contentContainerStyle={{ padding: isLandscape ? 8 : 12 }} scrollEnabled={scrollEnabled && !showPoseOverlay && !showRoiOverlay}>
       {!isLandscape && (
         <>
@@ -1214,6 +1221,35 @@ export function TrackerTab() {
         </View>
       )}
     </ScrollView>
+
+    {/* Model picker modal */}
+    <Modal visible={showModelPicker} transparent animationType="fade" onRequestClose={() => setShowModelPicker(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => setShowModelPicker(false)}>
+        <View style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 260 }}>
+          <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15, marginBottom: 12 }}>Tracker Model</Text>
+          {ALL_MODES.map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => { setTrackerMode(m); setShowModelPicker(false); }}
+              style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, backgroundColor: trackerMode === m ? theme.primary : "transparent" }}
+            >
+              <Text style={{ color: trackerMode === m ? "#fff" : theme.text, fontWeight: trackerMode === m ? "700" : "400", fontSize: 14 }}>
+                {MODE_LABEL[m]}
+              </Text>
+              <Text style={{ color: trackerMode === m ? "rgba(255,255,255,0.7)" : theme.textSubtle, fontSize: 11 }}>
+                {m === "yolo" ? "COCO sports-ball detector (recommended)" :
+                 m === "baseball" ? "Custom baseball detector" :
+                 m === "blob" ? "Classical bright-blob detector (no model)" :
+                 m === "tracknet" ? "TrackNet ML ball tracker" :
+                 m === "vision" ? "Apple Vision object tracker (needs box)" :
+                 "Template matching tracker (needs box)"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
 
