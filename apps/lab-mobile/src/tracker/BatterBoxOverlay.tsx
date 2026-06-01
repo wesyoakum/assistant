@@ -34,9 +34,10 @@ export interface BatterBoxOverlayHandle {
 
 const BOX_COLOR = "rgba(0,200,255,0.9)";
 const BOX_FILL = "rgba(0,200,255,0.06)";
-const PLATE_COLOR = "rgba(255,255,255,0.8)";
-const BASE_COLOR = "rgba(255,255,255,0.9)";
-const BASE_FILL = "rgba(255,255,255,0.3)";
+const PLATE_COLOR = "rgba(255,120,180,0.9)";
+const BASEPATH_COLOR = "rgba(255,120,180,0.7)";
+const BASE_COLOR = "rgba(255,220,0,0.95)";
+const BASE_FILL = "rgba(255,220,0,0.35)";
 const ANCHORED_COLOR = "rgba(0,255,100,0.95)";
 const ANCHORED_FILL = "rgba(0,255,100,0.25)";
 const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
@@ -295,8 +296,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       };
       const lb = geo.leftBox.map(proj), rb = geo.rightBox.map(proj);
       const pl = geo.plate.map(proj), bs = geo.bases.map((b) => b.map(proj));
-      if ([...lb, ...rb, ...pl, ...bs.flat()].some((p) => !p)) return null;
-      return { lb: lb as {x:number;y:number}[], rb: rb as {x:number;y:number}[], pl: pl as {x:number;y:number}[], bs: bs as {x:number;y:number}[][] };
+      // Basepath square: apex → 1B → 2B → 3B → apex
+      const lm = fieldLandmarks("littleLeague");
+      const bpPts = [{ x: 0, z: 0 }, lm.first_base, lm.second_base, lm.third_base].map(proj);
+      if ([...lb, ...rb, ...pl, ...bs.flat(), ...bpPts].some((p) => !p)) return null;
+      return { lb: lb as {x:number;y:number}[], rb: rb as {x:number;y:number}[], pl: pl as {x:number;y:number}[], bs: bs as {x:number;y:number}[][], bp: bpPts as {x:number;y:number}[] };
     }, [homography, imageWidth, imageHeight, imageToScreen]);
 
     const poly = (pts: {x:number;y:number}[]) => pts.map((p) => `${p.x},${p.y}`).join(" ");
@@ -429,7 +433,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
               <Polygon points={poly(projGeo.rb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2.5} />
               <Line x1={projGeo.lb[0]!.x} y1={projGeo.lb[0]!.y} x2={projGeo.lb[3]!.x} y2={projGeo.lb[3]!.y} stroke={BOX_COLOR} strokeWidth={1.5} />
               <Line x1={projGeo.rb[0]!.x} y1={projGeo.rb[0]!.y} x2={projGeo.rb[3]!.x} y2={projGeo.rb[3]!.y} stroke={BOX_COLOR} strokeWidth={1.5} />
-              <Polygon points={poly(projGeo.pl)} fill="rgba(255,255,255,0.12)" stroke={PLATE_COLOR} strokeWidth={2} />
+              {/* Basepath square */}
+              <Polygon points={poly(projGeo.bp)} fill="none" stroke={BASEPATH_COLOR} strokeWidth={2} />
+              {/* Plate */}
+              <Polygon points={poly(projGeo.pl)} fill="rgba(255,120,180,0.1)" stroke={PLATE_COLOR} strokeWidth={2} />
+              {/* Bases */}
               {projGeo.bs.map((b, i) => <Polygon key={i} points={poly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={2} />)}
             </>
           )}
