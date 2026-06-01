@@ -63,8 +63,7 @@ public final class VisionTrackerModule: Module {
       }
 
       let frameRate = Double(track.nominalFrameRate)
-      let videoWidth = Int(track.naturalSize.width)
-      let videoHeight = Int(track.naturalSize.height)
+      let (videoWidth, videoHeight) = videoSize(for: track)
 
       // VNTrackObjectRequest expects Vision-frame coords: origin bottom-left,
       // normalized [0,1], (x, y, w, h). The JS UI works in top-left
@@ -225,8 +224,7 @@ public final class VisionTrackerModule: Module {
       }
 
       let frameRate = Double(track.nominalFrameRate)
-      let videoWidth = Int(track.naturalSize.width)
-      let videoHeight = Int(track.naturalSize.height)
+      let (videoWidth, videoHeight) = videoSize(for: track)
 
       var results: [[String: Any]] = []
       var prev: [Float]? = nil
@@ -380,6 +378,16 @@ private func detectBrightMovingBlob(
 
 private func clampUnit(_ v: Double) -> Double { v < 0 ? 0 : (v > 1 ? 1 : v) }
 
+/// Return the video dimensions accounting for the track's preferredTransform.
+/// Portrait videos have a 90°/270° rotation so width and height must be swapped.
+private func videoSize(for track: AVAssetTrack) -> (width: Int, height: Int) {
+  let txf = track.preferredTransform
+  let isRotated = abs(txf.a) < 0.01 && abs(txf.d) < 0.01
+  let w = isRotated ? Int(track.naturalSize.height) : Int(track.naturalSize.width)
+  let h = isRotated ? Int(track.naturalSize.width) : Int(track.naturalSize.height)
+  return (w, h)
+}
+
 private extension NSError {
   static func tracker(_ msg: String) -> NSError {
     NSError(domain: "ExpoVisionTracker", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
@@ -405,8 +413,9 @@ private func generateFrame(uri: String, timeSec: Double, jpegQuality: Double) th
   var fps: Double = 0
   var hFovDeg: Double = 0
   if let track = asset.tracks(withMediaType: .video).first {
-    vWidth = Int(track.naturalSize.width)
-    vHeight = Int(track.naturalSize.height)
+    let vs = videoSize(for: track)
+    vWidth = vs.width
+    vHeight = vs.height
     fps = Double(track.nominalFrameRate)
     // Extract horizontal field-of-view from the format description (available
     // on videos recorded by iOS devices).
