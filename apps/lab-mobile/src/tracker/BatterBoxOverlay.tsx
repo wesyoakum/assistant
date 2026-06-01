@@ -51,16 +51,16 @@ const BOX_FILL = "rgba(0,200,255,0.06)";
 const PLATE_COLOR = "rgba(255,255,255,0.8)";
 const BASE_COLOR = "rgba(255,255,255,0.9)";
 const BASE_FILL = "rgba(255,255,255,0.3)";
-const HANDLE_COLOR = "rgba(255,100,100,0.9)";
-const SCALE_HANDLE_COLOR = "rgba(100,255,100,0.9)";
+const ROT_COLOR = "rgba(255,100,100,0.9)";     // Red — Y axis (rotation)
+const SCALE_COLOR = "rgba(100,255,100,0.9)";   // Green — X axis (scale)
+const PERSP_COLOR = "rgba(180,130,255,0.9)";   // Purple — Z axis (perspective)
 const HANDLE_RADIUS = 14;
 
-// Handle positions in INTERNAL field coords (x→1B foul, z→3B foul).
-// These get rotated by the 45° pre-rotation in fieldToNorm into the user frame.
-// Rotation handle: along user +Y (toward 2B) = internal diagonal (1,1)/√2.
+// Handle positions in INTERNAL field coords.
+// Rotation: 30 ft along user +Y (toward 2B) = internal (1,1)/√2 diagonal.
 const ROT_HANDLE_FIELD: GroundPoint = { x: 30, z: 30 };
-// Scale handle: along user +X (parallel to front edge) = internal (1,-1)/√2.
-const SCALE_HANDLE_FIELD: GroundPoint = { x: 15, z: -15 };
+// Scale: 8 ft along user +X (parallel to front edge) = internal (1,-1)/√2.
+const SCALE_HANDLE_FIELD: GroundPoint = { x: 8 * Math.SQRT1_2, z: -8 * Math.SQRT1_2 };
 
 const DEFAULT_PARAMS: TemplateParams = { cx: 0.5, cy: 0.62, angleDeg: 0, scale: 0.025, perspective: 0.015 };
 
@@ -158,11 +158,14 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const origin = project({ x: 0, z: 0 });
       const rotHandle = project(ROT_HANDLE_FIELD);
       const scaleHandle = project(SCALE_HANDLE_FIELD);
+      // Perspective handle: on the Z axis (vertical, above origin).
+      // Z is up = screen up from origin. Place it ~40px above origin in screen space.
+      const perspHandle = { x: origin.x, y: origin.y - 50 };
       const leftBox = geo.leftBox.map(project);
       const rightBox = geo.rightBox.map(project);
       const plate = geo.plate.map(project);
       const bases = geo.bases.map((b) => b.map(project));
-      return { origin, rotHandle, scaleHandle, leftBox, rightBox, plate, bases };
+      return { origin, rotHandle, scaleHandle, perspHandle, leftBox, rightBox, plate, bases };
     }, [params, aspect, imageToScreen]);
 
     const projectedRef = useRef(projected);
@@ -173,8 +176,9 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     // ── Unified responder: detect handle proximity on grant ──────────
     type DragMode =
       | { type: "translate"; startParams: TemplateParams; startImg: { nx: number; ny: number } }
-      | { type: "rotate"; startAngle: number; startTouchAngle: number; startPerspective: number; startHandleDist: number }
-      | { type: "scale"; startScale: number; startDist: number };
+      | { type: "rotate"; startAngle: number; startTouchAngle: number }
+      | { type: "scale"; startScale: number; startDist: number }
+      | { type: "perspective"; startPerspective: number; startY: number };
     const dragRef = useRef<DragMode | null>(null);
 
     const unifiedResponder = useMemo(() =>
@@ -188,19 +192,18 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const p = projectedRef.current;
           const touchPt = { x: localX, y: localY };
 
-          // Check rotation handle — angle controls rotation, distance controls perspective.
+          // Check perspective handle (Z axis, above origin).
+          if (dist(touchPt, p.perspHandle) < 30) {
+            dragRef.current = { type: "perspective", startPerspective: paramsRef.current.perspective, startY: localY };
+            return;
+          }
+
+          // Check rotation handle (Y axis, toward 2B).
           if (dist(touchPt, p.rotHandle) < 30) {
             const dx = localX - p.origin.x;
             const dy = localY - p.origin.y;
             const touchAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
-            const handleDist = dist(touchPt, p.origin);
-            dragRef.current = {
-              type: "rotate",
-              startAngle: paramsRef.current.angleDeg,
-              startTouchAngle: touchAngle,
-              startPerspective: paramsRef.current.perspective,
-              startHandleDist: Math.max(1, handleDist),
-            };
+            dragRef.current = { type: "rotate", startAngle: paramsRef.current.angleDeg, startTouchAngle: touchAngle };
             return;
           }
 
@@ -221,18 +224,21 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const localX = gs.moveX - canvasPageOffset.x;
           const localY = gs.moveY - canvasPageOffset.y;
 
+          if (drag.type === "perspective") {
+            // Drag up = more perspective, drag down = less.
+            const deltaY = drag.startY - localY; // positive when dragging up
+            const newPersp = Math.max(0, Math.min(0.08, drag.startPerspective + deltaY * 0.0003));
+            setParams((prev) => ({ ...prev, perspective: newPersp }));
+            return;
+          }
+
           if (drag.type === "rotate") {
             const p = projectedRef.current;
             const dx = localX - p.origin.x;
             const dy = localY - p.origin.y;
-            // Angle controls rotation.
             const curAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
             const angleDelta = curAngle - drag.startTouchAngle;
-            // Distance from origin controls perspective: closer = more, farther = less.
-            const curDist = Math.max(1, Math.hypot(dx, dy));
-            const distRatio = drag.startHandleDist / curDist; // closer → ratio > 1
-            const newPerspective = Math.max(0, Math.min(0.08, drag.startPerspective * distRatio));
-            setParams((prev) => ({ ...prev, angleDeg: drag.startAngle + angleDelta, perspective: newPerspective }));
+            setParams((prev) => ({ ...prev, angleDeg: drag.startAngle + angleDelta }));
             return;
           }
 
@@ -290,16 +296,21 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           {projected.bases.map((b, i) => (
             <Polygon key={`base-${i}`} points={toPoly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={1.5} />
           ))}
-          {/* Rotation handle: line from origin toward 2B */}
+          {/* Y axis: Rotation handle (red) — toward 2B */}
           <Line x1={projected.origin.x} y1={projected.origin.y} x2={projected.rotHandle.x} y2={projected.rotHandle.y}
-            stroke={HANDLE_COLOR} strokeWidth={1.5} strokeDasharray="6,4" />
+            stroke={ROT_COLOR} strokeWidth={1.5} strokeDasharray="6,4" />
           <Circle cx={projected.rotHandle.x} cy={projected.rotHandle.y} r={HANDLE_RADIUS}
-            fill="rgba(255,100,100,0.3)" stroke={HANDLE_COLOR} strokeWidth={2} />
-          {/* Scale handle: line from origin toward 1B */}
+            fill="rgba(255,100,100,0.3)" stroke={ROT_COLOR} strokeWidth={2} />
+          {/* X axis: Scale handle (green) — parallel to front edge */}
           <Line x1={projected.origin.x} y1={projected.origin.y} x2={projected.scaleHandle.x} y2={projected.scaleHandle.y}
-            stroke={SCALE_HANDLE_COLOR} strokeWidth={1.5} strokeDasharray="6,4" />
+            stroke={SCALE_COLOR} strokeWidth={1.5} strokeDasharray="6,4" />
           <Circle cx={projected.scaleHandle.x} cy={projected.scaleHandle.y} r={HANDLE_RADIUS}
-            fill="rgba(100,255,100,0.3)" stroke={SCALE_HANDLE_COLOR} strokeWidth={2} />
+            fill="rgba(100,255,100,0.3)" stroke={SCALE_COLOR} strokeWidth={2} />
+          {/* Z axis: Perspective handle (purple) — vertical above origin */}
+          <Line x1={projected.origin.x} y1={projected.origin.y} x2={projected.perspHandle.x} y2={projected.perspHandle.y}
+            stroke={PERSP_COLOR} strokeWidth={1.5} strokeDasharray="4,3" />
+          <Circle cx={projected.perspHandle.x} cy={projected.perspHandle.y} r={HANDLE_RADIUS}
+            fill="rgba(180,130,255,0.3)" stroke={PERSP_COLOR} strokeWidth={2} />
           {/* Origin dot */}
           <Circle cx={projected.origin.x} cy={projected.origin.y} r={4} fill="white" />
         </Svg>
