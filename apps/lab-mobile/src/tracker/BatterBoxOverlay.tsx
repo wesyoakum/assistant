@@ -146,10 +146,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     const outerPoly = screenHandles.map((p) => `${p.x},${p.y}`).join(" ");
 
     // ── Single unified responder ────────────────────────────────────────
-    // Determines mode on grant: "corner" (drag nearest handle), "body"
-    // (move all), or "scale" (2-finger pinch).
+    // On grant: inside quad → body drag, outside quad → nearest corner.
+    // Both use delta-based movement so the handle doesn't snap under the finger.
 
-    type DragMode = { type: "corner"; idx: number } | { type: "body"; startCorners: FourCorners; startImg: Corner } | { type: "scale"; startCorners: FourCorners; startDist: number; center: Corner };
+    type DragMode =
+      | { type: "corner"; idx: number; startCorners: FourCorners; startImg: Corner }
+      | { type: "body"; startCorners: FourCorners; startImg: Corner };
     const dragRef = useRef<DragMode | null>(null);
 
     const unifiedResponder = useMemo(() =>
@@ -157,87 +159,44 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
         onPanResponderTerminationRequest: () => true,
-        onPanResponderGrant: (e, gs) => {
-          const touches = e.nativeEvent.touches;
-          if (touches && touches.length >= 2) {
-            // Pinch → scale mode.
-            const t0 = touches[0]!, t1 = touches[1]!;
-            const d = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
-            const c = cornersRef.current;
-            const center: Corner = {
-              nx: (c[0].nx + c[1].nx + c[2].nx + c[3].nx) / 4,
-              ny: (c[0].ny + c[1].ny + c[2].ny + c[3].ny) / 4,
-            };
-            dragRef.current = { type: "scale", startCorners: [...c] as FourCorners, startDist: Math.max(1, d), center };
-            setActiveHandle(-2);
-            return;
-          }
-
+        onPanResponderGrant: (_, gs) => {
           const localX = gs.x0 - canvasPageOffset.x;
           const localY = gs.y0 - canvasPageOffset.y;
-          const touchPt = { x: localX, y: localY };
           const handles = screenHandlesRef.current;
+          const startImg = screenToImage(localX, localY);
 
-          // Check if inside the quad → body drag.
           if (pointInQuad(localX, localY, handles)) {
-            const img = screenToImage(localX, localY);
-            dragRef.current = { type: "body", startCorners: [...cornersRef.current] as FourCorners, startImg: img };
+            dragRef.current = { type: "body", startCorners: [...cornersRef.current] as FourCorners, startImg };
             setActiveHandle(-1);
           } else {
-            // Outside → grab nearest corner.
             const idx = nearestHandle(localX, localY, handles);
-            dragRef.current = { type: "corner", idx };
+            dragRef.current = { type: "corner", idx, startCorners: [...cornersRef.current] as FourCorners, startImg };
             setActiveHandle(idx);
           }
         },
-        onPanResponderMove: (e, gs) => {
+        onPanResponderMove: (_, gs) => {
           const drag = dragRef.current;
           if (!drag) return;
 
-          // Check for pinch promotion.
-          const touches = e.nativeEvent.touches;
-          if (touches && touches.length >= 2 && drag.type !== "scale") {
-            const t0 = touches[0]!, t1 = touches[1]!;
-            const d = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
-            const c = cornersRef.current;
-            const center: Corner = {
-              nx: (c[0].nx + c[1].nx + c[2].nx + c[3].nx) / 4,
-              ny: (c[0].ny + c[1].ny + c[2].ny + c[3].ny) / 4,
-            };
-            dragRef.current = { type: "scale", startCorners: [...c] as FourCorners, startDist: Math.max(1, d), center };
-            setActiveHandle(-2);
-            return;
-          }
-
-          if (drag.type === "scale" && touches && touches.length >= 2) {
-            const t0 = touches[0]!, t1 = touches[1]!;
-            const curD = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
-            const ratio = curD / drag.startDist;
-            setCorners(drag.startCorners.map((c) => ({
-              nx: Math.max(0, Math.min(1, drag.center.nx + (c.nx - drag.center.nx) * ratio)),
-              ny: Math.max(0, Math.min(1, drag.center.ny + (c.ny - drag.center.ny) * ratio)),
-            })) as FourCorners);
-            return;
-          }
+          const localX = gs.moveX - canvasPageOffset.x;
+          const localY = gs.moveY - canvasPageOffset.y;
+          const curImg = screenToImage(localX, localY);
+          const dx = curImg.nx - drag.startImg.nx;
+          const dy = curImg.ny - drag.startImg.ny;
 
           if (drag.type === "corner") {
-            const localX = gs.moveX - canvasPageOffset.x;
-            const localY = gs.moveY - canvasPageOffset.y;
-            const img = screenToImage(localX, localY);
-            setCorners((prev) => {
-              const next = [...prev] as FourCorners;
-              next[drag.idx] = img;
-              return next;
-            });
+            // Move only the selected corner by the drag delta.
+            setCorners(drag.startCorners.map((c, i) => {
+              if (i !== drag.idx) return c;
+              return {
+                nx: Math.max(0, Math.min(1, c.nx + dx)),
+                ny: Math.max(0, Math.min(1, c.ny + dy)),
+              };
+            }) as FourCorners);
             return;
           }
 
           if (drag.type === "body") {
-            const localX = gs.moveX - canvasPageOffset.x;
-            const localY = gs.moveY - canvasPageOffset.y;
-            const curImg = screenToImage(localX, localY);
-            const dx = curImg.nx - drag.startImg.nx;
-            const dy = curImg.ny - drag.startImg.ny;
             setCorners(drag.startCorners.map((c) => ({
               nx: Math.max(0, Math.min(1, c.nx + dx)),
               ny: Math.max(0, Math.min(1, c.ny + dy)),

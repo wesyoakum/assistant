@@ -24,6 +24,7 @@ import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
+import { useNavigation } from "expo-router";
 import { useTheme } from "../theme";
 
 type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
@@ -57,7 +58,26 @@ const MAX_SCALE = 8;
 export function TrackerTab() {
   const theme = useTheme();
   const orientation = useOrientation();
-  const isLandscape = orientation === "landscape";
+  const navigation = useNavigation();
+  const [fullscreen, setFullscreen] = useState(false);
+  const isLandscape = fullscreen || orientation === "landscape";
+
+  // Hide/show tab bar and header when fullscreen toggles.
+  useEffect(() => {
+    const parent = navigation.getParent();
+    if (fullscreen) {
+      navigation.setOptions({ headerShown: false });
+      parent?.setOptions({ tabBarStyle: { display: "none" } });
+    } else {
+      navigation.setOptions({ headerShown: true });
+      parent?.setOptions({ tabBarStyle: undefined });
+    }
+    return () => {
+      // Restore on unmount.
+      navigation.setOptions({ headerShown: true });
+      parent?.setOptions({ tabBarStyle: undefined });
+    };
+  }, [fullscreen, navigation]);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [frame, setFrame] = useState<FirstFrameResult | null>(null);
   const [frameTimeSec, setFrameTimeSec] = useState(0);
@@ -830,6 +850,11 @@ export function TrackerTab() {
         {frame && (
           <Pressable onPress={resetViewport} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
             <Text style={[styles.btnText, { color: theme.text }]}>Reset zoom</Text>
+          </Pressable>
+        )}
+        {frame && (
+          <Pressable onPress={() => setFullscreen((f) => !f)} style={[styles.btn, { backgroundColor: fullscreen ? theme.primary : theme.surfaceAlt }]}>
+            <Text style={[styles.btnText, { color: fullscreen ? "#fff" : theme.text }]}>{fullscreen ? "Exit" : "Fullscreen"}</Text>
           </Pressable>
         )}
       </View>
