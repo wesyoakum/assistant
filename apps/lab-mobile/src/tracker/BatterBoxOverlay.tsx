@@ -55,14 +55,14 @@ const HANDLE_COLOR = "rgba(255,100,100,0.9)";
 const SCALE_HANDLE_COLOR = "rgba(100,255,100,0.9)";
 const HANDLE_RADIUS = 14;
 
-// Rotation handle: along the Y axis (toward 2B = along the home→2B diagonal).
-// In internal field coords, toward 2B = (1,1)/√2 direction.
+// Handle positions in INTERNAL field coords (x→1B foul, z→3B foul).
+// These get rotated by the 45° pre-rotation in fieldToNorm into the user frame.
+// Rotation handle: along user +Y (toward 2B) = internal diagonal (1,1)/√2.
 const ROT_HANDLE_FIELD: GroundPoint = { x: 30, z: 30 };
-// Scale handle: along the X axis (parallel to front edge of plate, toward 1B side).
-// In internal field coords, this is the (1,0,-1)/√2 direction = perpendicular to the diagonal.
+// Scale handle: along user +X (parallel to front edge) = internal (1,-1)/√2.
 const SCALE_HANDLE_FIELD: GroundPoint = { x: 15, z: -15 };
 
-const DEFAULT_PARAMS: TemplateParams = { cx: 0.5, cy: 0.62, angleDeg: 0, scale: 0.25, perspective: 0.015 };
+const DEFAULT_PARAMS: TemplateParams = { cx: 0.5, cy: 0.62, angleDeg: 0, scale: 0.025, perspective: 0.015 };
 
 function getGroundGeometry() {
   const boxes = allEightCorners();
@@ -82,16 +82,29 @@ function getGroundGeometry() {
   return { leftBox: boxes.left, rightBox: boxes.right, plate, bases };
 }
 
+const DIAG = Math.SQRT1_2;
+
 function fieldToNorm(pt: GroundPoint, p: TemplateParams, aspect: number): { nx: number; ny: number } {
+  // Step 1: Rotate internal field coords (x→1B foul, z→3B foul) into
+  // the user frame where ux = parallel to front edge (toward 1B side),
+  // uy = toward 2B (along the diagonal). This is a 45° rotation:
+  //   ux = (pt.x - pt.z) * DIAG
+  //   uy = (pt.x + pt.z) * DIAG
+  const ux = (pt.x - pt.z) * DIAG;
+  const uy = (pt.x + pt.z) * DIAG;
+
+  // Step 2: Apply template rotation about Z (the viewing angle).
   const rad = p.angleDeg * (Math.PI / 180);
   const cos = Math.cos(rad);
   const sin = Math.sin(rad);
-  const rx = cos * pt.x - sin * pt.z;
-  const ry = sin * pt.x + cos * pt.z;
-  // Perspective: points further away (larger ry = toward pitcher) shrink.
-  // divisor > 1 for positive ry, making far points smaller.
+  const rx = cos * ux - sin * uy;
+  const ry = sin * ux + cos * uy;
+
+  // Step 3: Perspective — points further toward pitcher (larger ry) shrink.
   const pDiv = 1 + ry * p.perspective;
-  const pScale = pDiv > 0.1 ? 1 / pDiv : 1 / 0.1; // clamp to avoid inversion
+  const pScale = pDiv > 0.1 ? 1 / pDiv : 1 / 0.1;
+
+  // Step 4: Map to normalized image. +rx = screen right, +ry = screen up.
   return {
     nx: p.cx + rx * p.scale * pScale,
     ny: p.cy - ry * p.scale * pScale * (1 / aspect),
