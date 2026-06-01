@@ -31,6 +31,9 @@ export interface TemplateParams {
   cx: number; cy: number;
   angleDeg: number;
   scale: number;
+  /** Perspective strength. 0 = orthographic, higher = more foreshortening.
+   *  Typical range 0–0.05. Controls how much far-away points shrink. */
+  perspective: number;
 }
 
 export interface BatterBoxOverlayHandle {
@@ -57,7 +60,7 @@ const ROT_HANDLE_FIELD: GroundPoint = { x: 30, z: 30 }; // along the diagonal
 // A point along the X direction (toward 1B) for the scale handle.
 const SCALE_HANDLE_FIELD: GroundPoint = { x: 20, z: 0 };
 
-const DEFAULT_PARAMS: TemplateParams = { cx: 0.5, cy: 0.62, angleDeg: 0, scale: 0.25 };
+const DEFAULT_PARAMS: TemplateParams = { cx: 0.5, cy: 0.62, angleDeg: 0, scale: 0.25, perspective: 0.015 };
 
 function getGroundGeometry() {
   const boxes = allEightCorners();
@@ -83,9 +86,13 @@ function fieldToNorm(pt: GroundPoint, p: TemplateParams, aspect: number): { nx: 
   const sin = Math.sin(rad);
   const rx = cos * pt.x - sin * pt.z;
   const ry = sin * pt.x + cos * pt.z;
+  // Perspective: points further away (larger ry = toward pitcher) shrink.
+  // divisor > 1 for positive ry, making far points smaller.
+  const pDiv = 1 + ry * p.perspective;
+  const pScale = pDiv > 0.1 ? 1 / pDiv : 1 / 0.1; // clamp to avoid inversion
   return {
-    nx: p.cx + rx * p.scale,
-    ny: p.cy - ry * p.scale * (1 / aspect),
+    nx: p.cx + rx * p.scale * pScale,
+    ny: p.cy - ry * p.scale * pScale * (1 / aspect),
   };
 }
 
@@ -151,7 +158,7 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     // ── Unified responder: detect handle proximity on grant ──────────
     type DragMode =
       | { type: "translate"; startParams: TemplateParams; startImg: { nx: number; ny: number } }
-      | { type: "rotate"; startAngle: number; startTouchAngle: number }
+      | { type: "rotate"; startAngle: number; startTouchAngle: number; startPerspective: number; startHandleDist: number }
       | { type: "scale"; startScale: number; startDist: number };
     const dragRef = useRef<DragMode | null>(null);
 
@@ -166,12 +173,19 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const p = projectedRef.current;
           const touchPt = { x: localX, y: localY };
 
-          // Check rotation handle.
+          // Check rotation handle — angle controls rotation, distance controls perspective.
           if (dist(touchPt, p.rotHandle) < 30) {
             const dx = localX - p.origin.x;
             const dy = localY - p.origin.y;
-            const touchAngle = Math.atan2(dx, -dy) * (180 / Math.PI); // angle from "up"
-            dragRef.current = { type: "rotate", startAngle: paramsRef.current.angleDeg, startTouchAngle: touchAngle };
+            const touchAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
+            const handleDist = dist(touchPt, p.origin);
+            dragRef.current = {
+              type: "rotate",
+              startAngle: paramsRef.current.angleDeg,
+              startTouchAngle: touchAngle,
+              startPerspective: paramsRef.current.perspective,
+              startHandleDist: Math.max(1, handleDist),
+            };
             return;
           }
 
@@ -196,9 +210,14 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
             const p = projectedRef.current;
             const dx = localX - p.origin.x;
             const dy = localY - p.origin.y;
+            // Angle controls rotation.
             const curAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
-            const delta = curAngle - drag.startTouchAngle;
-            setParams((prev) => ({ ...prev, angleDeg: drag.startAngle + delta }));
+            const angleDelta = curAngle - drag.startTouchAngle;
+            // Distance from origin controls perspective: closer = more, farther = less.
+            const curDist = Math.max(1, Math.hypot(dx, dy));
+            const distRatio = drag.startHandleDist / curDist; // closer → ratio > 1
+            const newPerspective = Math.max(0, Math.min(0.08, drag.startPerspective * distRatio));
+            setParams((prev) => ({ ...prev, angleDeg: drag.startAngle + angleDelta, perspective: newPerspective }));
             return;
           }
 
