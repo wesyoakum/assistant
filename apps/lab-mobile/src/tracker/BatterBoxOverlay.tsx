@@ -131,6 +131,15 @@ function projectAll(
     }));
     const fit = fitHomography(corr);
     if (!fit) return null;
+
+    // Validate: 2B should project with finite coords and the field shouldn't flip.
+    // Check that the apex and 2B project to different locations.
+    const apexImg = fieldToImage(fit.H, { x: 0, z: 0 });
+    const secImg = fieldToImage(fit.H, FIELD_BY_ID["2b"]!);
+    if (!apexImg || !secImg) return null;
+    // If they're nearly the same, the homography is degenerate.
+    if (Math.hypot(apexImg.x - secImg.x, apexImg.y - secImg.y) < 1) return null;
+
     const result: Record<string, { nx: number; ny: number }> = {};
     for (const lm of LANDMARKS) {
       const img = fieldToImage(fit.H, lm.field);
@@ -161,6 +170,13 @@ function projectAll(
       if (denom < 1e-10) return null;
       const a = (dx * du + dz * dv) / denom;
       const b = (dx * dv - dz * du) / denom;
+
+      // Scale = sqrt(a² + b²). Reject if < 2% or flipped (det < 0).
+      const scale = Math.hypot(a, b);
+      if (scale < 0.0002) return null; // too small (~0.02% of image)
+      const det = a * a + b * b; // always positive for similarity, but check scale
+      if (det < 0) return null;
+
       const tx = u0 - a * x0 + b * z0;
       const ty = v0 - b * x0 - a * z0;
 
@@ -188,6 +204,10 @@ function projectAll(
     const solU = solve3x3(A, bu);
     const solV = solve3x3(A, bv);
     if (!solU || !solV) return null;
+
+    // Affine determinant = a*d - b*c. Positive = no flip.
+    const affineDet = solU[0]! * solV[1]! - solU[1]! * solV[0]!;
+    if (affineDet <= 0) return null; // field would be flipped
 
     const result: Record<string, { nx: number; ny: number }> = {};
     for (const lm of LANDMARKS) {
