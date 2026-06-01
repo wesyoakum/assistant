@@ -132,7 +132,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     // Fallback: just draw lines between the 4 outer handles if homography fails.
     const outerPoly = screenHandles.map((p) => `${p.x},${p.y}`).join(" ");
 
-    // 4 PanResponders.
+    // Ref so the body-drag responder can read corners without re-creating.
+    const cornersRef = useRef(corners);
+    cornersRef.current = corners;
+
+    // 4 corner PanResponders + 1 body-drag responder.
     const responders = useMemo(() => {
       return [0, 1, 2, 3].map((idx) =>
         PanResponder.create({
@@ -157,6 +161,41 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
         }),
       );
     }, [canvasPageOffset, screenToImage]);
+
+    const dragStartRef = useRef<{ corners: FourCorners; startImg: Corner } | null>(null);
+
+    const bodyResponder = useMemo(() =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: (_, gs) => {
+          setActiveHandle(-1);
+          const localX = gs.x0 - canvasPageOffset.x;
+          const localY = gs.y0 - canvasPageOffset.y;
+          const startImg = screenToImage(localX, localY);
+          dragStartRef.current = {
+            corners: [...cornersRef.current] as FourCorners,
+            startImg,
+          };
+        },
+        onPanResponderMove: (_, gs) => {
+          const drag = dragStartRef.current;
+          if (!drag) return;
+          const localX = gs.moveX - canvasPageOffset.x;
+          const localY = gs.moveY - canvasPageOffset.y;
+          const curImg = screenToImage(localX, localY);
+          const dx = curImg.nx - drag.startImg.nx;
+          const dy = curImg.ny - drag.startImg.ny;
+          setCorners(drag.corners.map((c) => ({
+            nx: Math.max(0, Math.min(1, c.nx + dx)),
+            ny: Math.max(0, Math.min(1, c.ny + dy)),
+          })) as FourCorners);
+        },
+        onPanResponderRelease: () => { setActiveHandle(null); dragStartRef.current = null; },
+        onPanResponderTerminate: () => { setActiveHandle(null); dragStartRef.current = null; },
+      }),
+    [canvasPageOffset, screenToImage]);
 
     useImperativeHandle(ref, () => ({
       solve: () => {
@@ -209,6 +248,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
             <Polygon points={outerPoly} fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.5)" strokeWidth={1.5} strokeDasharray="6,4" />
           )}
         </Svg>
+
+        {/* Body drag area — tap+drag anywhere not on a corner to move all */}
+        <View
+          {...bodyResponder.panHandlers}
+          style={StyleSheet.absoluteFill}
+        />
 
         {/* Handle labels */}
         {screenHandles.map((p, i) => (
