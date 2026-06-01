@@ -419,8 +419,8 @@ private func generateFrame(uri: String, timeSec: Double, jpegQuality: Double) th
     fps = Double(track.nominalFrameRate)
     // Extract horizontal field-of-view from the format description (available
     // on videos recorded by iOS devices).
-    if let desc = track.formatDescriptions.first as? CMFormatDescription {
-      let dims = CMVideoFormatDescriptionGetDimensions(desc)
+    if let descAny = track.formatDescriptions.first {
+      let desc = descAny as CMFormatDescription
       if let exts = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
          let fovKey = exts["HorizontalFieldOfView"] as? Double {
         hFovDeg = fovKey
