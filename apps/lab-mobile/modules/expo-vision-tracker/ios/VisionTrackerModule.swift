@@ -417,25 +417,18 @@ private func generateFrame(uri: String, timeSec: Double, jpegQuality: Double) th
     vWidth = vs.width
     vHeight = vs.height
     fps = Double(track.nominalFrameRate)
-    // Extract horizontal field-of-view from the format description (available
-    // on videos recorded by iOS devices).
-    if let descAny = track.formatDescriptions.first {
-      let desc = unsafeBitCast(descAny, to: CMFormatDescription.self)
-      if let exts = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
-         let fovKey = exts["HorizontalFieldOfView"] as? Double {
-        hFovDeg = fovKey
-      } else {
-        // Fallback: many iOS videos embed the lens FOV in metadata.
-        // If not available, estimate from typical iPhone wide lens (~69°).
-        let meta = asset.metadata
-        for item in meta {
-          if let key = item.commonKey?.rawValue, key == "make",
-             let val = item.stringValue, val.lowercased().contains("apple") {
-            hFovDeg = 69  // typical iPhone wide camera
-            break
-          }
+    // Try to extract horizontal field-of-view from video metadata.
+    // Falls back to 0 (JS side defaults to 69° for typical iPhone).
+    do {
+      if let descObj = track.formatDescriptions.first {
+        let desc = unsafeBitCast(descObj, to: CMFormatDescription.self)
+        if let exts = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
+           let fovVal = exts["HorizontalFieldOfView"] as? Double {
+          hFovDeg = fovVal
         }
       }
+    } catch {
+      // Silently fall back to default FOV.
     }
   }
   return [
