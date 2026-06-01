@@ -34,10 +34,12 @@ const BOX_FILL = "rgba(0,200,255,0.06)";
 const PLATE_COLOR = "rgba(255,255,255,0.8)";
 const BASE_COLOR = "rgba(255,255,255,0.9)";
 const BASE_FILL = "rgba(255,255,255,0.3)";
-const ANCHORED_COLOR = "rgba(255,200,0,0.95)";
-const ANCHORED_FILL = "rgba(255,200,0,0.3)";
+const ANCHORED_COLOR = "rgba(0,255,100,0.95)";
+const ANCHORED_FILL = "rgba(0,255,100,0.25)";
+const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
+const ACTIVE_FILL = "rgba(255,220,0,0.35)";
 const FREE_COLOR = "rgba(255,255,255,0.5)";
-const HANDLE_R = 14;
+const HANDLE_R = 8;
 
 interface Landmark {
   id: string;
@@ -173,13 +175,21 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     const poly = (pts: { x: number; y: number }[]) => pts.map((p) => `${p.x},${p.y}`).join(" ");
 
     // ── Touch ────────────────────────────────────────────────────────────
+    // - Drag any handle: moves it (delta-based), anchors on release.
+    //   Anchored handles are unaffected by other handles moving.
+    // - 0 anchors: translate all unanchored handles.
+    // - 1 anchor: pivot unanchored handles around the anchor.
+    // - 2+ anchors: move only the selected handle.
+    // - Tap an anchored handle to unanchor it.
+
+    const [activeId, setActiveId] = useState<string | null>(null);
+
     type Drag =
-      | { mode: "translate"; startPositions: Record<string, { nx: number; ny: number }>; startImg: { nx: number; ny: number } }
-      | { mode: "pivot"; anchorId: string; anchorScreen: { x: number; y: number }; startAngle: number; startDist: number; startPositions: Record<string, { nx: number; ny: number }> }
+      | { mode: "translate"; id: string; startPositions: Record<string, { nx: number; ny: number }>; startImg: { nx: number; ny: number } }
+      | { mode: "pivot"; id: string; anchorId: string; anchorPos: { nx: number; ny: number }; startAngle: number; startDist: number; startPositions: Record<string, { nx: number; ny: number }> }
       | { mode: "individual"; id: string; offset: { dnx: number; dny: number } };
     const dragRef = useRef<Drag | null>(null);
     const didMoveRef = useRef(false);
-    const dragIdRef = useRef<string>("");
 
     const responder = useMemo(() =>
       PanResponder.create({
@@ -200,27 +210,33 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
             const d = dist({ x: lx, y: ly }, h);
             if (d < nearDist) { nearDist = d; nearId = lm.id; }
           }
-          dragIdRef.current = nearId;
+          setActiveId(nearId);
 
           const anch = anchoredRef.current;
           const aIds = LANDMARKS.filter((l) => anch[l.id]).map((l) => l.id);
           const aCount = aIds.length;
 
-          if (aCount === 0) {
-            // Translate all.
-            dragRef.current = { mode: "translate", startPositions: { ...posRef.current }, startImg: touchImg };
+          // Delta offset so handle doesn't snap under finger.
+          const handlePos = posRef.current[nearId] ?? { nx: 0.5, ny: 0.5 };
+          const offset = { dnx: handlePos.nx - touchImg.nx, dny: handlePos.ny - touchImg.ny };
+
+          if (anch[nearId]) {
+            // Re-dragging an anchored handle: move it individually.
+            dragRef.current = { mode: "individual", id: nearId, offset };
+          } else if (aCount === 0) {
+            dragRef.current = { mode: "translate", id: nearId, startPositions: { ...posRef.current }, startImg: touchImg };
           } else if (aCount === 1) {
-            // Pivot around the single anchor.
             const aId = aIds[0]!;
+            const aPos = posRef.current[aId]!;
             const aScreen = sh[aId]!;
             const dx = lx - aScreen.x, dy = ly - aScreen.y;
-            const startAngle = Math.atan2(dx, -dy);
-            const startDist = Math.max(1, Math.hypot(dx, dy));
-            dragRef.current = { mode: "pivot", anchorId: aId, anchorScreen: aScreen, startAngle, startDist, startPositions: { ...posRef.current } };
+            dragRef.current = {
+              mode: "pivot", id: nearId, anchorId: aId, anchorPos: aPos,
+              startAngle: Math.atan2(dx, -dy), startDist: Math.max(1, Math.hypot(dx, dy)),
+              startPositions: { ...posRef.current },
+            };
           } else {
-            // Individual handle with delta offset.
-            const handlePos = posRef.current[nearId] ?? { nx: 0.5, ny: 0.5 };
-            dragRef.current = { mode: "individual", id: nearId, offset: { dnx: handlePos.nx - touchImg.nx, dny: handlePos.ny - touchImg.ny } };
+            dragRef.current = { mode: "individual", id: nearId, offset };
           }
         },
         onPanResponderMove: (_, gs) => {
@@ -231,11 +247,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const curImg = screenToImage(lx, ly);
 
           if (drag.mode === "translate") {
-            const dx = curImg.nx - drag.startImg.nx;
-            const dy = curImg.ny - drag.startImg.ny;
+            const dx = curImg.nx - drag.startImg.nx, dy = curImg.ny - drag.startImg.ny;
             setPositions((prev) => {
               const next = { ...prev };
               for (const lm of LANDMARKS) {
+                if (anchoredRef.current[lm.id]) continue; // skip anchored
                 const sp = drag.startPositions[lm.id];
                 if (sp) next[lm.id] = { nx: sp.nx + dx, ny: sp.ny + dy };
               }
@@ -245,24 +261,24 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           }
 
           if (drag.mode === "pivot") {
-            const dx = lx - drag.anchorScreen.x, dy = ly - drag.anchorScreen.y;
+            const aScreen = screenHandlesRef.current[drag.anchorId];
+            if (!aScreen) return;
+            const dx = lx - aScreen.x, dy = ly - aScreen.y;
             const curAngle = Math.atan2(dx, -dy);
             const curDist = Math.max(1, Math.hypot(dx, dy));
             const dAngle = curAngle - drag.startAngle;
             const dScale = curDist / drag.startDist;
             const cos = Math.cos(dAngle), sin = Math.sin(dAngle);
-            // The anchor's image position stays fixed. Rotate+scale all others around it.
-            const anchorImg = drag.startPositions[drag.anchorId]!;
             setPositions((prev) => {
               const next = { ...prev };
               for (const lm of LANDMARKS) {
-                if (lm.id === drag.anchorId) continue;
+                if (anchoredRef.current[lm.id]) continue; // skip anchored
                 const sp = drag.startPositions[lm.id];
                 if (!sp) continue;
-                const rx = sp.nx - anchorImg.nx, ry = sp.ny - anchorImg.ny;
+                const rx = sp.nx - drag.anchorPos.nx, ry = sp.ny - drag.anchorPos.ny;
                 next[lm.id] = {
-                  nx: anchorImg.nx + (cos * rx - sin * ry) * dScale,
-                  ny: anchorImg.ny + (sin * rx + cos * ry) * dScale,
+                  nx: drag.anchorPos.nx + (cos * rx - sin * ry) * dScale,
+                  ny: drag.anchorPos.ny + (sin * rx + cos * ry) * dScale,
                 };
               }
               return next;
@@ -279,26 +295,19 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
-          const id = dragIdRef.current;
-          if (!didMoveRef.current && id) {
-            // Tap: toggle anchor.
-            if (anchoredRef.current[id]) {
-              setAnchored((prev) => { const n = { ...prev }; delete n[id]; return n; });
-            }
-          } else if (didMoveRef.current && drag) {
-            // Dragged: anchor the handle that was being manipulated.
-            if (drag.mode === "translate") {
-              // Don't anchor anything on translate.
-            } else if (drag.mode === "pivot") {
-              // Anchor the nearest (dragged) handle.
-              setAnchored((prev) => ({ ...prev, [id]: true }));
-            } else if (drag.mode === "individual") {
-              setAnchored((prev) => ({ ...prev, [drag.id]: true }));
-            }
+          if (!drag) { setActiveId(null); dragRef.current = null; return; }
+
+          if (!didMoveRef.current && anchoredRef.current[drag.id]) {
+            // Tap on anchored → unanchor.
+            setAnchored((prev) => { const n = { ...prev }; delete n[drag.id]; return n; });
+          } else if (didMoveRef.current) {
+            // Dragged → anchor.
+            setAnchored((prev) => ({ ...prev, [drag.id]: true }));
           }
+          setActiveId(null);
           dragRef.current = null;
         },
-        onPanResponderTerminate: () => { dragRef.current = null; },
+        onPanResponderTerminate: () => { setActiveId(null); dragRef.current = null; },
       }),
     [canvasPageOffset, screenToImage]);
 
@@ -321,19 +330,37 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
               {projGeo.bs.map((b, i) => <Polygon key={i} points={poly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={1.5} />)}
             </>
           )}
+          {/* Lines connecting box corners (always visible) */}
+          {!projGeo && (() => {
+            const s = screenHandles;
+            const line = (a: string, b: string) => {
+              const sa = s[a], sb = s[b];
+              if (!sa || !sb) return null;
+              return <Line key={`${a}-${b}`} x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={BOX_COLOR} strokeWidth={1} opacity={0.4} />;
+            };
+            return (
+              <>
+                {line("lfo","rfo")}{line("rfo","rbo")}{line("rbo","lbo")}{line("lbo","lfo")}
+                {line("lfi","rfi")}{line("rfi","rbi")}{line("rbi","lbi")}{line("lbi","lfi")}
+                {line("lfo","lfi")}{line("rfo","rfi")}{line("lbo","lbi")}{line("rbo","rbi")}
+              </>
+            );
+          })()}
+
+          {/* Handles */}
           {LANDMARKS.map((lm) => {
             const s = screenHandles[lm.id];
             if (!s) return null;
             const isA = !!anchored[lm.id];
+            const isActive = activeId === lm.id;
+            const color = isActive ? ACTIVE_COLOR : isA ? ANCHORED_COLOR : FREE_COLOR;
+            const fill = isActive ? ACTIVE_FILL : isA ? ANCHORED_FILL : "rgba(255,255,255,0.08)";
             return (
               <React.Fragment key={lm.id}>
                 <Circle cx={s.x} cy={s.y} r={HANDLE_R}
-                  fill={isA ? ANCHORED_FILL : "rgba(255,255,255,0.08)"}
-                  stroke={isA ? ANCHORED_COLOR : FREE_COLOR}
-                  strokeWidth={isA ? 2.5 : 1.5} />
-                <SvgText x={s.x} y={s.y - HANDLE_R - 3}
-                  fill={isA ? ANCHORED_COLOR : FREE_COLOR}
-                  fontSize={8} fontWeight="600" textAnchor="middle">
+                  fill={fill} stroke={color} strokeWidth={isA || isActive ? 2 : 1} />
+                <SvgText x={s.x} y={s.y - HANDLE_R - 2}
+                  fill={color} fontSize={7} fontWeight="600" textAnchor="middle">
                   {lm.label}
                 </SvgText>
               </React.Fragment>
