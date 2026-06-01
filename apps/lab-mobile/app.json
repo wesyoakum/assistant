@@ -60,6 +60,9 @@
     },
     "updates": {
       "url": "https://u.expo.dev/e8f6c9f4-f31e-4035-b606-8874142399e0",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      },
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 5000
     }
