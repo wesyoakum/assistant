@@ -25,6 +25,7 @@ import { type CameraPose } from "../field/batterBox";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { useTheme } from "../theme";
 
 type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
@@ -62,20 +63,22 @@ export function TrackerTab() {
   const [fullscreen, setFullscreen] = useState(false);
   const isLandscape = fullscreen || orientation === "landscape";
 
-  // Hide/show tab bar and header when fullscreen toggles.
+  // Hide/show tab bar and header when fullscreen toggles + unlock orientation.
   useEffect(() => {
     const parent = navigation.getParent();
     if (fullscreen) {
       navigation.setOptions({ headerShown: false });
       parent?.setOptions({ tabBarStyle: { display: "none" } });
+      ScreenOrientation.unlockAsync().catch(() => {});
     } else {
       navigation.setOptions({ headerShown: true });
       parent?.setOptions({ tabBarStyle: undefined });
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     }
     return () => {
-      // Restore on unmount.
       navigation.setOptions({ headerShown: true });
       parent?.setOptions({ tabBarStyle: undefined });
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     };
   }, [fullscreen, navigation]);
   const [videoUri, setVideoUri] = useState<string | null>(null);
