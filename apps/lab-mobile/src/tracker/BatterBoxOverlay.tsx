@@ -1,11 +1,14 @@
-// Batter's box calibration overlay — progressive anchoring.
+// Batter's box calibration overlay — progressive anchoring with coupled motion.
 //
-// 0 anchors: drag = translate the whole overlay
-// 1 anchor:  drag = pivot (rotate+scale) around the anchored point
-// 2+ anchors: drag = move individual handle, anchor on release
-// ≥4 anchors: homography auto-solves, geometry projects correctly
-// Tap an anchored point to unanchor it.
-// Nearest handle is always selected (delta-based, doesn't snap under finger).
+// All non-anchored handles move together based on the current constraint level:
+//   0 anchors + drag: translate all
+//   1 anchor  + drag: similarity (rotate + scale) around the anchor
+//   2 anchors + drag: affine transform (3D-like rotation about anchor axis)
+//   3 anchors + drag: full homography (perspective)
+//   4+ anchors: homography auto-solves
+//
+// Drag any handle → anchors on release (green). Tap anchored → unanchor.
+// Active handle highlights yellow. Delta-based dragging.
 
 import React, { useCallback, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { View, StyleSheet, PanResponder } from "react-native";
@@ -38,14 +41,11 @@ const ANCHORED_COLOR = "rgba(0,255,100,0.95)";
 const ANCHORED_FILL = "rgba(0,255,100,0.25)";
 const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
 const ACTIVE_FILL = "rgba(255,220,0,0.35)";
-const FREE_COLOR = "rgba(255,255,255,0.5)";
+const FREE_COLOR = "rgba(255,255,255,0.6)";
+const LINE_COLOR = "rgba(0,200,255,0.5)";
 const HANDLE_R = 8;
 
-interface Landmark {
-  id: string;
-  label: string;
-  field: GroundPoint;
-}
+interface Landmark { id: string; label: string; field: GroundPoint; }
 
 function buildLandmarks(): Landmark[] {
   const oc = outerCorners();
@@ -66,10 +66,18 @@ function buildLandmarks(): Landmark[] {
     { id: "3b", label: "3B", field: lm.third_base },
   ];
 }
-
 const LANDMARKS = buildLandmarks();
+const FIELD_BY_ID: Record<string, GroundPoint> = {};
+for (const lm of LANDMARKS) FIELD_BY_ID[lm.id] = lm.field;
 
-// Geometry for rendering polygons.
+// Box edge connections for drawing lines.
+const EDGES: [string, string][] = [
+  ["lfo","rfo"],["rfo","rbo"],["rbo","lbo"],["lbo","lfo"], // outer
+  ["lfi","rfi"],["rfi","rbi"],["rbi","lbi"],["lbi","lfi"], // inner
+  ["lfo","lfi"],["rfo","rfi"],["lbo","lbi"],["rbo","rbi"], // cross
+];
+
+// Geometry for rendering polygons once homography is available.
 const geo = (() => {
   const boxes = allEightCorners();
   const plate = homePlateCorners();
@@ -93,14 +101,127 @@ function defaultPositions(): Record<string, { nx: number; ny: number }> {
   };
 }
 
-function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
+function screenDist(a: { x: number; y: number }, b: { x: number; y: number }) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
+
+// ── Transform solvers ──────────────────────────────────────────────────
+
+/** Compute positions of all landmarks given N correspondences.
+ *  Returns normalized image positions for every landmark. */
+function projectAll(
+  correspondences: { id: string; nx: number; ny: number }[],
+  imageWidth: number,
+  imageHeight: number,
+): Record<string, { nx: number; ny: number }> | null {
+  const n = correspondences.length;
+  if (n === 0) return null;
+
+  if (n === 1) {
+    // Translation only: offset all field positions.
+    // Use a default scale derived from the initial default positions.
+    return null; // handled by translate mode in the drag handler
+  }
+
+  if (n >= 4) {
+    // Full homography.
+    const corr: Correspondence[] = correspondences.map((c) => ({
+      field: FIELD_BY_ID[c.id]!,
+      image: { u: c.nx * imageWidth, v: c.ny * imageHeight },
+    }));
+    const fit = fitHomography(corr);
+    if (!fit) return null;
+    const result: Record<string, { nx: number; ny: number }> = {};
+    for (const lm of LANDMARKS) {
+      const img = fieldToImage(fit.H, lm.field);
+      if (img) result[lm.id] = { nx: img.x / imageWidth, ny: img.y / imageHeight };
+    }
+    return result;
+  }
+
+  if (n === 2 || n === 3) {
+    // Similarity (n=2) or affine (n=3).
+    // Build linear system: for each correspondence (field_x, field_z) → (u, v)
+    // Similarity: u = a*x - b*z + tx, v = b*x + a*z + ty  (4 unknowns)
+    // Affine:     u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns)
+
+    if (n === 2) {
+      // Similarity: solve [a,b,tx,ty] from 4 equations.
+      const [c0, c1] = correspondences;
+      const f0 = FIELD_BY_ID[c0!.id]!, f1 = FIELD_BY_ID[c1!.id]!;
+      const u0 = c0!.nx, v0 = c0!.ny, u1 = c1!.nx, v1 = c1!.ny;
+      const x0 = f0.x, z0 = f0.z, x1 = f1.x, z1 = f1.z;
+      // [x0, -z0, 1, 0] [a]   [u0]
+      // [z0,  x0, 0, 1] [b] = [v0]
+      // [x1, -z1, 1, 0] [tx]  [u1]
+      // [z1,  x1, 0, 1] [ty]  [v1]
+      const dx = x1 - x0, dz = z1 - z0;
+      const du = u1 - u0, dv = v1 - v0;
+      const denom = dx * dx + dz * dz;
+      if (denom < 1e-10) return null;
+      const a = (dx * du + dz * dv) / denom;
+      const b = (dx * dv - dz * du) / denom;
+      const tx = u0 - a * x0 + b * z0;
+      const ty = v0 - b * x0 - a * z0;
+
+      const result: Record<string, { nx: number; ny: number }> = {};
+      for (const lm of LANDMARKS) {
+        const fx = lm.field.x, fz = lm.field.z;
+        result[lm.id] = { nx: a * fx - b * fz + tx, ny: b * fx + a * fz + ty };
+      }
+      return result;
+    }
+
+    // n === 3: Affine transform.
+    // u = a*x + b*z + tx
+    // v = c*x + d*z + ty
+    // 6 unknowns, 6 equations.
+    const pts = correspondences.map((c) => ({ f: FIELD_BY_ID[c.id]!, u: c.nx, v: c.ny }));
+    // Solve two 3x3 systems.
+    const A = [
+      [pts[0]!.f.x, pts[0]!.f.z, 1],
+      [pts[1]!.f.x, pts[1]!.f.z, 1],
+      [pts[2]!.f.x, pts[2]!.f.z, 1],
+    ];
+    const bu = [pts[0]!.u, pts[1]!.u, pts[2]!.u];
+    const bv = [pts[0]!.v, pts[1]!.v, pts[2]!.v];
+    const solU = solve3x3(A, bu);
+    const solV = solve3x3(A, bv);
+    if (!solU || !solV) return null;
+
+    const result: Record<string, { nx: number; ny: number }> = {};
+    for (const lm of LANDMARKS) {
+      const fx = lm.field.x, fz = lm.field.z;
+      result[lm.id] = {
+        nx: solU[0] * fx + solU[1] * fz + solU[2],
+        ny: solV[0] * fx + solV[1] * fz + solV[2],
+      };
+    }
+    return result;
+  }
+
+  return null;
+}
+
+function solve3x3(A: number[][], b: number[]): number[] | null {
+  const [[a,bb,c],[d,e,f],[g,h,ii]] = A as [[number,number,number],[number,number,number],[number,number,number]];
+  const det = a*(e*ii - f*h) - bb*(d*ii - f*g) + c*(d*h - e*g);
+  if (Math.abs(det) < 1e-12) return null;
+  const id = 1/det;
+  return [
+    ((e*ii-f*h)*b[0]! - (bb*ii-c*h)*b[1]! + (bb*f-c*e)*b[2]!) * id,
+    (-(d*ii-f*g)*b[0]! + (a*ii-c*g)*b[1]! - (a*f-c*d)*b[2]!) * id,
+    ((d*h-e*g)*b[0]! - (a*h-bb*g)*b[1]! + (a*e-bb*d)*b[2]!) * id,
+  ];
+}
+
+// ── Component ──────────────────────────────────────────────────────────
 
 export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOverlayProps>(
   function BatterBoxOverlay({ imageWidth, imageHeight, vp, canvas, canvasPageOffset }, ref) {
     const [positions, setPositions] = useState<Record<string, { nx: number; ny: number }>>(defaultPositions);
     const [anchored, setAnchored] = useState<Record<string, boolean>>({});
+    const [activeId, setActiveId] = useState<string | null>(null);
 
     const posRef = useRef(positions);
     posRef.current = positions;
@@ -114,51 +235,37 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
 
     const screenToImage = useCallback((sx: number, sy: number) => {
       const cx = canvas.width / 2, cy = canvas.height / 2;
-      const ix = (sx - cx - vp.tx) / vp.scale + cx;
-      const iy = (sy - cy - vp.ty) / vp.scale + cy;
+      const ix = (sx - cx - vp.tx) / vp.scale + cx, iy = (sy - cy - vp.ty) / vp.scale + cy;
       return { nx: Math.max(0, Math.min(1, ix / canvas.width)), ny: Math.max(0, Math.min(1, iy / canvas.height)) };
     }, [canvas, vp]);
 
     const anchoredIds = useMemo(() => LANDMARKS.filter((lm) => anchored[lm.id]).map((lm) => lm.id), [anchored]);
     const anchorCount = anchoredIds.length;
 
-    // Homography from anchored correspondences.
+    // Homography from anchored points.
     const homography = useMemo((): HomographyFit | null => {
       if (anchorCount < 4) return null;
-      const corr: Correspondence[] = [];
-      for (const lm of LANDMARKS) {
-        if (!anchored[lm.id]) continue;
-        const pos = positions[lm.id];
-        if (!pos) continue;
-        corr.push({ field: { x: lm.field.x, z: lm.field.z }, image: { u: pos.nx * imageWidth, v: pos.ny * imageHeight } });
-      }
+      const corr: Correspondence[] = anchoredIds.map((id) => ({
+        field: FIELD_BY_ID[id]!,
+        image: { u: positions[id]!.nx * imageWidth, v: positions[id]!.ny * imageHeight },
+      }));
       return fitHomography(corr);
-    }, [anchored, positions, anchorCount, imageWidth, imageHeight]);
+    }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight]);
 
     // Screen positions for all handles.
     const screenHandles = useMemo(() => {
       const result: Record<string, { x: number; y: number }> = {};
       for (const lm of LANDMARKS) {
-        if (anchored[lm.id] || !homography) {
-          const pos = positions[lm.id] ?? { nx: 0.5, ny: 0.5 };
-          result[lm.id] = imageToScreen(pos.nx, pos.ny);
-        } else {
-          const img = fieldToImage(homography.H, lm.field);
-          if (img) {
-            result[lm.id] = imageToScreen(img.x / imageWidth, img.y / imageHeight);
-          } else {
-            const pos = positions[lm.id] ?? { nx: 0.5, ny: 0.5 };
-            result[lm.id] = imageToScreen(pos.nx, pos.ny);
-          }
-        }
+        const pos = positions[lm.id] ?? { nx: 0.5, ny: 0.5 };
+        result[lm.id] = imageToScreen(pos.nx, pos.ny);
       }
       return result;
-    }, [anchored, positions, homography, imageWidth, imageHeight, imageToScreen]);
+    }, [positions, imageToScreen]);
 
     const screenHandlesRef = useRef(screenHandles);
     screenHandlesRef.current = screenHandles;
 
-    // Projected geometry.
+    // Projected geometry (when homography is solved).
     const projGeo = useMemo(() => {
       if (!homography) return null;
       const proj = (pt: GroundPoint) => {
@@ -169,27 +276,70 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const lb = geo.leftBox.map(proj), rb = geo.rightBox.map(proj);
       const pl = geo.plate.map(proj), bs = geo.bases.map((b) => b.map(proj));
       if ([...lb, ...rb, ...pl, ...bs.flat()].some((p) => !p)) return null;
-      return { lb: lb as { x: number; y: number }[], rb: rb as { x: number; y: number }[], pl: pl as { x: number; y: number }[], bs: bs as { x: number; y: number }[][] };
+      return { lb: lb as {x:number;y:number}[], rb: rb as {x:number;y:number}[], pl: pl as {x:number;y:number}[], bs: bs as {x:number;y:number}[][] };
     }, [homography, imageWidth, imageHeight, imageToScreen]);
 
-    const poly = (pts: { x: number; y: number }[]) => pts.map((p) => `${p.x},${p.y}`).join(" ");
+    const poly = (pts: {x:number;y:number}[]) => pts.map((p) => `${p.x},${p.y}`).join(" ");
 
-    // ── Touch ────────────────────────────────────────────────────────────
-    // - Drag any handle: moves it (delta-based), anchors on release.
-    //   Anchored handles are unaffected by other handles moving.
-    // - 0 anchors: translate all unanchored handles.
-    // - 1 anchor: pivot unanchored handles around the anchor.
-    // - 2+ anchors: move only the selected handle.
-    // - Tap an anchored handle to unanchor it.
-
-    const [activeId, setActiveId] = useState<string | null>(null);
-
-    type Drag =
-      | { mode: "translate"; id: string; startPositions: Record<string, { nx: number; ny: number }>; startImg: { nx: number; ny: number } }
-      | { mode: "pivot"; id: string; anchorId: string; anchorPos: { nx: number; ny: number }; startAngle: number; startDist: number; startPositions: Record<string, { nx: number; ny: number }> }
-      | { mode: "individual"; id: string; offset: { dnx: number; dny: number } };
+    // ── Touch ──────────────────────────────────────────────────────────
+    type Drag = { id: string; offset: { dnx: number; dny: number } };
     const dragRef = useRef<Drag | null>(null);
     const didMoveRef = useRef(false);
+
+    /** Recompute all free handle positions given the current anchored set + the dragged point. */
+    function recomputeFreePositions(draggedId: string, draggedPos: { nx: number; ny: number }) {
+      const corr: { id: string; nx: number; ny: number }[] = [];
+      // Add all anchored (except the dragged one, use its new position).
+      for (const id of anchoredIds) {
+        if (id === draggedId) continue;
+        const pos = posRef.current[id];
+        if (pos) corr.push({ id, ...pos });
+      }
+      // Add the dragged point.
+      corr.push({ id: draggedId, ...draggedPos });
+
+      if (corr.length < 2) {
+        // 1 point: translate all free handles.
+        const origPos = defaultPositions()[draggedId]!;
+        const dx = draggedPos.nx - origPos.nx;
+        const dy = draggedPos.ny - origPos.ny;
+        const defaults = defaultPositions();
+        setPositions((prev) => {
+          const next = { ...prev, [draggedId]: draggedPos };
+          for (const lm of LANDMARKS) {
+            if (anchoredRef.current[lm.id] || lm.id === draggedId) continue;
+            const def = defaults[lm.id] ?? { nx: 0.5, ny: 0.5 };
+            // Apply same translation from defaults.
+            const prevDx = (prev[lm.id]?.nx ?? def.nx) - def.nx;
+            const prevDy = (prev[lm.id]?.ny ?? def.ny) - def.ny;
+            next[lm.id] = { nx: def.nx + dx, ny: def.ny + dy };
+          }
+          return next;
+        });
+        return;
+      }
+
+      const projected = projectAll(corr, imageWidth, imageHeight);
+      if (!projected) {
+        // Fallback: just move the dragged handle.
+        setPositions((prev) => ({ ...prev, [draggedId]: draggedPos }));
+        return;
+      }
+
+      setPositions((prev) => {
+        const next = { ...prev, [draggedId]: draggedPos };
+        for (const lm of LANDMARKS) {
+          if (anchoredRef.current[lm.id] || lm.id === draggedId) continue;
+          const p = projected[lm.id];
+          if (p) next[lm.id] = p;
+        }
+        // Keep anchored positions unchanged.
+        for (const id of anchoredIds) {
+          if (id !== draggedId) next[id] = prev[id]!;
+        }
+        return next;
+      });
+    }
 
     const responder = useMemo(() =>
       PanResponder.create({
@@ -200,44 +350,20 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           didMoveRef.current = false;
           const lx = gs.x0 - canvasPageOffset.x, ly = gs.y0 - canvasPageOffset.y;
           const touchImg = screenToImage(lx, ly);
+          const sh = screenHandlesRef.current;
 
           // Find nearest handle.
-          const sh = screenHandlesRef.current;
           let nearId = LANDMARKS[0]!.id, nearDist = Infinity;
           for (const lm of LANDMARKS) {
             const h = sh[lm.id];
             if (!h) continue;
-            const d = dist({ x: lx, y: ly }, h);
+            const d = screenDist({ x: lx, y: ly }, h);
             if (d < nearDist) { nearDist = d; nearId = lm.id; }
           }
-          setActiveId(nearId);
 
-          const anch = anchoredRef.current;
-          const aIds = LANDMARKS.filter((l) => anch[l.id]).map((l) => l.id);
-          const aCount = aIds.length;
-
-          // Delta offset so handle doesn't snap under finger.
           const handlePos = posRef.current[nearId] ?? { nx: 0.5, ny: 0.5 };
-          const offset = { dnx: handlePos.nx - touchImg.nx, dny: handlePos.ny - touchImg.ny };
-
-          if (anch[nearId]) {
-            // Re-dragging an anchored handle: move it individually.
-            dragRef.current = { mode: "individual", id: nearId, offset };
-          } else if (aCount === 0) {
-            dragRef.current = { mode: "translate", id: nearId, startPositions: { ...posRef.current }, startImg: touchImg };
-          } else if (aCount === 1) {
-            const aId = aIds[0]!;
-            const aPos = posRef.current[aId]!;
-            const aScreen = sh[aId]!;
-            const dx = lx - aScreen.x, dy = ly - aScreen.y;
-            dragRef.current = {
-              mode: "pivot", id: nearId, anchorId: aId, anchorPos: aPos,
-              startAngle: Math.atan2(dx, -dy), startDist: Math.max(1, Math.hypot(dx, dy)),
-              startPositions: { ...posRef.current },
-            };
-          } else {
-            dragRef.current = { mode: "individual", id: nearId, offset };
-          }
+          dragRef.current = { id: nearId, offset: { dnx: handlePos.nx - touchImg.nx, dny: handlePos.ny - touchImg.ny } };
+          setActiveId(nearId);
         },
         onPanResponderMove: (_, gs) => {
           const drag = dragRef.current;
@@ -245,131 +371,79 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           if (Math.hypot(gs.dx, gs.dy) > 3) didMoveRef.current = true;
           const lx = gs.moveX - canvasPageOffset.x, ly = gs.moveY - canvasPageOffset.y;
           const curImg = screenToImage(lx, ly);
+          const newPos = { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny };
 
-          if (drag.mode === "translate") {
-            const dx = curImg.nx - drag.startImg.nx, dy = curImg.ny - drag.startImg.ny;
-            setPositions((prev) => {
-              const next = { ...prev };
-              for (const lm of LANDMARKS) {
-                if (anchoredRef.current[lm.id]) continue; // skip anchored
-                const sp = drag.startPositions[lm.id];
-                if (sp) next[lm.id] = { nx: sp.nx + dx, ny: sp.ny + dy };
-              }
-              return next;
-            });
-            return;
-          }
-
-          if (drag.mode === "pivot") {
-            const aScreen = screenHandlesRef.current[drag.anchorId];
-            if (!aScreen) return;
-            const dx = lx - aScreen.x, dy = ly - aScreen.y;
-            const curAngle = Math.atan2(dx, -dy);
-            const curDist = Math.max(1, Math.hypot(dx, dy));
-            const dAngle = curAngle - drag.startAngle;
-            const dScale = curDist / drag.startDist;
-            const cos = Math.cos(dAngle), sin = Math.sin(dAngle);
-            setPositions((prev) => {
-              const next = { ...prev };
-              for (const lm of LANDMARKS) {
-                if (anchoredRef.current[lm.id]) continue; // skip anchored
-                const sp = drag.startPositions[lm.id];
-                if (!sp) continue;
-                const rx = sp.nx - drag.anchorPos.nx, ry = sp.ny - drag.anchorPos.ny;
-                next[lm.id] = {
-                  nx: drag.anchorPos.nx + (cos * rx - sin * ry) * dScale,
-                  ny: drag.anchorPos.ny + (sin * rx + cos * ry) * dScale,
-                };
-              }
-              return next;
-            });
-            return;
-          }
-
-          if (drag.mode === "individual") {
-            setPositions((prev) => ({
-              ...prev,
-              [drag.id]: { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny },
-            }));
-          }
+          recomputeFreePositions(drag.id, newPos);
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
-          if (!drag) { setActiveId(null); dragRef.current = null; return; }
-
-          if (!didMoveRef.current && anchoredRef.current[drag.id]) {
-            // Tap on anchored → unanchor.
-            setAnchored((prev) => { const n = { ...prev }; delete n[drag.id]; return n; });
-          } else if (didMoveRef.current) {
-            // Dragged → anchor.
-            setAnchored((prev) => ({ ...prev, [drag.id]: true }));
+          if (drag) {
+            if (!didMoveRef.current && anchoredRef.current[drag.id]) {
+              // Tap on anchored → unanchor.
+              setAnchored((prev) => { const n = { ...prev }; delete n[drag.id]; return n; });
+            } else if (didMoveRef.current) {
+              // Dragged → anchor.
+              setAnchored((prev) => ({ ...prev, [drag.id]: true }));
+            }
           }
           setActiveId(null);
           dragRef.current = null;
         },
         onPanResponderTerminate: () => { setActiveId(null); dragRef.current = null; },
       }),
-    [canvasPageOffset, screenToImage]);
+    [canvasPageOffset, screenToImage, anchoredIds, imageWidth, imageHeight]);
 
     useImperativeHandle(ref, () => ({
       solve: (): CameraPose | null => homography ? { fit: homography, sides: ["left", "right"] } : null,
-      reset: () => { setPositions(defaultPositions()); setAnchored({}); },
+      reset: () => { setPositions(defaultPositions()); setAnchored({}); setActiveId(null); },
       anchoredCount: () => anchorCount,
     }), [homography, anchorCount]);
 
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+          {/* Projected filled geometry (≥4 anchors) */}
           {projGeo && (
             <>
-              <Polygon points={poly(projGeo.lb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
-              <Polygon points={poly(projGeo.rb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
-              <Line x1={projGeo.lb[0]!.x} y1={projGeo.lb[0]!.y} x2={projGeo.lb[3]!.x} y2={projGeo.lb[3]!.y} stroke={BOX_COLOR} strokeWidth={1} />
-              <Line x1={projGeo.rb[0]!.x} y1={projGeo.rb[0]!.y} x2={projGeo.rb[3]!.x} y2={projGeo.rb[3]!.y} stroke={BOX_COLOR} strokeWidth={1} />
-              <Polygon points={poly(projGeo.pl)} fill="rgba(255,255,255,0.1)" stroke={PLATE_COLOR} strokeWidth={1.5} />
-              {projGeo.bs.map((b, i) => <Polygon key={i} points={poly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={1.5} />)}
+              <Polygon points={poly(projGeo.lb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2.5} />
+              <Polygon points={poly(projGeo.rb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2.5} />
+              <Line x1={projGeo.lb[0]!.x} y1={projGeo.lb[0]!.y} x2={projGeo.lb[3]!.x} y2={projGeo.lb[3]!.y} stroke={BOX_COLOR} strokeWidth={1.5} />
+              <Line x1={projGeo.rb[0]!.x} y1={projGeo.rb[0]!.y} x2={projGeo.rb[3]!.x} y2={projGeo.rb[3]!.y} stroke={BOX_COLOR} strokeWidth={1.5} />
+              <Polygon points={poly(projGeo.pl)} fill="rgba(255,255,255,0.12)" stroke={PLATE_COLOR} strokeWidth={2} />
+              {projGeo.bs.map((b, i) => <Polygon key={i} points={poly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={2} />)}
             </>
           )}
-          {/* Lines connecting box corners (always visible) */}
-          {!projGeo && (() => {
-            const s = screenHandles;
-            const line = (a: string, b: string) => {
-              const sa = s[a], sb = s[b];
-              if (!sa || !sb) return null;
-              return <Line key={`${a}-${b}`} x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={BOX_COLOR} strokeWidth={1} opacity={0.4} />;
-            };
-            return (
-              <>
-                {line("lfo","rfo")}{line("rfo","rbo")}{line("rbo","lbo")}{line("lbo","lfo")}
-                {line("lfi","rfi")}{line("rfi","rbi")}{line("rbi","lbi")}{line("lbi","lfi")}
-                {line("lfo","lfi")}{line("rfo","rfi")}{line("lbo","lbi")}{line("rbo","rbi")}
-              </>
-            );
-          })()}
+
+          {/* Lines connecting handles (always visible) */}
+          {EDGES.map(([a, b]) => {
+            const sa = screenHandles[a], sb = screenHandles[b];
+            if (!sa || !sb) return null;
+            return <Line key={`${a}-${b}`} x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={LINE_COLOR} strokeWidth={2} />;
+          })}
 
           {/* Handles */}
           {LANDMARKS.map((lm) => {
             const s = screenHandles[lm.id];
             if (!s) return null;
             const isA = !!anchored[lm.id];
-            const isActive = activeId === lm.id;
-            const color = isActive ? ACTIVE_COLOR : isA ? ANCHORED_COLOR : FREE_COLOR;
-            const fill = isActive ? ACTIVE_FILL : isA ? ANCHORED_FILL : "rgba(255,255,255,0.08)";
+            const isAct = activeId === lm.id;
+            const color = isAct ? ACTIVE_COLOR : isA ? ANCHORED_COLOR : FREE_COLOR;
+            const fill = isAct ? ACTIVE_FILL : isA ? ANCHORED_FILL : "rgba(255,255,255,0.08)";
             return (
               <React.Fragment key={lm.id}>
-                <Circle cx={s.x} cy={s.y} r={HANDLE_R}
-                  fill={fill} stroke={color} strokeWidth={isA || isActive ? 2 : 1} />
-                <SvgText x={s.x} y={s.y - HANDLE_R - 2}
-                  fill={color} fontSize={7} fontWeight="600" textAnchor="middle">
+                <Circle cx={s.x} cy={s.y} r={HANDLE_R} fill={fill} stroke={color} strokeWidth={isA || isAct ? 2 : 1} />
+                <SvgText x={s.x} y={s.y - HANDLE_R - 2} fill={color} fontSize={7} fontWeight="600" textAnchor="middle">
                   {lm.label}
                 </SvgText>
               </React.Fragment>
             );
           })}
-          <SvgText x={10} y={20} fill={anchorCount >= 4 ? "rgba(0,255,100,0.9)" : "rgba(255,200,0,0.9)"} fontSize={11} fontWeight="600">
+
+          {/* Status */}
+          <SvgText x={10} y={20} fill={anchorCount >= 4 ? ANCHORED_COLOR : "rgba(255,200,0,0.9)"} fontSize={11} fontWeight="600">
             {anchorCount >= 4 && homography
               ? `${anchorCount} anchored · RMS ${homography.rmsPx.toFixed(1)}px`
-              : `${anchorCount}/4 anchored${anchorCount === 0 ? " · drag to position" : anchorCount === 1 ? " · drag to pivot" : " · drag handles"}`}
+              : `${anchorCount}/4 anchored`}
           </SvgText>
         </Svg>
         <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
