@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { batterBoxCorners, solveFromBatterBox, BOX_WIDTH_FT, BOX_LENGTH_FT } from "./batterBox.ts";
+import { batterBoxCorners, solveFromBatterBox, solveFromBothBoxes, BOX_WIDTH_FT, BOX_LENGTH_FT } from "./batterBox.ts";
 
 describe("batterBoxCorners", () => {
   it("left box has correct dimensions", () => {
@@ -72,9 +72,7 @@ describe("solveFromBatterBox", () => {
   it("solves a synthetic perspective projection", () => {
     const box = batterBoxCorners("left");
 
-    // Simulate a simple camera: identity-ish homography (top-down view).
-    // Map field coords directly to pixels with a scale + offset.
-    const scale = 50; // 50 px/ft
+    const scale = 50;
     const ox = 200, oy = 400;
     const imageCorners = box.ordered.map((p) => ({
       u: ox + p.x * scale,
@@ -84,5 +82,25 @@ describe("solveFromBatterBox", () => {
     const pose = solveFromBatterBox(imageCorners, "left");
     assert.ok(pose, "solveFromBatterBox returned null");
     assert.ok(pose.fit.rmsPx < 1, `RMS too high: ${pose.fit.rmsPx}`);
+    assert.deepStrictEqual(pose.sides, ["left"]);
+  });
+});
+
+describe("solveFromBothBoxes", () => {
+  it("solves from 8 points (both boxes)", () => {
+    const left = batterBoxCorners("left");
+    const right = batterBoxCorners("right");
+
+    const scale = 50;
+    const ox = 200, oy = 400;
+    const toImg = (p: { x: number; z: number }) => ({ u: ox + p.x * scale, v: oy + p.z * scale });
+    const lc = left.ordered.map(toImg) as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
+    const rc = right.ordered.map(toImg) as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
+
+    const pose = solveFromBothBoxes(lc, rc);
+    assert.ok(pose, "solveFromBothBoxes returned null");
+    assert.ok(pose.fit.rmsPx < 1, `RMS too high: ${pose.fit.rmsPx}`);
+    assert.deepStrictEqual(pose.sides, ["left", "right"]);
+    assert.equal(pose.fit.count, 8);
   });
 });

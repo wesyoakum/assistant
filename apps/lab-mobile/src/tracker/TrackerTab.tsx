@@ -19,7 +19,7 @@ import { TrackNet } from "expo-tracknet";
 import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
-import { BatterBoxOverlay } from "./BatterBoxOverlay";
+import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
 import { RoiOverlay } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { useTheme } from "../theme";
@@ -71,6 +71,7 @@ export function TrackerTab() {
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
+  const poseOverlayRef = useRef<BatterBoxOverlayHandle>(null);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -523,7 +524,7 @@ export function TrackerTab() {
       elapsedMs: result.elapsedMs,
       startTimeSec: frameTimeSec,
       initialBox: box,
-      cameraPose: cameraPose ? { side: cameraPose.side, rmsPx: cameraPose.fit.rmsPx, H: cameraPose.fit.H } : null,
+      cameraPose: cameraPose ? { sides: cameraPose.sides, rmsPx: cameraPose.fit.rmsPx, H: cameraPose.fit.H } : null,
       frames: result.frames.map((f, i) => {
         const ip = interp[i];
         const interpBox = ip?.interpolated && ip.box ? ip.box : null;
@@ -698,16 +699,12 @@ export function TrackerTab() {
           )}
           {showPoseOverlay && (
             <BatterBoxOverlay
+              ref={poseOverlayRef}
               imageWidth={frame.imageWidth}
               imageHeight={frame.imageHeight}
               vp={vp}
               canvas={canvas}
               canvasPageOffset={canvasPageOffsetRef.current}
-              onPoseSet={(pose) => {
-                setCameraPose(pose);
-                setShowPoseOverlay(false);
-              }}
-              theme={theme}
             />
           )}
         </View>
@@ -798,6 +795,29 @@ export function TrackerTab() {
             <Text style={[styles.btnText, { color: endTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
               {endTimeSec != null ? `End ${endTimeSec.toFixed(1)}s` : "Set End"}
             </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {!result && frame && showPoseOverlay && (
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+          <Pressable
+            onPress={() => poseOverlayRef.current?.reset()}
+            style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
+          >
+            <Text style={[styles.btnText, { color: theme.text }]}>Reset Corners</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              const pose = poseOverlayRef.current?.solve();
+              if (pose) {
+                setCameraPose(pose);
+                setShowPoseOverlay(false);
+              }
+            }}
+            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
+          >
+            <Text style={styles.btnText}>Set Pose</Text>
           </Pressable>
         </View>
       )}

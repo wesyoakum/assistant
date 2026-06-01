@@ -145,8 +145,8 @@ export function batterBoxCorners(side: BoxSide = "left"): BatterBoxCorners {
 export interface CameraPose {
   /** The field→image homography (maps ground plane to pixels). */
   fit: HomographyFit;
-  /** Which batter's box side was used. */
-  side: BoxSide;
+  /** Which batter's box sides were used. */
+  sides: BoxSide[];
 }
 
 /**
@@ -156,8 +156,6 @@ export interface CameraPose {
  * @param imageCorners The 4 corners in image pixel coordinates, in the same
  *        order as BatterBoxCorners.ordered: [frontInside, frontOutside,
  *        backOutside, backInside].
- * @param imageWidth  Video frame width in pixels.
- * @param imageHeight Video frame height in pixels.
  * @param side Which batter's box.
  */
 export function solveFromBatterBox(
@@ -174,5 +172,35 @@ export function solveFromBatterBox(
   const fit = fitHomography(corr);
   if (!fit) return null;
 
-  return { fit, side };
+  return { fit, sides: [side] };
+}
+
+/**
+ * Solve camera pose from BOTH batter's boxes (8 points → better fit).
+ *
+ * @param leftCorners  4 image corners for the left box [FI, FO, BO, BI].
+ * @param rightCorners 4 image corners for the right box [FI, FO, BO, BI].
+ */
+export function solveFromBothBoxes(
+  leftCorners: [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }],
+  rightCorners: [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }],
+): CameraPose | null {
+  const leftBox = batterBoxCorners("left");
+  const rightBox = batterBoxCorners("right");
+
+  const corr: Correspondence[] = [
+    ...leftBox.ordered.map((fieldPt, i) => ({
+      field: { x: fieldPt.x, z: fieldPt.z },
+      image: leftCorners[i]!,
+    })),
+    ...rightBox.ordered.map((fieldPt, i) => ({
+      field: { x: fieldPt.x, z: fieldPt.z },
+      image: rightCorners[i]!,
+    })),
+  ];
+
+  const fit = fitHomography(corr);
+  if (!fit) return null;
+
+  return { fit, sides: ["left", "right"] };
 }
