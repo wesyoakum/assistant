@@ -100,8 +100,6 @@ export function TrackerTab() {
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
-  const [templateAngle, setTemplateAngle] = useState(0);
-  const [templateScale, setTemplateScale] = useState(0.25);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
   const [cameraAngles, setCameraAngles] = useState<{ panDeg: number; tiltDeg: number; rollDeg: number } | null>(null);
@@ -700,54 +698,30 @@ export function TrackerTab() {
         </Pressable>
       </View>
 
-      {/* Pose overlay controls: rotation, scale, reset, set */}
+      {/* Pose overlay controls */}
       {showPoseOverlay && (
-        <View style={{ gap: 6 }}>
-          {/* Rotation */}
-          <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-            <Text style={{ color: theme.textSubtle, fontSize: 10, width: 32 }}>Rot</Text>
-            {[-5, -1].map((d) => (
-              <Pressable key={d} onPress={() => { const v = templateAngle + d; setTemplateAngle(v); poseOverlayRef.current?.setParams({ angleDeg: v }); }} style={[styles.sBtn, { backgroundColor: theme.surfaceAlt }]}>
-                <Text style={[styles.sBtnText, { color: theme.text }]}>{d}°</Text>
-              </Pressable>
-            ))}
-            <Text style={{ color: theme.text, fontSize: 11, fontWeight: "600", textAlign: "center", minWidth: 40 }}>{templateAngle.toFixed(0)}°</Text>
-            {[1, 5].map((d) => (
-              <Pressable key={d} onPress={() => { const v = templateAngle + d; setTemplateAngle(v); poseOverlayRef.current?.setParams({ angleDeg: v }); }} style={[styles.sBtn, { backgroundColor: theme.surfaceAlt }]}>
-                <Text style={[styles.sBtnText, { color: theme.text }]}>+{d}°</Text>
-              </Pressable>
-            ))}
-          </View>
-          {/* Scale */}
-          <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-            <Text style={{ color: theme.textSubtle, fontSize: 10, width: 32 }}>Scale</Text>
-            {[0.8, 0.95].map((m) => (
-              <Pressable key={m} onPress={() => { const v = templateScale * m; setTemplateScale(v); poseOverlayRef.current?.setParams({ scale: v }); }} style={[styles.sBtn, { backgroundColor: theme.surfaceAlt }]}>
-                <Text style={[styles.sBtnText, { color: theme.text }]}>{m === 0.8 ? "−−" : "−"}</Text>
-              </Pressable>
-            ))}
-            <Text style={{ color: theme.text, fontSize: 11, fontWeight: "600", textAlign: "center", minWidth: 40 }}>{(templateScale * 100).toFixed(0)}%</Text>
-            {[1.05, 1.25].map((m) => (
-              <Pressable key={m} onPress={() => { const v = templateScale * m; setTemplateScale(v); poseOverlayRef.current?.setParams({ scale: v }); }} style={[styles.sBtn, { backgroundColor: theme.surfaceAlt }]}>
-                <Text style={[styles.sBtnText, { color: theme.text }]}>{m === 1.05 ? "+" : "++"}</Text>
-              </Pressable>
-            ))}
-          </View>
-          {/* Reset + Set Pose */}
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable onPress={() => { poseOverlayRef.current?.reset(); setTemplateAngle(0); setTemplateScale(0.25); }} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-              <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <Pressable onPress={() => poseOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              const pose = poseOverlayRef.current?.solve();
+              if (pose && frame) {
+                setCameraPose(pose);
                 setShowPoseOverlay(false);
-                // TODO: compute camera pose from template params + FOV
-              }}
-              style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
-            >
-              <Text style={styles.btnText}>Set Pose</Text>
-            </Pressable>
-          </View>
+                const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
+                const decomp = decomposeCameraPose(pose.fit.H, K);
+                if (decomp) {
+                  setCameraXYZ(fieldToUser(decomp.position));
+                  setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
+                }
+              }
+            }}
+            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
+          >
+            <Text style={styles.btnText}>Set Pose</Text>
+          </Pressable>
         </View>
       )}
 
@@ -1255,17 +1229,6 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 13,
-  },
-  sBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    alignItems: "center",
-    flex: 1,
-  },
-  sBtnText: {
-    fontWeight: "600",
-    fontSize: 11,
   },
 });
 
