@@ -55,10 +55,12 @@ const HANDLE_COLOR = "rgba(255,100,100,0.9)";
 const SCALE_HANDLE_COLOR = "rgba(100,255,100,0.9)";
 const HANDLE_RADIUS = 14;
 
-// A point far along the Y direction (toward 2B) for the rotation handle.
-const ROT_HANDLE_FIELD: GroundPoint = { x: 30, z: 30 }; // along the diagonal
-// A point along the X direction (toward 1B) for the scale handle.
-const SCALE_HANDLE_FIELD: GroundPoint = { x: 20, z: 0 };
+// Rotation handle: along the Y axis (toward 2B = along the home→2B diagonal).
+// In internal field coords, toward 2B = (1,1)/√2 direction.
+const ROT_HANDLE_FIELD: GroundPoint = { x: 30, z: 30 };
+// Scale handle: along the X axis (parallel to front edge of plate, toward 1B side).
+// In internal field coords, this is the (1,0,-1)/√2 direction = perpendicular to the diagonal.
+const SCALE_HANDLE_FIELD: GroundPoint = { x: 15, z: -15 };
 
 const DEFAULT_PARAMS: TemplateParams = { cx: 0.5, cy: 0.62, angleDeg: 0, scale: 0.25, perspective: 0.015 };
 
