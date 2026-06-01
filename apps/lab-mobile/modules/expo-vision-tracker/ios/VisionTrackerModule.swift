@@ -63,7 +63,8 @@ public final class VisionTrackerModule: Module {
       }
 
       let frameRate = Double(track.nominalFrameRate)
-      let (videoWidth, videoHeight) = videoSize(for: track)
+      let videoWidth = Int(track.naturalSize.width)
+      let videoHeight = Int(track.naturalSize.height)
 
       // VNTrackObjectRequest expects Vision-frame coords: origin bottom-left,
       // normalized [0,1], (x, y, w, h). The JS UI works in top-left
@@ -224,7 +225,8 @@ public final class VisionTrackerModule: Module {
       }
 
       let frameRate = Double(track.nominalFrameRate)
-      let (videoWidth, videoHeight) = videoSize(for: track)
+      let videoWidth = Int(track.naturalSize.width)
+      let videoHeight = Int(track.naturalSize.height)
 
       var results: [[String: Any]] = []
       var prev: [Float]? = nil
@@ -378,16 +380,6 @@ private func detectBrightMovingBlob(
 
 private func clampUnit(_ v: Double) -> Double { v < 0 ? 0 : (v > 1 ? 1 : v) }
 
-/// Return the video dimensions accounting for the track's preferredTransform.
-/// Portrait videos have a 90°/270° rotation so width and height must be swapped.
-private func videoSize(for track: AVAssetTrack) -> (width: Int, height: Int) {
-  let txf = track.preferredTransform
-  let isRotated = abs(txf.a) < 0.01 && abs(txf.d) < 0.01
-  let w = isRotated ? Int(track.naturalSize.height) : Int(track.naturalSize.width)
-  let h = isRotated ? Int(track.naturalSize.width) : Int(track.naturalSize.height)
-  return (w, h)
-}
-
 private extension NSError {
   static func tracker(_ msg: String) -> NSError {
     NSError(domain: "ExpoVisionTracker", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
@@ -413,22 +405,28 @@ private func generateFrame(uri: String, timeSec: Double, jpegQuality: Double) th
   var fps: Double = 0
   var hFovDeg: Double = 0
   if let track = asset.tracks(withMediaType: .video).first {
-    let vs = videoSize(for: track)
-    vWidth = vs.width
-    vHeight = vs.height
+    vWidth = Int(track.naturalSize.width)
+    vHeight = Int(track.naturalSize.height)
     fps = Double(track.nominalFrameRate)
-    // Try to extract horizontal field-of-view from video metadata.
-    // Falls back to 0 (JS side defaults to 69° for typical iPhone).
-    do {
-      if let descObj = track.formatDescriptions.first {
-        let desc = unsafeBitCast(descObj, to: CMFormatDescription.self)
-        if let exts = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
-           let fovVal = exts["HorizontalFieldOfView"] as? Double {
-          hFovDeg = fovVal
+    // Extract horizontal field-of-view from the format description (available
+    // on videos recorded by iOS devices).
+    if let desc = track.formatDescriptions.first as? CMFormatDescription {
+      let dims = CMVideoFormatDescriptionGetDimensions(desc)
+      if let exts = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
+         let fovKey = exts["HorizontalFieldOfView"] as? Double {
+        hFovDeg = fovKey
+      } else {
+        // Fallback: many iOS videos embed the lens FOV in metadata.
+        // If not available, estimate from typical iPhone wide lens (~69°).
+        let meta = asset.metadata
+        for item in meta {
+          if let key = item.commonKey?.rawValue, key == "make",
+             let val = item.stringValue, val.lowercased().contains("apple") {
+            hFovDeg = 69  // typical iPhone wide camera
+            break
+          }
         }
       }
-    } catch {
-      // Silently fall back to default FOV.
     }
   }
   return [
