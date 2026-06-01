@@ -162,9 +162,17 @@ jobs:
       # --- Upload to TestFlight ---
       - name: Upload to App Store Connect
         run: |
+          # Find the exported IPA (name may vary based on scheme/target)
+          IPA_PATH=$(find "$RUNNER_TEMP/export" -name "*.ipa" -print -quit)
+          if [ -z "$IPA_PATH" ]; then
+            echo "No .ipa found in $RUNNER_TEMP/export"
+            ls -la "$RUNNER_TEMP/export" || true
+            exit 1
+          fi
+          echo "Uploading: $IPA_PATH"
           xcrun altool --upload-app \
             --type ios \
-            --file "$RUNNER_TEMP/export/WHY Lab.ipa" \
+            --file "$IPA_PATH" \
             --apiKey "${{ secrets.ASC_KEY_ID }}" \
             --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
 
