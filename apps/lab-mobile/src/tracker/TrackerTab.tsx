@@ -717,7 +717,6 @@ export function TrackerTab() {
               const pose = poseOverlayRef.current?.solve();
               if (pose && frame) {
                 setCameraPose(pose);
-                setShowPoseOverlay(false);
                 const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
                 const decomp = decomposeCameraPose(pose.fit.H, K);
                 if (decomp) {

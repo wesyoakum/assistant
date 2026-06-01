@@ -72,10 +72,14 @@ const FIELD_BY_ID: Record<string, GroundPoint> = {};
 for (const lm of LANDMARKS) FIELD_BY_ID[lm.id] = lm.field;
 
 // Box edge connections for drawing lines.
-const EDGES: [string, string][] = [
+const BOX_EDGES: [string, string][] = [
   ["lfo","rfo"],["rfo","rbo"],["rbo","lbo"],["lbo","lfo"], // outer
   ["lfi","rfi"],["rfi","rbi"],["rbi","lbi"],["lbi","lfi"], // inner
   ["lfo","lfi"],["rfo","rfi"],["lbo","lbi"],["rbo","rbi"], // cross
+];
+// Basepath square: apex → 1B → 2B → 3B → apex
+const BASEPATH_EDGES: [string, string][] = [
+  ["apex","1b"],["1b","2b"],["2b","3b"],["3b","apex"],
 ];
 
 // Geometry for rendering polygons once homography is available.
@@ -406,8 +410,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
               // Tap on anchored → unanchor.
               setAnchored((prev) => { const n = { ...prev }; delete n[drag.id]; return n; });
             } else if (didMoveRef.current) {
-              // Dragged → anchor.
-              setAnchored((prev) => ({ ...prev, [drag.id]: true }));
+              // Dragged → anchor (max 4).
+              setAnchored((prev) => {
+                const count = Object.values(prev).filter(Boolean).length;
+                if (count >= 4 && !prev[drag.id]) return prev; // already at max
+                return { ...prev, [drag.id]: true };
+              });
             }
           }
           setActiveId(null);
@@ -426,27 +434,32 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-          {/* Projected filled geometry (≥4 anchors) */}
+          {/* Projected filled geometry (≥4 anchors) — plate + base diamonds */}
           {projGeo && (
             <>
               <Polygon points={poly(projGeo.lb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2.5} />
               <Polygon points={poly(projGeo.rb)} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2.5} />
               <Line x1={projGeo.lb[0]!.x} y1={projGeo.lb[0]!.y} x2={projGeo.lb[3]!.x} y2={projGeo.lb[3]!.y} stroke={BOX_COLOR} strokeWidth={1.5} />
               <Line x1={projGeo.rb[0]!.x} y1={projGeo.rb[0]!.y} x2={projGeo.rb[3]!.x} y2={projGeo.rb[3]!.y} stroke={BOX_COLOR} strokeWidth={1.5} />
-              {/* Basepath square */}
-              <Polygon points={poly(projGeo.bp)} fill="none" stroke={BASEPATH_COLOR} strokeWidth={2} />
               {/* Plate */}
               <Polygon points={poly(projGeo.pl)} fill="rgba(255,120,180,0.1)" stroke={PLATE_COLOR} strokeWidth={2} />
-              {/* Bases */}
-              {projGeo.bs.map((b, i) => <Polygon key={i} points={poly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={2} />)}
+              {/* Base diamonds */}
+              {projGeo.bs.map((b, i) => <Polygon key={`bfill-${i}`} points={poly(b)} fill={BASE_FILL} stroke={BASE_COLOR} strokeWidth={2} />)}
             </>
           )}
 
-          {/* Lines connecting handles (always visible) */}
-          {EDGES.map(([a, b]) => {
+          {/* Basepath lines (always visible from handle positions) */}
+          {BASEPATH_EDGES.map(([a, b]) => {
             const sa = screenHandles[a], sb = screenHandles[b];
             if (!sa || !sb) return null;
-            return <Line key={`${a}-${b}`} x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={LINE_COLOR} strokeWidth={2} />;
+            return <Line key={`bp-${a}-${b}`} x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={BASEPATH_COLOR} strokeWidth={2} />;
+          })}
+
+          {/* Box edge lines (always visible from handle positions) */}
+          {BOX_EDGES.map(([a, b]) => {
+            const sa = screenHandles[a], sb = screenHandles[b];
+            if (!sa || !sb) return null;
+            return <Line key={`e-${a}-${b}`} x1={sa.x} y1={sa.y} x2={sb.x} y2={sb.y} stroke={LINE_COLOR} strokeWidth={2} />;
           })}
 
           {/* Handles */}
