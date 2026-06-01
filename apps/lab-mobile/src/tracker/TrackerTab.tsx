@@ -26,6 +26,7 @@ import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
 import { fieldToUser, formatXYZ } from "../field/userCoords";
 import { computeBallDirection, type BallDirection } from "../field/ballAngles";
+import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
@@ -595,6 +596,22 @@ export function TrackerTab() {
     return computeBallDirection(cx, cy, result.videoWidth, result.videoHeight, K, ip.interpolated);
   }, [cameraPose, result, interpolated, reviewIdx, frame]);
 
+  // Ray info for all tracked frames (when pose is set).
+  const allRayInfo = useMemo((): RayInfo[] | null => {
+    if (!cameraPose || !cameraXYZ || !result || !interpolated || !frame) return null;
+    const K = intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0);
+    const rays: RayInfo[] = [];
+    for (let i = 0; i < result.frames.length; i++) {
+      const ip = interpolated[i];
+      if (!ip?.box) continue;
+      const cx = ip.box.x + ip.box.width / 2;
+      const cy = ip.box.y + ip.box.height / 2;
+      const r = computeRayInfo(cx, cy, result.videoWidth, result.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, ip.interpolated, i, result.frames[i]!.timeSec);
+      if (r) rays.push(r);
+    }
+    return rays.length > 0 ? rays : null;
+  }, [cameraPose, cameraXYZ, result, interpolated, frame]);
+
   // Review section: load the actual frame at the reviewed timestamp instead
   // of showing the initial still under every tracker result.
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
@@ -779,18 +796,45 @@ export function TrackerTab() {
       )}
 
       {cameraXYZ && (
-        <View style={{ backgroundColor: "rgba(0,200,255,0.1)", borderRadius: 6, padding: 6, marginTop: 4 }}>
-          <Text style={{ color: BOX_COLOR_TEXT, fontSize: 10, fontWeight: "600" }}>
-            Pos: {formatXYZ(cameraXYZ)}
+        <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 4 }}>
+          <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700", marginBottom: 2 }}>Camera Pose</Text>
+          <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
+            pos  x={cameraXYZ.x.toFixed(3)}  y={cameraXYZ.y.toFixed(3)}  z={cameraXYZ.z.toFixed(3)} m
           </Text>
           {cameraAngles && (
-            <Text style={{ color: BOX_COLOR_TEXT, fontSize: 10, fontWeight: "600" }}>
-              Ang: pan {cameraAngles.panDeg.toFixed(1)}°  tilt {cameraAngles.tiltDeg.toFixed(1)}°  roll {cameraAngles.rollDeg.toFixed(1)}°
+            <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
+              rot  rx={cameraAngles.tiltDeg.toFixed(1)}°  ry={cameraAngles.rollDeg.toFixed(1)}°  rz={cameraAngles.panDeg.toFixed(1)}°
             </Text>
           )}
-          <Text style={{ color: BOX_COLOR_TEXT, fontSize: 8, opacity: 0.7 }}>
-            X ∥ front edge  ·  Y → 2B  ·  Z ↑  ·  foul lines ±45° from Y
+          <Text style={{ color: theme.textSubtle, fontSize: 8 }}>
+            X ∥ front edge · Y → 2B · Z ↑ · foul lines ±45° from Y
           </Text>
+        </View>
+      )}
+
+      {allRayInfo && (
+        <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 4 }}>
+          <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700", marginBottom: 2 }}>
+            Detections ({allRayInfo.length} frames)
+          </Text>
+          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+            {allRayInfo.map((r, i) => (
+              <View key={i} style={{ marginBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, paddingBottom: 3 }}>
+                <Text style={{ color: r.interpolated ? "#FF9500" : "#34C759", fontSize: 8, fontWeight: "600" }}>
+                  f{r.frameIndex} t={r.timeSec.toFixed(3)}s {r.interpolated ? "INTERP" : "DETECT"}
+                </Text>
+                <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
+                  pixel  x={r.pixelX.toFixed(1)}  y={r.pixelY.toFixed(1)}
+                </Text>
+                <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
+                  ground x={r.groundX.toFixed(3)}  y={r.groundY.toFixed(3)} m
+                </Text>
+                <Text style={{ color: theme.textSubtle, fontSize: 7, fontFamily: "monospace" }}>
+                  {r.rayEquation}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
         </View>
       )}
     </View>
