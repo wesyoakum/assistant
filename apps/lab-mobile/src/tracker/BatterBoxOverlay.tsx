@@ -16,6 +16,7 @@ import {
   type CameraPose,
 } from "../field/batterBox";
 import { applyHomography } from "../field/videoHomography";
+import { homePlateCorners } from "../field/homePlateGeometry";
 
 export interface BatterBoxOverlayProps {
   imageWidth: number;
@@ -135,9 +136,14 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const leftScreen = all.left.map((p) => projectCorner(p));
       const rightScreen = all.right.map((p) => projectCorner(p));
       if (leftScreen.some((p) => !p) || rightScreen.some((p) => !p)) return null;
+
+      const plateScreen = homePlateCorners().map((p) => projectCorner(p));
+      const plateValid = plateScreen.every((p) => p != null);
+
       return {
         left: leftScreen as { x: number; y: number }[],
         right: rightScreen as { x: number; y: number }[],
+        plate: plateValid ? (plateScreen as { x: number; y: number }[]) : null,
       };
     }, [corners, imageWidth, imageHeight, imageToScreen]);
 
@@ -232,6 +238,14 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
             <>
               <Polygon points={leftPoly!} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
               <Polygon points={rightPoly!} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
+              {liveProjection.plate && (
+                <Polygon
+                  points={liveProjection.plate.map((p) => `${p.x},${p.y}`).join(" ")}
+                  fill="rgba(255,255,255,0.1)"
+                  stroke="rgba(255,255,255,0.8)"
+                  strokeWidth={1.5}
+                />
+              )}
               <Line x1={liveProjection.left[0]!.x} y1={liveProjection.left[0]!.y} x2={liveProjection.left[3]!.x} y2={liveProjection.left[3]!.y} stroke={BOX_COLOR} strokeWidth={1} />
               <Line x1={liveProjection.right[0]!.x} y1={liveProjection.right[0]!.y} x2={liveProjection.right[3]!.x} y2={liveProjection.right[3]!.y} stroke={BOX_COLOR} strokeWidth={1} />
             </>

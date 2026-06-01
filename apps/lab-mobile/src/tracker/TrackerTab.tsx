@@ -22,6 +22,9 @@ import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
+import { decomposeCameraPose, defaultIntrinsics } from "../field/cameraPoseDecompose";
+import { fieldToUser, formatXYZ } from "../field/userCoords";
+import { computeBallFieldInfo, type BallFieldInfo } from "../field/ballAngles";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
@@ -46,6 +49,7 @@ const MODE_LABEL: Record<TrackerMode, string> = {
 // but hidden — YOLO ball was the only one that tracked real footage reliably.
 // Re-add any here to bring it back; all remain wired in runTracker.
 const VISIBLE_MODES: TrackerMode[] = ["yolo"];
+const BOX_COLOR_TEXT = "rgba(0,200,255,1)";
 
 interface ViewState {
   scale: number;
@@ -97,6 +101,7 @@ export function TrackerTab() {
   const [isSaved, setIsSaved] = useState(false);
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
+  const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
@@ -578,6 +583,16 @@ export function TrackerTab() {
 
   const reviewedFrame = result?.frames[reviewIdx] ?? null;
 
+  // Ball field info for the current review frame (when pose is set).
+  const currentBallInfo = useMemo((): BallFieldInfo | null => {
+    if (!cameraPose || !result || !interpolated) return null;
+    const ip = interpolated[reviewIdx];
+    if (!ip?.box) return null;
+    const cx = ip.box.x + ip.box.width / 2;
+    const cy = ip.box.y + ip.box.height / 2;
+    return computeBallFieldInfo(cx, cy, result.videoWidth, result.videoHeight, cameraPose.fit.Hinv, ip.interpolated);
+  }, [cameraPose, result, interpolated, reviewIdx]);
+
   // Review section: load the actual frame at the reviewed timestamp instead
   // of showing the initial still under every tracker result.
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
@@ -639,7 +654,7 @@ export function TrackerTab() {
       <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
         <Pressable
           onPress={() => {
-            if (cameraPose && !showPoseOverlay) { setCameraPose(null); }
+            if (cameraPose && !showPoseOverlay) { setCameraPose(null); setCameraXYZ(null); }
             else { setShowPoseOverlay((v) => !v); setShowRoiOverlay(false); }
           }}
           disabled={!!busy}
@@ -688,7 +703,18 @@ export function TrackerTab() {
             <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
           </Pressable>
           <Pressable
-            onPress={() => { const pose = poseOverlayRef.current?.solve(); if (pose) { setCameraPose(pose); setShowPoseOverlay(false); } }}
+            onPress={() => {
+              const pose = poseOverlayRef.current?.solve();
+              if (pose && frame) {
+                setCameraPose(pose);
+                setShowPoseOverlay(false);
+                const K = defaultIntrinsics(frame.imageWidth, frame.imageHeight);
+                const decomp = decomposeCameraPose(pose.fit.H, K);
+                if (decomp) {
+                  setCameraXYZ(fieldToUser(decomp.position));
+                }
+              }
+            }}
             style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
           >
             <Text style={styles.btnText}>Set Pose</Text>
@@ -721,7 +747,7 @@ export function TrackerTab() {
           <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
         </Pressable>
         <Pressable
-          onPress={() => { setBox(null); setResult(null); setCameraPose(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
+          onPress={() => { setBox(null); setResult(null); setCameraPose(null); setCameraXYZ(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
           disabled={!box}
           style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
         >
@@ -733,6 +759,14 @@ export function TrackerTab() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <ActivityIndicator color={theme.primary} />
           <Text style={{ color: theme.textSubtle, fontSize: 12 }}>{busy}</Text>
+        </View>
+      )}
+
+      {cameraXYZ && (
+        <View style={{ backgroundColor: "rgba(0,200,255,0.1)", borderRadius: 6, padding: 6, marginTop: 4 }}>
+          <Text style={{ color: BOX_COLOR_TEXT, fontSize: 10, fontWeight: "600" }}>
+            Camera: {formatXYZ(cameraXYZ)}
+          </Text>
         </View>
       )}
     </View>
@@ -1051,14 +1085,31 @@ export function TrackerTab() {
                   <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
                 </View>
               )}
-              <View style={{ position: "absolute", bottom: 8, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                <Text style={{ color: "#fff", fontSize: 11 }}>
-                  frame {reviewIdx + 1}/{result.frames.length}
-                  {"  ·  t="}
-                  {reviewedFrame.timeSec.toFixed(2)}s
-                  {"  ·  conf "}
-                  {reviewedFrame.confidence.toFixed(2)}
-                </Text>
+              <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, gap: 2 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }}>
+                    frame {reviewIdx + 1}/{result.frames.length}
+                    {"  ·  t="}
+                    {reviewedFrame.timeSec.toFixed(2)}s
+                    {"  ·  conf "}
+                    {reviewedFrame.confidence.toFixed(2)}
+                  </Text>
+                </View>
+                {currentBallInfo && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" }}>
+                    <Text style={{ color: currentBallInfo.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
+                      {currentBallInfo.interpolated ? "interp" : "detect"}
+                      {"  ·  bearing "}
+                      {currentBallInfo.bearingDeg.toFixed(1)}°
+                      {"  ·  dist "}
+                      {currentBallInfo.distanceM.toFixed(1)}m
+                      {"  ·  X="}
+                      {currentBallInfo.groundX.toFixed(1)}
+                      {" Y="}
+                      {currentBallInfo.groundY.toFixed(1)}m
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
           )}
