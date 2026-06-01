@@ -25,11 +25,25 @@ export function intrinsicsFromFov(imageWidth: number, imageHeight: number, hFovD
   return { fx, fy: fx, cx: imageWidth / 2, cy: imageHeight / 2 };
 }
 
-/** Decompose the ground-plane homography to get camera position in field 3D (feet). */
+export interface CameraPoseResult {
+  /** Camera position in internal field frame (feet). */
+  position: { x: number; y: number; z: number };
+  /** Camera orientation angles in degrees.
+   *  pan: horizontal angle of the camera's forward direction projected onto
+   *       the ground plane, measured from the field +X axis (→1B foul line).
+   *       0° = looking along +X, 90° = looking along +Z (→3B).
+   *  tilt: angle below the horizontal (positive = looking down).
+   *  roll: rotation around the viewing axis (positive = CW from camera's POV). */
+  panDeg: number;
+  tiltDeg: number;
+  rollDeg: number;
+}
+
+/** Decompose the ground-plane homography to get camera position and orientation. */
 export function decomposeCameraPose(
   H: Homography,
   K: CameraIntrinsics,
-): { position: { x: number; y: number; z: number } } | null {
+): CameraPoseResult | null {
   // K^-1 (3x3, simplified for our diagonal+translation K)
   const ifx = 1 / K.fx, ify = 1 / K.fy;
   const Kinv = [
@@ -86,11 +100,47 @@ export function decomposeCameraPose(
   let posY = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
 
   // Camera should be above the ground (posY > 0). If not, flip.
+  let sign = 1;
   if (posY < 0) {
     posX = -posX; posY = -posY; posZ = -posZ;
+    sign = -1;
   }
 
-  return { position: { x: posX, y: posY, z: posZ } };
+  // R maps world → camera. R = [r1 r2 r3] as columns, but our columns
+  // correspond to (field_X, field_Z, field_Y) axes. Reorder to get the
+  // standard world→camera rotation with world axes (X=1B, Y=up, Z=3B):
+  //   Rw = [r1 | r3 | r2] (swap cols 1,2 to put Y-up in the middle)
+  // Camera forward in world = Rw^T * [0,0,1] = third row of Rw = r2 (scaled by sign)
+  // Camera right in world = Rw^T * [1,0,0] = first row of Rw = r1
+  // Camera down in world = Rw^T * [0,1,0] = second row of Rw = r3
+
+  const fwd = r2.map((v) => v * sign);  // camera forward in world
+  const right = r1.map((v) => v * sign); // camera right in world
+  const down = r3.map((v) => v * sign);  // camera down in world
+
+  // fwd is in (camera_x, camera_y, camera_z) space of the world.
+  // Our world: index 0 = field X (→1B), index 1 = field Z (→3B), index 2 = field Y (up)
+  // So fwd in field 3D: fwd_fieldX = fwd[0], fwd_fieldZ = fwd[1], fwd_fieldY = fwd[2]
+
+  const fwdFieldX = fwd[0]!;
+  const fwdFieldZ = fwd[1]!;
+  const fwdFieldY = fwd[2]!; // up component
+
+  // Pan: horizontal angle of forward direction on the ground plane,
+  // measured from field +X axis. atan2(Z, X) in field coords.
+  const panDeg = Math.atan2(fwdFieldZ, fwdFieldX) * (180 / Math.PI);
+
+  // Tilt: angle below horizontal. The ground component magnitude vs the up component.
+  const groundLen = Math.hypot(fwdFieldX, fwdFieldZ);
+  const tiltDeg = Math.atan2(-fwdFieldY, groundLen) * (180 / Math.PI);
+
+  // Roll: angle of camera's "right" vector relative to the ground plane.
+  // Project camera-right onto the field Y (up) axis.
+  const rightFieldY = right[2]!;
+  const rightGround = Math.hypot(right[0]!, right[1]!);
+  const rollDeg = Math.atan2(rightFieldY, rightGround) * (180 / Math.PI);
+
+  return { position: { x: posX, y: posY, z: posZ }, panDeg, tiltDeg, rollDeg };
 }
 
 function mul3(A: number[], B: number[]): number[] {

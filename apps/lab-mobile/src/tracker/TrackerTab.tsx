@@ -102,6 +102,7 @@ export function TrackerTab() {
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [cameraAngles, setCameraAngles] = useState<{ panDeg: number; tiltDeg: number; rollDeg: number } | null>(null);
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
@@ -655,7 +656,7 @@ export function TrackerTab() {
       <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
         <Pressable
           onPress={() => {
-            if (cameraPose && !showPoseOverlay) { setCameraPose(null); setCameraXYZ(null); }
+            if (cameraPose && !showPoseOverlay) { setCameraPose(null); setCameraXYZ(null); setCameraAngles(null); }
             else { setShowPoseOverlay((v) => !v); setShowRoiOverlay(false); }
           }}
           disabled={!!busy}
@@ -713,6 +714,7 @@ export function TrackerTab() {
                 const decomp = decomposeCameraPose(pose.fit.H, K);
                 if (decomp) {
                   setCameraXYZ(fieldToUser(decomp.position));
+                  setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
                 }
               }
             }}
@@ -748,7 +750,7 @@ export function TrackerTab() {
           <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
         </Pressable>
         <Pressable
-          onPress={() => { setBox(null); setResult(null); setCameraPose(null); setCameraXYZ(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
+          onPress={() => { setBox(null); setResult(null); setCameraPose(null); setCameraXYZ(null); setCameraAngles(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
           disabled={!box}
           style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
         >
@@ -766,8 +768,13 @@ export function TrackerTab() {
       {cameraXYZ && (
         <View style={{ backgroundColor: "rgba(0,200,255,0.1)", borderRadius: 6, padding: 6, marginTop: 4 }}>
           <Text style={{ color: BOX_COLOR_TEXT, fontSize: 10, fontWeight: "600" }}>
-            Camera: {formatXYZ(cameraXYZ)}
+            Pos: {formatXYZ(cameraXYZ)}
           </Text>
+          {cameraAngles && (
+            <Text style={{ color: BOX_COLOR_TEXT, fontSize: 10, fontWeight: "600" }}>
+              Ang: pan {cameraAngles.panDeg.toFixed(1)}°  tilt {cameraAngles.tiltDeg.toFixed(1)}°  roll {cameraAngles.rollDeg.toFixed(1)}°
+            </Text>
+          )}
           <Text style={{ color: BOX_COLOR_TEXT, fontSize: 8, opacity: 0.7 }}>
             X ∥ front edge  ·  Y → 2B  ·  Z ↑  ·  foul lines ±45° from Y
           </Text>
