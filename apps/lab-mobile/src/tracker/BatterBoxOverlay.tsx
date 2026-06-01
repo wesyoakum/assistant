@@ -173,12 +173,16 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
 
     const toPoly = (pts: { x: number; y: number }[]) => pts.map((p) => `${p.x},${p.y}`).join(" ");
 
-    // ── Unified responder: detect handle proximity on grant ──────────
+    // ── Unified responder ──────────────────────────────────────────────
+    // Near origin = translate (drag the apex).
+    // Green handle = scale (proportional to distance from origin).
+    // Purple handle = perspective (camera distance; apex stays fixed).
+    // Anywhere else = rotate (drag the ground around the apex).
     type DragMode =
       | { type: "translate"; startParams: TemplateParams; startImg: { nx: number; ny: number } }
       | { type: "rotate"; startAngle: number; startTouchAngle: number }
       | { type: "scale"; startScale: number; startDist: number }
-      | { type: "perspective"; startPerspective: number; startY: number };
+      | { type: "perspective"; startPerspective: number; startDist: number };
     const dragRef = useRef<DragMode | null>(null);
 
     const unifiedResponder = useMemo(() =>
@@ -192,48 +196,53 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const p = projectedRef.current;
           const touchPt = { x: localX, y: localY };
 
-          // Check perspective handle (Z axis, above origin).
+          // 1. Purple handle (perspective): drag closer/farther from origin.
           if (dist(touchPt, p.perspHandle) < 30) {
-            dragRef.current = { type: "perspective", startPerspective: paramsRef.current.perspective, startY: localY };
+            dragRef.current = {
+              type: "perspective",
+              startPerspective: paramsRef.current.perspective,
+              startDist: Math.max(1, dist(touchPt, p.origin)),
+            };
             return;
           }
 
-          // Check rotation handle (Y axis, toward 2B).
-          if (dist(touchPt, p.rotHandle) < 30) {
-            const dx = localX - p.origin.x;
-            const dy = localY - p.origin.y;
-            const touchAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
-            dragRef.current = { type: "rotate", startAngle: paramsRef.current.angleDeg, startTouchAngle: touchAngle };
-            return;
-          }
-
-          // Check scale handle.
+          // 2. Green handle (scale): drag closer/farther from origin.
           if (dist(touchPt, p.scaleHandle) < 30) {
-            const d = dist(touchPt, p.origin);
-            dragRef.current = { type: "scale", startScale: paramsRef.current.scale, startDist: Math.max(1, d) };
+            dragRef.current = { type: "scale", startScale: paramsRef.current.scale, startDist: Math.max(1, dist(touchPt, p.origin)) };
             return;
           }
 
-          // Default: translate.
-          const img = screenToImage(localX, localY);
-          dragRef.current = { type: "translate", startParams: { ...paramsRef.current }, startImg: img };
+          // 3. Near origin (white dot, within 25px): translate.
+          if (dist(touchPt, p.origin) < 25) {
+            const img = screenToImage(localX, localY);
+            dragRef.current = { type: "translate", startParams: { ...paramsRef.current }, startImg: img };
+            return;
+          }
+
+          // 4. Anywhere else: rotate (drag the ground around the apex).
+          const dx = localX - p.origin.x;
+          const dy = localY - p.origin.y;
+          const touchAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
+          dragRef.current = { type: "rotate", startAngle: paramsRef.current.angleDeg, startTouchAngle: touchAngle };
         },
         onPanResponderMove: (_, gs) => {
           const drag = dragRef.current;
           if (!drag) return;
           const localX = gs.moveX - canvasPageOffset.x;
           const localY = gs.moveY - canvasPageOffset.y;
+          const p = projectedRef.current;
 
           if (drag.type === "perspective") {
-            // Drag up = more perspective, drag down = less.
-            const deltaY = drag.startY - localY; // positive when dragging up
-            const newPersp = Math.max(0, Math.min(0.08, drag.startPerspective + deltaY * 0.0003));
+            // Distance from origin: closer = more perspective, farther = less.
+            // Apex stays fixed on screen; far points shrink/grow.
+            const curDist = Math.max(1, dist({ x: localX, y: localY }, p.origin));
+            const ratio = drag.startDist / curDist; // closer → ratio > 1 → more perspective
+            const newPersp = Math.max(0, Math.min(0.08, drag.startPerspective * ratio));
             setParams((prev) => ({ ...prev, perspective: newPersp }));
             return;
           }
 
           if (drag.type === "rotate") {
-            const p = projectedRef.current;
             const dx = localX - p.origin.x;
             const dy = localY - p.origin.y;
             const curAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
@@ -243,10 +252,9 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           }
 
           if (drag.type === "scale") {
-            const p = projectedRef.current;
             const d = dist({ x: localX, y: localY }, p.origin);
             const ratio = d / drag.startDist;
-            setParams((prev) => ({ ...prev, scale: Math.max(0.01, drag.startScale * ratio) }));
+            setParams((prev) => ({ ...prev, scale: Math.max(0.001, drag.startScale * ratio) }));
             return;
           }
 
