@@ -1308,6 +1308,85 @@ export function TrackerTab() {
           {copyHint && (
             <Text style={{ color: theme.textSubtle, fontSize: 11, marginTop: 6, textAlign: "center" }}>{copyHint}</Text>
           )}
+
+          {/* Camera pose + detection data (visible during review) */}
+          {cameraXYZ && (
+            <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 8 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700" }}>Camera Pose</Text>
+                <Pressable
+                  onPress={async () => {
+                    const lines = [
+                      `pos  x=${cameraXYZ.x.toFixed(3)}  y=${cameraXYZ.y.toFixed(3)}  z=${cameraXYZ.z.toFixed(3)} m`,
+                      cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
+                    ].filter(Boolean).join("\n");
+                    await Clipboard.setStringAsync(lines);
+                    setCopyHint("Copied camera pose");
+                    setTimeout(() => setCopyHint(null), 3000);
+                  }}
+                  style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 4, paddingHorizontal: 8 }]}
+                >
+                  <Text style={[styles.btnText, { color: theme.text, fontSize: 9 }]}>Copy</Text>
+                </Pressable>
+              </View>
+              <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
+                pos  x={cameraXYZ.x.toFixed(3)}  y={cameraXYZ.y.toFixed(3)}  z={cameraXYZ.z.toFixed(3)} m
+              </Text>
+              {cameraAngles && (
+                <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
+                  rot  rx={cameraAngles.tiltDeg.toFixed(1)}°  ry={cameraAngles.rollDeg.toFixed(1)}°  rz={cameraAngles.panDeg.toFixed(1)}°
+                </Text>
+              )}
+            </View>
+          )}
+
+          {allRayInfo && (
+            <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 4 }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700" }}>
+                  Detections ({allRayInfo.length} frames)
+                </Text>
+                <Pressable
+                  onPress={async () => {
+                    const lines = [
+                      `Camera Pose`,
+                      `pos  x=${cameraXYZ!.x.toFixed(3)}  y=${cameraXYZ!.y.toFixed(3)}  z=${cameraXYZ!.z.toFixed(3)} m`,
+                      cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
+                      "",
+                      "frame\ttime\ttype\tpixel_x\tpixel_y\tground_x\tground_y\tray_dir_x\tray_dir_y\tray_dir_z",
+                      ...allRayInfo.map((r) =>
+                        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${r.pixelY.toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
+                      ),
+                    ].filter(Boolean).join("\n");
+                    await Clipboard.setStringAsync(lines);
+                    setCopyHint("Copied position data");
+                    setTimeout(() => setCopyHint(null), 3000);
+                  }}
+                  style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 4, paddingHorizontal: 8 }]}
+                >
+                  <Text style={[styles.btnText, { color: theme.text, fontSize: 9 }]}>Copy</Text>
+                </Pressable>
+              </View>
+              <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                {allRayInfo.map((r, i) => (
+                  <View key={i} style={{ marginBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, paddingBottom: 3 }}>
+                    <Text style={{ color: r.interpolated ? "#FF9500" : "#34C759", fontSize: 8, fontWeight: "600" }}>
+                      f{r.frameIndex} t={r.timeSec.toFixed(3)}s {r.interpolated ? "INTERP" : "DETECT"}
+                    </Text>
+                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
+                      pixel  x={r.pixelX.toFixed(1)}  y={r.pixelY.toFixed(1)}
+                    </Text>
+                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
+                      ground x={r.groundX.toFixed(3)}  y={r.groundY.toFixed(3)} m
+                    </Text>
+                    <Text style={{ color: theme.textSubtle, fontSize: 7, fontFamily: "monospace" }}>
+                      {r.rayEquation}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
       )}
     </ScrollView>
