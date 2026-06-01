@@ -31,6 +31,7 @@ export default function TabsLayout() {
           title: "Plate",
           headerShown: false,
           tabBarIcon: tabIcon("scan-outline"),
+          href: null,
         }}
       />
       <Tabs.Screen
@@ -45,6 +46,7 @@ export default function TabsLayout() {
         options={{
           title: "Field",
           tabBarIcon: tabIcon("grid-outline"),
+          href: null,
         }}
       />
       <Tabs.Screen
