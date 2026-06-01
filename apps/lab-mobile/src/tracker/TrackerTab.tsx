@@ -20,6 +20,7 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay } from "./BatterBoxOverlay";
+import { RoiOverlay } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { useTheme } from "../theme";
 
@@ -67,6 +68,9 @@ export function TrackerTab() {
   const [playSpeed, setPlaySpeed] = useState<1 | 0.5 | 0.25 | 0.125>(1);
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
+  const [showRoiOverlay, setShowRoiOverlay] = useState(false);
+  const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
+  const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -413,15 +417,17 @@ export function TrackerTab() {
           return res.detections.map((d) => ({ label: d.label, confidence: d.confidence, box: d.box }));
         };
         const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
+        const walkStart = startTimeSec ?? frameTimeSec;
+        const walkEnd = endTimeSec ?? frame?.durationSec ?? 9999;
         r = await detectorWalk(
           (t, q) => VisionTracker.frameAtTime(videoUri, t, q).then((f) => ({
             imageBase64: f.imageBase64, imageWidth: f.imageWidth, imageHeight: f.imageHeight, frameRate: f.frameRate ?? 0,
           })),
           detect,
           {
-            startTimeSec: frameTimeSec,
+            startTimeSec: walkStart,
             stepSec: 1 / fps,
-            durationSec: frame?.durationSec ?? 9999,
+            durationSec: walkEnd,
             maxFrames: 0,
             // Keep walking the whole clip even through long miss streaks —
             // gaps get filled by interpolation downstream, and we don't want
@@ -676,6 +682,20 @@ export function TrackerTab() {
               {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
             </Text>
           </View>
+          {showRoiOverlay && (
+            <RoiOverlay
+              imageWidth={frame.imageWidth}
+              imageHeight={frame.imageHeight}
+              vp={vp}
+              canvas={canvas}
+              canvasPageOffset={canvasPageOffsetRef.current}
+              onRoiSet={(roi) => {
+                setBox(roi);
+                setShowRoiOverlay(false);
+              }}
+              theme={theme}
+            />
+          )}
           {showPoseOverlay && (
             <BatterBoxOverlay
               imageWidth={frame.imageWidth}
@@ -736,16 +756,54 @@ export function TrackerTab() {
       )}
 
       {!result && frame && (
-        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
           <Pressable
-            onPress={() => setShowPoseOverlay((v) => !v)}
+            onPress={() => {
+              if (cameraPose && !showPoseOverlay) { setCameraPose(null); }
+              else { setShowPoseOverlay((v) => !v); setShowRoiOverlay(false); }
+            }}
             disabled={!!busy}
-            style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : theme.surfaceAlt, flex: 1 }]}
+            style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : cameraPose ? theme.primary : theme.surfaceAlt, flex: 1 }]}
           >
-            <Text style={[styles.btnText, { color: showPoseOverlay ? "#fff" : theme.text }]}>
-              {cameraPose ? "Pose set ✓" : "Calibrate"}
+            <Text style={[styles.btnText, { color: showPoseOverlay || cameraPose ? "#fff" : theme.text, fontSize: 11 }]}>
+              {cameraPose ? "Pose ✓" : showPoseOverlay ? "Calibrate…" : "Calibrate"}
             </Text>
           </Pressable>
+          <Pressable
+            onPress={() => {
+              if (box && !showRoiOverlay) { setBox(null); }
+              else { setShowRoiOverlay((v) => !v); setShowPoseOverlay(false); }
+            }}
+            disabled={!!busy}
+            style={[styles.btn, { backgroundColor: showRoiOverlay ? "#FF3B30" : box ? "#FF3B30" : theme.surfaceAlt, flex: 1 }]}
+          >
+            <Text style={[styles.btnText, { color: showRoiOverlay || box ? "#fff" : theme.text, fontSize: 11 }]}>
+              {box ? "ROI ✓" : showRoiOverlay ? "ROI…" : "ROI"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }}
+            disabled={!!busy}
+            style={[styles.btn, { backgroundColor: startTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1 }]}
+          >
+            <Text style={[styles.btnText, { color: startTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
+              {startTimeSec != null ? `Start ${startTimeSec.toFixed(1)}s` : "Set Start"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }}
+            disabled={!!busy}
+            style={[styles.btn, { backgroundColor: endTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1 }]}
+          >
+            <Text style={[styles.btnText, { color: endTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
+              {endTimeSec != null ? `End ${endTimeSec.toFixed(1)}s` : "Set End"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {!result && frame && (
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
             onPress={runTracker}
             disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
@@ -754,7 +812,7 @@ export function TrackerTab() {
             <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
           </Pressable>
           <Pressable
-            onPress={() => { setBox(null); setResult(null); setCameraPose(null); setShowPoseOverlay(false); }}
+            onPress={() => { setBox(null); setResult(null); setCameraPose(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
             disabled={!box}
             style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
           >
