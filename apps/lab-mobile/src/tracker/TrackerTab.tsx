@@ -656,14 +656,13 @@ export function TrackerTab() {
       <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
         <Pressable
           onPress={() => {
-            if (cameraPose && !showPoseOverlay) { setCameraPose(null); setCameraXYZ(null); setCameraAngles(null); }
-            else { setShowPoseOverlay((v) => !v); setShowRoiOverlay(false); }
+            setShowPoseOverlay((v) => !v); if (!showPoseOverlay) setShowRoiOverlay(false);
           }}
           disabled={!!busy}
           style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : cameraPose ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
         >
           <Text style={[styles.btnText, { color: showPoseOverlay || cameraPose ? "#fff" : theme.text, fontSize: 11 }]}>
-            {cameraPose ? "Pose ✓" : showPoseOverlay ? "Cal…" : "Calibrate"}
+            {showPoseOverlay ? "Hide" : cameraPose ? "Pose ✓" : "Calibrate"}
           </Text>
         </Pressable>
         <Pressable
