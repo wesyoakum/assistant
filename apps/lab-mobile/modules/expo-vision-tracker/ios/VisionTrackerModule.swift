@@ -420,7 +420,7 @@ private func generateFrame(uri: String, timeSec: Double, jpegQuality: Double) th
     // Extract horizontal field-of-view from the format description (available
     // on videos recorded by iOS devices).
     if let descAny = track.formatDescriptions.first {
-      let desc = descAny as CMFormatDescription
+      let desc = unsafeBitCast(descAny, to: CMFormatDescription.self)
       if let exts = CMFormatDescriptionGetExtensions(desc) as? [String: Any],
          let fovKey = exts["HorizontalFieldOfView"] as? Double {
         hFovDeg = fovKey
