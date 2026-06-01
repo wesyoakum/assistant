@@ -45,12 +45,11 @@ const HANDLE_LABELS = ["L Front", "R Front", "R Back", "L Back"] as const;
 const DIAG = Math.SQRT1_2;
 const PLATE_DEPTH_FT = 17 / 12;
 
-// Strike zone: 17" wide, centered over the front edge of the plate.
-// Bottom ~19" (1.583 ft), top ~42" (3.5 ft) above the ground.
-// In field coords, the front edge midpoint is at PLATE_DEPTH_FT along the diagonal.
-const SZ_HALF_W_FT = (17 / 12) / 2; // half width in feet
-const SZ_BOT_FT = 19 / 12;
-const SZ_TOP_FT = 42 / 12;
+// Strike zone: 23" wide, centered over the front edge of the plate.
+// Bottom 18" (1.5 ft), top 40" (3.333 ft) above the ground.
+const SZ_HALF_W_FT = (23 / 12) / 2;
+const SZ_BOT_FT = 18 / 12;
+const SZ_TOP_FT = 40 / 12;
 const SZ_CENTER = { x: PLATE_DEPTH_FT * DIAG, z: PLATE_DEPTH_FT * DIAG }; // front edge midpoint
 const SZ_RIGHT = { x: DIAG, z: -DIAG }; // perpendicular to diagonal, toward 1B side
 
@@ -165,7 +164,7 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const plateValid = plateScreen.every((p) => p != null);
 
       // Bases (ground plane — use homography directly)
-      const landmarks = fieldLandmarks("highSchool");
+      const landmarks = fieldLandmarks("littleLeague");
       const bases = (["first_base", "second_base", "third_base"] as const).map((id) => {
         const lm = landmarks[id];
         return projectCorner(lm);
@@ -303,8 +302,8 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
               {liveProjection.strikeZone && (
                 <Polygon
                   points={liveProjection.strikeZone.map((p) => `${p.x},${p.y}`).join(" ")}
-                  fill="rgba(255,59,48,0.08)"
-                  stroke="rgba(255,59,48,0.8)"
+                  fill="rgba(255,204,0,0.15)"
+                  stroke="rgba(255,204,0,0.8)"
                   strokeWidth={1.5}
                 />
               )}
