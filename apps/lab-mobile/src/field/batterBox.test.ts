@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { batterBoxCorners, solveFromBatterBox, solveFromBothBoxes, BOX_WIDTH_FT, BOX_LENGTH_FT } from "./batterBox.ts";
+import { batterBoxCorners, solveFromBatterBox, solveFromBothBoxes, solveFromOuterCorners, outerCorners, BOX_WIDTH_FT, BOX_LENGTH_FT } from "./batterBox.ts";
 
 describe("batterBoxCorners", () => {
   it("left box has correct dimensions", () => {
@@ -102,5 +102,25 @@ describe("solveFromBothBoxes", () => {
     assert.ok(pose.fit.rmsPx < 1, `RMS too high: ${pose.fit.rmsPx}`);
     assert.deepStrictEqual(pose.sides, ["left", "right"]);
     assert.equal(pose.fit.count, 8);
+  });
+});
+
+describe("solveFromOuterCorners", () => {
+  it("solves from 4 outer corners", () => {
+    const oc = outerCorners();
+    const scale = 50;
+    const ox = 200, oy = 400;
+    const toImg = (p: { x: number; z: number }) => ({ u: ox + p.x * scale, v: oy + p.z * scale });
+    const imgCorners = [
+      toImg(oc.leftFrontOut),
+      toImg(oc.rightFrontOut),
+      toImg(oc.rightBackOut),
+      toImg(oc.leftBackOut),
+    ] as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
+
+    const pose = solveFromOuterCorners(imgCorners);
+    assert.ok(pose, "solveFromOuterCorners returned null");
+    assert.ok(pose.fit.rmsPx < 1, `RMS too high: ${pose.fit.rmsPx}`);
+    assert.deepStrictEqual(pose.sides, ["left", "right"]);
   });
 });

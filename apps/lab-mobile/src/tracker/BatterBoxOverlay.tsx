@@ -1,14 +1,22 @@
-// Batter's box corner-drag overlay for camera pose calibration.
+// Batter's box calibration overlay.
 //
-// Renders BOTH batter's box wireframes over the video frame with 8 draggable
-// corner handles (4 per box). The user adjusts corners until they match the
-// visible chalk lines. Controls (Reset, Set Pose) live in the parent — this
-// component only renders the overlay on top of the image.
+// Shows both batter's boxes as wireframes with only 4 draggable corner
+// handles (the outer corners of the pair). The inner edges and plate gap
+// are computed from the homography since all geometry is known. The user
+// drags 4 points → both boxes move together correctly.
+//
+// Controls (Reset, Set Pose) live in the parent TrackerTab, not here.
 
 import React, { useCallback, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { View, Text, StyleSheet, PanResponder } from "react-native";
-import Svg, { Polygon } from "react-native-svg";
-import { solveFromBothBoxes, type CameraPose } from "../field/batterBox";
+import Svg, { Polygon, Line } from "react-native-svg";
+import {
+  solveFromOuterCorners,
+  allEightCorners,
+  type CameraPose,
+} from "../field/batterBox";
+import { applyHomography } from "../field/videoHomography";
+// Note: Metro resolves without .ts extension; node tests use .ts in the field/ files.
 
 export interface BatterBoxOverlayProps {
   imageWidth: number;
@@ -19,51 +27,37 @@ export interface BatterBoxOverlayProps {
 }
 
 export interface BatterBoxOverlayHandle {
-  /** Solve the homography from the current corner positions. */
   solve: () => CameraPose | null;
-  /** Reset corners to defaults. */
   reset: () => void;
-  /** Get error message from last solve attempt. */
   getError: () => string | null;
 }
 
 type Corner = { nx: number; ny: number };
 type FourCorners = [Corner, Corner, Corner, Corner];
 
-const HANDLE_RADIUS = 14;
+const HANDLE_RADIUS = 16;
 
 const LEFT_COLOR = "rgba(0,200,255,0.9)";
 const RIGHT_COLOR = "rgba(255,150,0,0.9)";
-const LEFT_FILL = "rgba(0,200,255,0.08)";
-const RIGHT_FILL = "rgba(255,150,0,0.08)";
+const LEFT_FILL = "rgba(0,200,255,0.06)";
+const RIGHT_FILL = "rgba(255,150,0,0.06)";
+const INNER_COLOR = "rgba(255,255,255,0.4)";
 
-const CORNER_LABELS_L = ["L Front In", "L Front Out", "L Back Out", "L Back In"] as const;
-const CORNER_LABELS_R = ["R Front In", "R Front Out", "R Back Out", "R Back In"] as const;
+const HANDLE_LABELS = ["L Front", "R Front", "R Back", "L Back"] as const;
 
-/** Default left box: first-base side, slightly left of center. */
-function defaultLeftCorners(): FourCorners {
+/** Default outer corners — a rough trapezoidal pair in center-bottom of frame. */
+function defaultCorners(): FourCorners {
   return [
-    { nx: 0.35, ny: 0.55 },
-    { nx: 0.48, ny: 0.55 },
-    { nx: 0.49, ny: 0.80 },
-    { nx: 0.33, ny: 0.80 },
-  ];
-}
-
-/** Default right box: third-base side, slightly right of center. */
-function defaultRightCorners(): FourCorners {
-  return [
-    { nx: 0.52, ny: 0.55 },
-    { nx: 0.65, ny: 0.55 },
-    { nx: 0.67, ny: 0.80 },
-    { nx: 0.51, ny: 0.80 },
+    { nx: 0.25, ny: 0.50 }, // left front-outside
+    { nx: 0.75, ny: 0.50 }, // right front-outside
+    { nx: 0.80, ny: 0.82 }, // right back-outside
+    { nx: 0.20, ny: 0.82 }, // left back-outside
   ];
 }
 
 export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOverlayProps>(
   function BatterBoxOverlay({ imageWidth, imageHeight, vp, canvas, canvasPageOffset }, ref) {
-    const [leftCorners, setLeftCorners] = useState<FourCorners>(defaultLeftCorners);
-    const [rightCorners, setRightCorners] = useState<FourCorners>(defaultRightCorners);
+    const [corners, setCorners] = useState<FourCorners>(defaultCorners);
     const [activeHandle, setActiveHandle] = useState<number | null>(null);
     const [err, setErr] = useState<string | null>(null);
 
@@ -93,28 +87,54 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       [canvas, vp],
     );
 
-    // All 8 corners: [left0..3, right0..3]
-    const allCorners = useMemo(
-      () => [...leftCorners, ...rightCorners],
-      [leftCorners, rightCorners],
-    );
-    const allScreenCorners = useMemo(
-      () => allCorners.map((c) => imageToScreen(c.nx, c.ny)),
-      [allCorners, imageToScreen],
+    // Screen positions of the 4 drag handles.
+    const screenHandles = useMemo(
+      () => corners.map((c) => imageToScreen(c.nx, c.ny)),
+      [corners, imageToScreen],
     );
 
-    const leftPolyPoints = useMemo(
-      () => allScreenCorners.slice(0, 4).map((p) => `${p.x},${p.y}`).join(" "),
-      [allScreenCorners],
-    );
-    const rightPolyPoints = useMemo(
-      () => allScreenCorners.slice(4, 8).map((p) => `${p.x},${p.y}`).join(" "),
-      [allScreenCorners],
-    );
+    // Try to solve the homography live so we can project the inner edges.
+    const liveProjection = useMemo(() => {
+      const imgCorners = corners.map((c) => ({
+        u: c.nx * imageWidth,
+        v: c.ny * imageHeight,
+      })) as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
 
-    // 8 PanResponders (one per handle).
+      const pose = solveFromOuterCorners(imgCorners);
+      if (!pose) return null;
+
+      // Project all 8 corners to image coords, then to screen coords.
+      const all = allEightCorners();
+      const projectCorner = (pt: { x: number; z: number }) => {
+        const img = applyHomography(pose.fit.H, pt.x, pt.z);
+        if (!img) return null;
+        return imageToScreen(img.x / imageWidth, img.y / imageHeight);
+      };
+
+      const leftScreen = all.left.map((p) => projectCorner(p));
+      const rightScreen = all.right.map((p) => projectCorner(p));
+      if (leftScreen.some((p) => !p) || rightScreen.some((p) => !p)) return null;
+
+      return {
+        left: leftScreen as { x: number; y: number }[],
+        right: rightScreen as { x: number; y: number }[],
+      };
+    }, [corners, imageWidth, imageHeight, imageToScreen]);
+
+    // SVG polygon points.
+    const leftPoly = liveProjection
+      ? liveProjection.left.map((p) => `${p.x},${p.y}`).join(" ")
+      : null;
+    const rightPoly = liveProjection
+      ? liveProjection.right.map((p) => `${p.x},${p.y}`).join(" ")
+      : null;
+
+    // Fallback: just draw lines between the 4 outer handles if homography fails.
+    const outerPoly = screenHandles.map((p) => `${p.x},${p.y}`).join(" ");
+
+    // 4 PanResponders.
     const responders = useMemo(() => {
-      return Array.from({ length: 8 }, (_, idx) =>
+      return [0, 1, 2, 3].map((idx) =>
         PanResponder.create({
           onStartShouldSetPanResponder: () => true,
           onMoveShouldSetPanResponder: () => true,
@@ -126,19 +146,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
             const localX = gs.moveX - canvasPageOffset.x;
             const localY = gs.moveY - canvasPageOffset.y;
             const img = screenToImage(localX, localY);
-            if (idx < 4) {
-              setLeftCorners((prev) => {
-                const next = [...prev] as FourCorners;
-                next[idx] = img;
-                return next;
-              });
-            } else {
-              setRightCorners((prev) => {
-                const next = [...prev] as FourCorners;
-                next[idx - 4] = img;
-                return next;
-              });
-            }
+            setCorners((prev) => {
+              const next = [...prev] as FourCorners;
+              next[idx] = img;
+              return next;
+            });
           },
           onPanResponderRelease: () => setActiveHandle(null),
           onPanResponderTerminate: () => setActiveHandle(null),
@@ -149,62 +161,75 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     useImperativeHandle(ref, () => ({
       solve: () => {
         setErr(null);
-        const lc = leftCorners.map((c) => ({ u: c.nx * imageWidth, v: c.ny * imageHeight })) as
-          [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
-        const rc = rightCorners.map((c) => ({ u: c.nx * imageWidth, v: c.ny * imageHeight })) as
-          [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
-        const pose = solveFromBothBoxes(lc, rc);
+        const imgCorners = corners.map((c) => ({
+          u: c.nx * imageWidth,
+          v: c.ny * imageHeight,
+        })) as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
+
+        const pose = solveFromOuterCorners(imgCorners);
         if (!pose) {
           setErr("Could not solve pose — try adjusting the corners");
           return null;
         }
         if (pose.fit.rmsPx > 5) {
-          setErr(`High reprojection error (${pose.fit.rmsPx.toFixed(1)}px) — corners may need adjustment`);
+          setErr(`High reprojection error (${pose.fit.rmsPx.toFixed(1)}px)`);
         }
         return pose;
       },
       reset: () => {
-        setLeftCorners(defaultLeftCorners());
-        setRightCorners(defaultRightCorners());
+        setCorners(defaultCorners());
         setErr(null);
       },
       getError: () => err,
-    }), [leftCorners, rightCorners, imageWidth, imageHeight, err]);
-
-    const labels = [...CORNER_LABELS_L, ...CORNER_LABELS_R];
+    }), [corners, imageWidth, imageHeight, err]);
 
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        {/* Wireframe quads */}
         <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Polygon points={leftPolyPoints} fill={LEFT_FILL} stroke={LEFT_COLOR} strokeWidth={2} strokeDasharray="6,4" />
-          <Polygon points={rightPolyPoints} fill={RIGHT_FILL} stroke={RIGHT_COLOR} strokeWidth={2} strokeDasharray="6,4" />
+          {liveProjection ? (
+            <>
+              {/* Full left box */}
+              <Polygon points={leftPoly!} fill={LEFT_FILL} stroke={LEFT_COLOR} strokeWidth={2} />
+              {/* Full right box */}
+              <Polygon points={rightPoly!} fill={RIGHT_FILL} stroke={RIGHT_COLOR} strokeWidth={2} />
+              {/* Inner edges (plate gap) in subtle white */}
+              <Line
+                x1={liveProjection.left[0]!.x} y1={liveProjection.left[0]!.y}
+                x2={liveProjection.left[3]!.x} y2={liveProjection.left[3]!.y}
+                stroke={INNER_COLOR} strokeWidth={1} strokeDasharray="4,3"
+              />
+              <Line
+                x1={liveProjection.right[0]!.x} y1={liveProjection.right[0]!.y}
+                x2={liveProjection.right[3]!.x} y2={liveProjection.right[3]!.y}
+                stroke={INNER_COLOR} strokeWidth={1} strokeDasharray="4,3"
+              />
+            </>
+          ) : (
+            /* Fallback: just outer quad */
+            <Polygon points={outerPoly} fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.5)" strokeWidth={1.5} strokeDasharray="6,4" />
+          )}
         </Svg>
 
-        {/* Corner labels */}
-        {allScreenCorners.map((p, i) => {
-          const isLeft = i < 4;
-          const localIdx = i % 4;
-          return (
-            <View
-              key={`label-${i}`}
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: p.x + (localIdx <= 1 ? 12 : -70),
-                top: p.y + (localIdx <= 1 ? -18 : 6),
-              }}
-            >
-              <Text style={{ color: isLeft ? LEFT_COLOR : RIGHT_COLOR, fontSize: 8, fontWeight: "600" }}>
-                {labels[i]}
-              </Text>
-            </View>
-          );
-        })}
+        {/* Handle labels */}
+        {screenHandles.map((p, i) => (
+          <View
+            key={`label-${i}`}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: p.x + (i === 0 || i === 3 ? -60 : 14),
+              top: p.y + (i <= 1 ? -18 : 6),
+            }}
+          >
+            <Text style={{ color: i === 0 || i === 3 ? LEFT_COLOR : RIGHT_COLOR, fontSize: 9, fontWeight: "600" }}>
+              {HANDLE_LABELS[i]}
+            </Text>
+          </View>
+        ))}
 
-        {/* Draggable corner handles */}
-        {allScreenCorners.map((p, i) => {
-          const isLeft = i < 4;
+        {/* 4 draggable corner handles */}
+        {screenHandles.map((p, i) => {
+          const isLeft = i === 0 || i === 3;
           const color = isLeft ? LEFT_COLOR : RIGHT_COLOR;
           return (
             <View
@@ -229,7 +254,7 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           );
         })}
 
-        {/* Error display */}
+        {/* Error */}
         {err && (
           <View style={{ position: "absolute", top: 8, left: 8, right: 8, backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 }}>
             <Text style={{ color: "#fff", fontSize: 11 }}>{err}</Text>

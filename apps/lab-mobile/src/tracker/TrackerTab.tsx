@@ -72,6 +72,11 @@ export function TrackerTab() {
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
   const poseOverlayRef = useRef<BatterBoxOverlayHandle>(null);
+  // Refs so the PanResponder (memoized) can read overlay state without re-creating.
+  const showPoseOverlayRef = useRef(false);
+  const showRoiOverlayRef = useRef(false);
+  useEffect(() => { showPoseOverlayRef.current = showPoseOverlay; }, [showPoseOverlay]);
+  useEffect(() => { showRoiOverlayRef.current = showRoiOverlay; }, [showRoiOverlay]);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -189,19 +194,28 @@ export function TrackerTab() {
 
   const responder = useMemo(() =>
     PanResponder.create({
-      // CRITICAL: capture-phase wins over the parent ScrollView so it doesn't
-      // steal the touch and start scrolling.
-      onStartShouldSetPanResponderCapture: () => true,
-      onMoveShouldSetPanResponderCapture: () => true,
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
+      // When an overlay (Calibrate / ROI) is showing, don't capture —
+      // let the overlay's own PanResponders handle the touches.
+      onStartShouldSetPanResponderCapture: (e) => {
+        if (showPoseOverlayRef.current || showRoiOverlayRef.current) return false;
+        return e.nativeEvent.touches.length >= 2; // only capture pinch
+      },
+      onMoveShouldSetPanResponderCapture: (e) => {
+        if (showPoseOverlayRef.current || showRoiOverlayRef.current) return false;
+        return e.nativeEvent.touches.length >= 2;
+      },
+      onStartShouldSetPanResponder: (e) => {
+        if (showPoseOverlayRef.current || showRoiOverlayRef.current) return e.nativeEvent.touches.length >= 2;
+        return true;
+      },
+      onMoveShouldSetPanResponder: (e) => {
+        if (showPoseOverlayRef.current || showRoiOverlayRef.current) return e.nativeEvent.touches.length >= 2;
+        return true;
+      },
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: (e) => {
-        // Re-measure since scroll position may have changed.
         remeasure();
-        // Disable the ScrollView so it doesn't fight us.
         setScrollEnabled(false);
-
         gestureBase.current.vp = vpRef.current;
         const touches = e.nativeEvent.touches;
         if (touches.length >= 2) {
@@ -209,31 +223,23 @@ export function TrackerTab() {
           gestureBase.current.isPinch = true;
           gestureBase.current.pinchD = Math.max(1, distance(t0.pageX, t0.pageY, t1.pageX, t1.pageY));
           gestureBase.current.pinchMid = { x: (t0.pageX + t1.pageX) / 2, y: (t0.pageY + t1.pageY) / 2 };
-          drawStart.current = null;
-          setDrawingBoxScreen(null);
         } else {
           gestureBase.current.isPinch = false;
+          // 1-finger: use as pan anchor (no box drawing).
           const t0 = touches[0]!;
-          const local = pageToLocal(t0.pageX, t0.pageY);
-          drawStart.current = { x: local.x, y: local.y };
-          setDrawingBoxScreen({ x: local.x, y: local.y, w: 0, h: 0 });
+          gestureBase.current.pinchMid = { x: t0.pageX, y: t0.pageY };
         }
       },
       onPanResponderMove: (e) => {
         const touches = e.nativeEvent.touches;
-
-        // Mid-gesture: a second finger landed → promote to pinch.
         if (touches.length >= 2 && !gestureBase.current.isPinch) {
           gestureBase.current.isPinch = true;
           gestureBase.current.vp = vpRef.current;
           const t0 = touches[0]!, t1 = touches[1]!;
           gestureBase.current.pinchD = Math.max(1, distance(t0.pageX, t0.pageY, t1.pageX, t1.pageY));
           gestureBase.current.pinchMid = { x: (t0.pageX + t1.pageX) / 2, y: (t0.pageY + t1.pageY) / 2 };
-          drawStart.current = null;
-          setDrawingBoxScreen(null);
           return;
         }
-
         if (gestureBase.current.isPinch && touches.length >= 2) {
           const t0 = touches[0]!, t1 = touches[1]!;
           const curD = Math.max(1, distance(t0.pageX, t0.pageY, t1.pageX, t1.pageY));
@@ -245,52 +251,28 @@ export function TrackerTab() {
           setVp({ scale: newScale, tx: newTx, ty: newTy });
           return;
         }
-
-        // 1-finger drag: extend the drawing box.
-        if (drawStart.current && touches.length >= 1) {
+        // 1-finger: pan (useful when zoomed in).
+        if (touches.length >= 1) {
           const t0 = touches[0]!;
-          const local = pageToLocal(t0.pageX, t0.pageY);
-          const x0 = drawStart.current.x;
-          const y0 = drawStart.current.y;
-          setDrawingBoxScreen({
-            x: Math.min(x0, local.x),
-            y: Math.min(y0, local.y),
-            w: Math.abs(local.x - x0),
-            h: Math.abs(local.y - y0),
+          const base = gestureBase.current;
+          setVp({
+            scale: base.vp.scale,
+            tx: base.vp.tx + (t0.pageX - base.pinchMid.x),
+            ty: base.vp.ty + (t0.pageY - base.pinchMid.y),
           });
         }
       },
       onPanResponderRelease: () => {
         setScrollEnabled(true);
-        if (gestureBase.current.isPinch) {
-          setVp((v) => clampViewport(v, canvasRef.current));
-          gestureBase.current.isPinch = false;
-          drawStart.current = null;
-          return;
-        }
-        const bs = drawingBoxScreen;
-        if (bs && bs.w > 4 && bs.h > 4) {
-          const topLeft = localToImage(bs.x, bs.y);
-          const bottomRight = localToImage(bs.x + bs.w, bs.y + bs.h);
-          const nb: NormalizedBox = {
-            x: topLeft.nx,
-            y: topLeft.ny,
-            width: Math.max(0.003, bottomRight.nx - topLeft.nx),
-            height: Math.max(0.003, bottomRight.ny - topLeft.ny),
-          };
-          setBox(nb);
-        }
-        setDrawingBoxScreen(null);
-        drawStart.current = null;
+        setVp((v) => clampViewport(v, canvasRef.current));
+        gestureBase.current.isPinch = false;
       },
       onPanResponderTerminate: () => {
         setScrollEnabled(true);
         gestureBase.current.isPinch = false;
-        drawStart.current = null;
-        setDrawingBoxScreen(null);
       },
     }),
-    [remeasure, pageToLocal, localToImage, drawingBoxScreen],
+    [remeasure],
   );
 
   // Separate responder for the result canvas: pan + pinch only (no box
@@ -644,7 +626,7 @@ export function TrackerTab() {
             resizeMode="cover"
             fadeDuration={0}
           />
-          {committedBoxScreen && !drawingBoxScreen && (
+          {committedBoxScreen && (
             <View
               pointerEvents="none"
               style={{
@@ -655,20 +637,7 @@ export function TrackerTab() {
                 height: committedBoxScreen.h,
                 borderWidth: 2,
                 borderColor: "#FF3B30",
-              }}
-            />
-          )}
-          {drawingBoxScreen && (
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: drawingBoxScreen.x,
-                top: drawingBoxScreen.y,
-                width: drawingBoxScreen.w,
-                height: drawingBoxScreen.h,
-                borderWidth: 2,
-                borderColor: "#FFCC00",
+                borderStyle: "dashed",
               }}
             />
           )}

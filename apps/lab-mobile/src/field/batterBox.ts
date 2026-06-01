@@ -204,3 +204,61 @@ export function solveFromBothBoxes(
 
   return { fit, sides: ["left", "right"] };
 }
+
+// ── 4-point outer-corner solve ───────────────────────────────────────────────
+
+/** The 4 outer corners of the batter's box pair in field coords. */
+export interface OuterCorners {
+  /** Left box front-outside */
+  leftFrontOut: GroundPoint;
+  /** Right box front-outside */
+  rightFrontOut: GroundPoint;
+  /** Right box back-outside */
+  rightBackOut: GroundPoint;
+  /** Left box back-outside */
+  leftBackOut: GroundPoint;
+}
+
+/** Get the 4 outer corners of both boxes in field coordinates. */
+export function outerCorners(): OuterCorners {
+  const left = batterBoxCorners("left");
+  const right = batterBoxCorners("right");
+  return {
+    leftFrontOut: left.corners.frontOutside,
+    rightFrontOut: right.corners.frontOutside,
+    rightBackOut: right.corners.backOutside,
+    leftBackOut: left.corners.backOutside,
+  };
+}
+
+/** All 8 corners in field coords, for projecting once we have the homography. */
+export function allEightCorners(): { left: [GroundPoint, GroundPoint, GroundPoint, GroundPoint]; right: [GroundPoint, GroundPoint, GroundPoint, GroundPoint] } {
+  const left = batterBoxCorners("left");
+  const right = batterBoxCorners("right");
+  return { left: left.ordered, right: right.ordered };
+}
+
+/**
+ * Solve camera pose from the 4 outer corners of both boxes.
+ * The user drags these 4 points; the inner edges are derived via the
+ * homography since all geometry is known.
+ *
+ * @param imageCorners 4 image-pixel positions in order:
+ *        [leftFrontOut, rightFrontOut, rightBackOut, leftBackOut]
+ */
+export function solveFromOuterCorners(
+  imageCorners: [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }],
+): CameraPose | null {
+  const oc = outerCorners();
+  const fieldPts = [oc.leftFrontOut, oc.rightFrontOut, oc.rightBackOut, oc.leftBackOut];
+
+  const corr: Correspondence[] = fieldPts.map((fp, i) => ({
+    field: { x: fp.x, z: fp.z },
+    image: imageCorners[i]!,
+  }));
+
+  const fit = fitHomography(corr);
+  if (!fit) return null;
+
+  return { fit, sides: ["left", "right"] };
+}
