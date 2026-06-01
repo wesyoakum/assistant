@@ -20,6 +20,8 @@ export interface FirstFrameResult {
   frameRate: number;
   /** Time of this frame in seconds (0 for firstFrame, requested time for frameAtTime). */
   timeSec?: number;
+  /** Horizontal field-of-view in degrees (0 if not available from video metadata). */
+  hFovDeg?: number;
 }
 
 export interface TrackedFrame {

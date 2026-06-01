@@ -1,68 +1,57 @@
-// Compute field-ground-plane angles for tracked ball positions.
+// Compute ball direction angles from tracked positions.
 //
-// Back-projects a ball's normalized image position through Hinv to get
-// its ground-plane projection in user coordinates, then computes
-// the bearing angle from the plate apex.
+// Given a ball's pixel position and camera intrinsics, compute the angular
+// direction from the camera to the ball: azimuth (horizontal, from center)
+// and elevation (vertical, from center). These are the raw viewing angles
+// independent of camera pose.
 //
-// NOTE: The ball is airborne — this gives the ground "shadow" position,
-// useful for direction/bearing but not true 3D location.
+// With camera pose, we can also express the direction in the field frame:
+// azimuth relative to the toward-2B axis (Y), elevation above the ground plane.
 
 // @ts-ignore .ts extension needed for node test runner
 import { type Homography } from "./videoHomography.ts";
-// @ts-ignore
-import { imageToField } from "./videoHomography.ts";
-// @ts-ignore
-import { groundFieldToUser } from "./userCoords.ts";
+import { type CameraIntrinsics } from "./cameraPoseDecompose.ts";
 
-export interface BallFieldInfo {
-  /** Ground-plane position in user coords (meters). */
-  groundX: number;
-  groundY: number;
-  /** Bearing angle from plate apex: 0° = toward 2B, positive = toward 1B side. */
-  bearingDeg: number;
-  /** Distance from apex on the ground plane (meters). */
-  distanceM: number;
+export interface BallDirection {
+  /** Azimuth from image center in degrees. Positive = right (toward 1B side). */
+  azimuthDeg: number;
+  /** Elevation from image center in degrees. Positive = up. */
+  elevationDeg: number;
   /** Whether this was an interpolated position. */
   interpolated: boolean;
 }
 
 /**
- * Compute ground-plane field info for a ball detection.
+ * Compute the angular direction from the camera to a ball detection.
  *
  * @param normCx Normalized center X (0–1) in image coords.
  * @param normCy Normalized center Y (0–1) in image coords.
  * @param imageWidth Image width in pixels.
  * @param imageHeight Image height in pixels.
- * @param Hinv Image-to-field homography.
+ * @param K Camera intrinsics.
  * @param interpolated Whether this is an interpolated position.
  */
-export function computeBallFieldInfo(
+export function computeBallDirection(
   normCx: number,
   normCy: number,
   imageWidth: number,
   imageHeight: number,
-  Hinv: Homography,
+  K: CameraIntrinsics,
   interpolated: boolean,
-): BallFieldInfo | null {
+): BallDirection {
   const u = normCx * imageWidth;
   const v = normCy * imageHeight;
 
-  const fieldPt = imageToField(Hinv, { u, v });
-  if (!fieldPt) return null;
+  // Direction vector in camera frame (pinhole model):
+  // dx = (u - cx) / fx, dy = (v - cy) / fy, dz = 1
+  const dx = (u - K.cx) / K.fx;
+  const dy = (v - K.cy) / K.fy;
 
-  const userPt = groundFieldToUser(fieldPt);
+  // Azimuth: horizontal angle from center (positive = right in image)
+  const azimuthDeg = Math.atan2(dx, 1) * (180 / Math.PI);
 
-  const distanceM = Math.hypot(userPt.x, userPt.y);
+  // Elevation: vertical angle from center (positive = up, image Y is down)
+  const elevationDeg = Math.atan2(-dy, 1) * (180 / Math.PI);
 
-  // Bearing: angle from +Y (toward 2B) axis, positive toward +X (1B side).
-  // atan2(x, y) gives angle from +Y, positive clockwise (toward +X).
-  const bearingDeg = Math.atan2(userPt.x, userPt.y) * (180 / Math.PI);
-
-  return {
-    groundX: userPt.x,
-    groundY: userPt.y,
-    bearingDeg,
-    distanceM,
-    interpolated,
-  };
+  return { azimuthDeg, elevationDeg, interpolated };
 }

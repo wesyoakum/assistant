@@ -22,9 +22,9 @@ import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
-import { decomposeCameraPose, defaultIntrinsics } from "../field/cameraPoseDecompose";
+import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
 import { fieldToUser, formatXYZ } from "../field/userCoords";
-import { computeBallFieldInfo, type BallFieldInfo } from "../field/ballAngles";
+import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
@@ -583,15 +583,16 @@ export function TrackerTab() {
 
   const reviewedFrame = result?.frames[reviewIdx] ?? null;
 
-  // Ball field info for the current review frame (when pose is set).
-  const currentBallInfo = useMemo((): BallFieldInfo | null => {
-    if (!cameraPose || !result || !interpolated) return null;
+  // Ball direction for the current review frame (when pose is set).
+  const currentBallDir = useMemo((): BallDirection | null => {
+    if (!cameraPose || !result || !interpolated || !frame) return null;
     const ip = interpolated[reviewIdx];
     if (!ip?.box) return null;
     const cx = ip.box.x + ip.box.width / 2;
     const cy = ip.box.y + ip.box.height / 2;
-    return computeBallFieldInfo(cx, cy, result.videoWidth, result.videoHeight, cameraPose.fit.Hinv, ip.interpolated);
-  }, [cameraPose, result, interpolated, reviewIdx]);
+    const K = intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0);
+    return computeBallDirection(cx, cy, result.videoWidth, result.videoHeight, K, ip.interpolated);
+  }, [cameraPose, result, interpolated, reviewIdx, frame]);
 
   // Review section: load the actual frame at the reviewed timestamp instead
   // of showing the initial still under every tracker result.
@@ -708,7 +709,7 @@ export function TrackerTab() {
               if (pose && frame) {
                 setCameraPose(pose);
                 setShowPoseOverlay(false);
-                const K = defaultIntrinsics(frame.imageWidth, frame.imageHeight);
+                const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
                 const decomp = decomposeCameraPose(pose.fit.H, K);
                 if (decomp) {
                   setCameraXYZ(fieldToUser(decomp.position));
@@ -766,6 +767,9 @@ export function TrackerTab() {
         <View style={{ backgroundColor: "rgba(0,200,255,0.1)", borderRadius: 6, padding: 6, marginTop: 4 }}>
           <Text style={{ color: BOX_COLOR_TEXT, fontSize: 10, fontWeight: "600" }}>
             Camera: {formatXYZ(cameraXYZ)}
+          </Text>
+          <Text style={{ color: BOX_COLOR_TEXT, fontSize: 8, opacity: 0.7 }}>
+            X ∥ front edge  ·  Y → 2B  ·  Z ↑  ·  foul lines ±45° from Y
           </Text>
         </View>
       )}
@@ -1095,18 +1099,14 @@ export function TrackerTab() {
                     {reviewedFrame.confidence.toFixed(2)}
                   </Text>
                 </View>
-                {currentBallInfo && (
+                {currentBallDir && (
                   <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" }}>
-                    <Text style={{ color: currentBallInfo.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
-                      {currentBallInfo.interpolated ? "interp" : "detect"}
-                      {"  ·  bearing "}
-                      {currentBallInfo.bearingDeg.toFixed(1)}°
-                      {"  ·  dist "}
-                      {currentBallInfo.distanceM.toFixed(1)}m
-                      {"  ·  X="}
-                      {currentBallInfo.groundX.toFixed(1)}
-                      {" Y="}
-                      {currentBallInfo.groundY.toFixed(1)}m
+                    <Text style={{ color: currentBallDir.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
+                      {currentBallDir.interpolated ? "interp" : "detect"}
+                      {"  ·  az "}
+                      {currentBallDir.azimuthDeg.toFixed(1)}°
+                      {"  ·  el "}
+                      {currentBallDir.elevationDeg.toFixed(1)}°
                     </Text>
                   </View>
                 )}

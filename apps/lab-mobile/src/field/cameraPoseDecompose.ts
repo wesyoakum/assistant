@@ -15,9 +15,13 @@ export interface CameraIntrinsics {
   cx: number; cy: number;
 }
 
-/** Estimate intrinsics from image dimensions (typical phone ~60° horizontal FOV). */
-export function defaultIntrinsics(imageWidth: number, imageHeight: number): CameraIntrinsics {
-  const fx = imageWidth * 1.2;
+/**
+ * Build intrinsics from image dimensions and horizontal FOV.
+ * @param hFovDeg Horizontal field-of-view in degrees (0 = use default ~69° estimate).
+ */
+export function intrinsicsFromFov(imageWidth: number, imageHeight: number, hFovDeg: number): CameraIntrinsics {
+  const fovRad = (hFovDeg > 0 ? hFovDeg : 69) * (Math.PI / 180);
+  const fx = (imageWidth / 2) / Math.tan(fovRad / 2);
   return { fx, fy: fx, cx: imageWidth / 2, cy: imageHeight / 2 };
 }
 
