@@ -143,6 +143,58 @@ export function decomposeCameraPose(
   return { position: { x: posX, y: posY, z: posZ }, panDeg, tiltDeg, rollDeg };
 }
 
+/**
+ * Project a 3D field point (internal frame: X→1B, Y→up, Z→3B, feet)
+ * to image pixel coordinates using the decomposed camera pose.
+ *
+ * The homography only handles ground-plane points. This function handles
+ * any 3D point (e.g., the strike zone which is above the ground).
+ */
+export function projectFieldPoint3D(
+  pt: { x: number; y: number; z: number },
+  H: Homography,
+  K: CameraIntrinsics,
+): { u: number; v: number } | null {
+  const ifx = 1 / K.fx, ify = 1 / K.fy;
+  const Kinv = [
+    ifx, 0,   -K.cx * ifx,
+    0,   ify, -K.cy * ify,
+    0,   0,   1,
+  ];
+
+  const M = mul3(Kinv, H);
+  const c0 = [M[0]!, M[3]!, M[6]!];
+  const c1 = [M[1]!, M[4]!, M[7]!];
+  const c2 = [M[2]!, M[5]!, M[8]!];
+
+  const lambda = Math.sqrt(c0[0]! * c0[0]! + c0[1]! * c0[1]! + c0[2]! * c0[2]!);
+  if (lambda < 1e-10) return null;
+
+  const r1 = c0.map((v) => v / lambda);
+  const r2 = c1.map((v) => v / lambda);
+  const t  = c2.map((v) => v / lambda);
+  const r3 = cross3(r1, r2);
+
+  // R maps (field_X, field_Z, field_Y) → camera. Our 3D point is in
+  // (field_X, field_Y, field_Z). Rearrange: cam = R * [pt.x, pt.z, pt.y] + t
+  const wx = pt.x;
+  const wy = pt.z;  // field Z → second column of R
+  const wz = pt.y;  // field Y (up) → third column of R (r3)
+
+  const cx = r1[0]! * wx + r2[0]! * wy + r3[0]! * wz + t[0]!;
+  const cy = r1[1]! * wx + r2[1]! * wy + r3[1]! * wz + t[1]!;
+  const cz = r1[2]! * wx + r2[2]! * wy + r3[2]! * wz + t[2]!;
+
+  if (Math.abs(cz) < 1e-10) return null;
+  // Ensure positive depth
+  if (cz < 0) return null;
+
+  const u = K.fx * (cx / cz) + K.cx;
+  const v = K.fy * (cy / cz) + K.cy;
+
+  return { u, v };
+}
+
 function mul3(A: number[], B: number[]): number[] {
   const C = new Array(9).fill(0);
   for (let r = 0; r < 3; r++)

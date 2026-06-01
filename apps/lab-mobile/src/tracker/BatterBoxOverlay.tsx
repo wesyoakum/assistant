@@ -15,8 +15,10 @@ import {
   allEightCorners,
   type CameraPose,
 } from "../field/batterBox";
-import { applyHomography } from "../field/videoHomography";
+import { applyHomography, type Homography } from "../field/videoHomography";
 import { homePlateCorners } from "../field/homePlateGeometry";
+import { projectFieldPoint3D, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
+import { fieldLandmarks } from "../field/fieldTemplate";
 
 export interface BatterBoxOverlayProps {
   imageWidth: number;
@@ -39,6 +41,28 @@ const HANDLE_RADIUS = 18;
 const BOX_COLOR = "rgba(0,200,255,0.9)";
 const BOX_FILL = "rgba(0,200,255,0.06)";
 const HANDLE_LABELS = ["L Front", "R Front", "R Back", "L Back"] as const;
+
+const DIAG = Math.SQRT1_2;
+const PLATE_DEPTH_FT = 17 / 12;
+
+// Strike zone: 17" wide, centered over the front edge of the plate.
+// Bottom ~19" (1.583 ft), top ~42" (3.5 ft) above the ground.
+// In field coords, the front edge midpoint is at PLATE_DEPTH_FT along the diagonal.
+const SZ_HALF_W_FT = (17 / 12) / 2; // half width in feet
+const SZ_BOT_FT = 19 / 12;
+const SZ_TOP_FT = 42 / 12;
+const SZ_CENTER = { x: PLATE_DEPTH_FT * DIAG, z: PLATE_DEPTH_FT * DIAG }; // front edge midpoint
+const SZ_RIGHT = { x: DIAG, z: -DIAG }; // perpendicular to diagonal, toward 1B side
+
+// 4 corners of the strike zone in field 3D (x, y_up, z):
+function strikeZoneCorners3D(): { x: number; y: number; z: number }[] {
+  return [
+    { x: SZ_CENTER.x + SZ_HALF_W_FT * SZ_RIGHT.x, y: SZ_BOT_FT, z: SZ_CENTER.z + SZ_HALF_W_FT * SZ_RIGHT.z }, // bottom-right
+    { x: SZ_CENTER.x - SZ_HALF_W_FT * SZ_RIGHT.x, y: SZ_BOT_FT, z: SZ_CENTER.z - SZ_HALF_W_FT * SZ_RIGHT.z }, // bottom-left
+    { x: SZ_CENTER.x - SZ_HALF_W_FT * SZ_RIGHT.x, y: SZ_TOP_FT, z: SZ_CENTER.z - SZ_HALF_W_FT * SZ_RIGHT.z }, // top-left
+    { x: SZ_CENTER.x + SZ_HALF_W_FT * SZ_RIGHT.x, y: SZ_TOP_FT, z: SZ_CENTER.z + SZ_HALF_W_FT * SZ_RIGHT.z }, // top-right
+  ];
+}
 
 function defaultCorners(): FourCorners {
   return [
@@ -140,10 +164,29 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const plateScreen = homePlateCorners().map((p) => projectCorner(p));
       const plateValid = plateScreen.every((p) => p != null);
 
+      // Bases (ground plane — use homography directly)
+      const landmarks = fieldLandmarks("highSchool");
+      const bases = (["first_base", "second_base", "third_base"] as const).map((id) => {
+        const lm = landmarks[id];
+        return projectCorner(lm);
+      });
+
+      // Strike zone (3D — needs camera intrinsics + full projection)
+      const K = intrinsicsFromFov(imageWidth, imageHeight, 0); // 0 = default FOV
+      const szCorners = strikeZoneCorners3D();
+      const szScreen = szCorners.map((pt) => {
+        const img = projectFieldPoint3D(pt, pose.fit.H, K);
+        if (!img) return null;
+        return imageToScreen(img.u / imageWidth, img.v / imageHeight);
+      });
+      const szValid = szScreen.every((p) => p != null);
+
       return {
         left: leftScreen as { x: number; y: number }[],
         right: rightScreen as { x: number; y: number }[],
         plate: plateValid ? (plateScreen as { x: number; y: number }[]) : null,
+        bases: bases as ({ x: number; y: number } | null)[],
+        strikeZone: szValid ? (szScreen as { x: number; y: number }[]) : null,
       };
     }, [corners, imageWidth, imageHeight, imageToScreen]);
 
@@ -243,6 +286,25 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
                   points={liveProjection.plate.map((p) => `${p.x},${p.y}`).join(" ")}
                   fill="rgba(255,255,255,0.1)"
                   stroke="rgba(255,255,255,0.8)"
+                  strokeWidth={1.5}
+                />
+              )}
+              {/* Bases as diamonds */}
+              {liveProjection.bases.map((b, i) => b && (
+                <Polygon
+                  key={`base-${i}`}
+                  points={`${b.x},${b.y - 6} ${b.x + 6},${b.y} ${b.x},${b.y + 6} ${b.x - 6},${b.y}`}
+                  fill="rgba(255,255,255,0.3)"
+                  stroke="rgba(255,255,255,0.9)"
+                  strokeWidth={1.5}
+                />
+              ))}
+              {/* Strike zone rectangle */}
+              {liveProjection.strikeZone && (
+                <Polygon
+                  points={liveProjection.strikeZone.map((p) => `${p.x},${p.y}`).join(" ")}
+                  fill="rgba(255,59,48,0.08)"
+                  stroke="rgba(255,59,48,0.8)"
                   strokeWidth={1.5}
                 />
               )}
