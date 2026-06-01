@@ -23,6 +23,7 @@ import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverla
 import { RoiOverlay } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
+import { useOrientation } from "../hooks/useOrientation";
 import { useTheme } from "../theme";
 
 type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
@@ -55,6 +56,8 @@ const MAX_SCALE = 8;
 
 export function TrackerTab() {
   const theme = useTheme();
+  const orientation = useOrientation();
+  const isLandscape = orientation === "landscape";
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [frame, setFrame] = useState<FirstFrameResult | null>(null);
   const [frameTimeSec, setFrameTimeSec] = useState(0);
@@ -124,7 +127,7 @@ export function TrackerTab() {
     loadVideo(asset.uri);
   };
 
-  const loadVideo = (uri: string) => {
+  const loadVideo = async (uri: string) => {
     setVideoUri(uri);
     setFrame(null);
     setFrameTimeSec(0);
@@ -132,7 +135,7 @@ export function TrackerTab() {
     setIsSaved(savedVideos.some((v) => v.uri === uri));
     setResult(null);
     setVp({ scale: 1, tx: 0, ty: 0 });
-    await loadFrame(asset.uri, 0);
+    await loadFrame(uri, 0);
   };
 
   const loadFrame = async (uri: string, timeSec: number) => {
@@ -589,12 +592,200 @@ export function TrackerTab() {
     );
   }
 
+  // ── Controls block (reused in both portrait and landscape) ──────────
+  const controlsBlock = !result && frame ? (
+    <View style={{ gap: 6, flex: isLandscape ? 1 : undefined }}>
+      {/* Frame step */}
+      <View style={{ flexDirection: "row", gap: 6 }}>
+        <Pressable onPress={() => frameStep(-1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+          <Text style={[styles.btnText, { color: theme.text }]}>«1s</Text>
+        </Pressable>
+        <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+          <Text style={[styles.btnText, { color: theme.text }]}>‹</Text>
+        </Pressable>
+        <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+          <Text style={[styles.btnText, { color: theme.text }]}>›</Text>
+        </Pressable>
+        <Pressable onPress={() => frameStep(1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+          <Text style={[styles.btnText, { color: theme.text }]}>1s»</Text>
+        </Pressable>
+      </View>
+
+      {/* Setup row: Calibrate / ROI / Start / End */}
+      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+        <Pressable
+          onPress={() => {
+            if (cameraPose && !showPoseOverlay) { setCameraPose(null); }
+            else { setShowPoseOverlay((v) => !v); setShowRoiOverlay(false); }
+          }}
+          disabled={!!busy}
+          style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : cameraPose ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
+        >
+          <Text style={[styles.btnText, { color: showPoseOverlay || cameraPose ? "#fff" : theme.text, fontSize: 11 }]}>
+            {cameraPose ? "Pose ✓" : showPoseOverlay ? "Cal…" : "Calibrate"}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => {
+            if (box && !showRoiOverlay) { setBox(null); }
+            else { setShowRoiOverlay((v) => !v); setShowPoseOverlay(false); }
+          }}
+          disabled={!!busy}
+          style={[styles.btn, { backgroundColor: showRoiOverlay ? "#FF3B30" : box ? "#FF3B30" : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
+        >
+          <Text style={[styles.btnText, { color: showRoiOverlay || box ? "#fff" : theme.text, fontSize: 11 }]}>
+            {box ? "ROI ✓" : showRoiOverlay ? "ROI…" : "ROI"}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }}
+          disabled={!!busy}
+          style={[styles.btn, { backgroundColor: startTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
+        >
+          <Text style={[styles.btnText, { color: startTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
+            {startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"}
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }}
+          disabled={!!busy}
+          style={[styles.btn, { backgroundColor: endTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
+        >
+          <Text style={[styles.btnText, { color: endTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
+            {endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"}
+          </Text>
+        </Pressable>
+      </View>
+
+      {/* Pose overlay controls */}
+      {showPoseOverlay && (
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <Pressable onPress={() => poseOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { const pose = poseOverlayRef.current?.solve(); if (pose) { setCameraPose(pose); setShowPoseOverlay(false); } }}
+            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
+          >
+            <Text style={styles.btnText}>Set Pose</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Run / Clear */}
+      <View style={{ flexDirection: "row", gap: 6 }}>
+        <Pressable
+          onPress={runTracker}
+          disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
+          style={[styles.btn, { backgroundColor: theme.highlight, flex: 2, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
+        >
+          <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => { setBox(null); setResult(null); setCameraPose(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
+          disabled={!box}
+          style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
+        >
+          <Text style={[styles.btnText, { color: theme.text }]}>Clear</Text>
+        </Pressable>
+      </View>
+
+      {busy && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <ActivityIndicator color={theme.primary} />
+          <Text style={{ color: theme.textSubtle, fontSize: 12 }}>{busy}</Text>
+        </View>
+      )}
+    </View>
+  ) : null;
+
+  // ── Video canvas block ─────────────────────────────────────────────
+  const videoCanvas = !result && frame ? (
+    <View
+      ref={canvasRef2}
+      {...responder.panHandlers}
+      onLayout={onCanvasLayout}
+      style={{
+        aspectRatio: frame.imageWidth / frame.imageHeight,
+        backgroundColor: "#000",
+        borderRadius: 8,
+        overflow: "hidden",
+        flex: isLandscape ? 2 : undefined,
+      }}
+    >
+      <Image
+        source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }}
+        style={{
+          width: "100%",
+          height: "100%",
+          transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
+        }}
+        resizeMode="cover"
+        fadeDuration={0}
+      />
+      {committedBoxScreen && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: committedBoxScreen.x,
+            top: committedBoxScreen.y,
+            width: committedBoxScreen.w,
+            height: committedBoxScreen.h,
+            borderWidth: 2,
+            borderColor: "#FF3B30",
+            borderStyle: "dashed",
+          }}
+        />
+      )}
+      {vp.scale > 1.01 && (
+        <View style={{ position: "absolute", top: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+          <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
+        </View>
+      )}
+      <View style={{ position: "absolute", bottom: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+        <Text style={{ color: "#fff", fontSize: 11 }}>
+          {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
+          {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
+        </Text>
+      </View>
+      {showRoiOverlay && (
+        <RoiOverlay
+          imageWidth={frame.imageWidth}
+          imageHeight={frame.imageHeight}
+          vp={vp}
+          canvas={canvas}
+          canvasPageOffset={canvasPageOffsetRef.current}
+          onRoiSet={(roi) => {
+            setBox(roi);
+            setShowRoiOverlay(false);
+          }}
+          theme={theme}
+        />
+      )}
+      {showPoseOverlay && (
+        <BatterBoxOverlay
+          ref={poseOverlayRef}
+          imageWidth={frame.imageWidth}
+          imageHeight={frame.imageHeight}
+          vp={vp}
+          canvas={canvas}
+          canvasPageOffset={canvasPageOffsetRef.current}
+        />
+      )}
+    </View>
+  ) : null;
+
   return (
-    <ScrollView contentContainerStyle={{ padding: 12 }} scrollEnabled={scrollEnabled}>
-      <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, marginBottom: 6 }}>Vision tracker</Text>
-      <Text style={{ fontSize: 12, color: theme.textSubtle, marginBottom: 12 }}>
-        Pick a video, step to a frame where the ball is visible, pinch + pan to zoom, drag with one finger to draw the initial box, run the tracker.
-      </Text>
+    <ScrollView contentContainerStyle={{ padding: isLandscape ? 8 : 12 }} scrollEnabled={scrollEnabled}>
+      {!isLandscape && (
+        <>
+          <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, marginBottom: 6 }}>Vision tracker</Text>
+          <Text style={{ fontSize: 12, color: theme.textSubtle, marginBottom: 12 }}>
+            Pick a video, calibrate the batter's boxes, set ROI and frame range, run the tracker.
+          </Text>
+        </>
+      )}
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
         <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
@@ -662,218 +853,19 @@ export function TrackerTab() {
         </View>
       )}
 
-      {!result && frame && (
-        <View
-          ref={canvasRef2}
-          {...responder.panHandlers}
-          onLayout={onCanvasLayout}
-          style={{
-            aspectRatio: frame.imageWidth / frame.imageHeight,
-            backgroundColor: "#000",
-            borderRadius: 8,
-            overflow: "hidden",
-            marginBottom: 8,
-          }}
-        >
-          <Image
-            source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }}
-            style={{
-              width: "100%",
-              height: "100%",
-              transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
-            }}
-            resizeMode="cover"
-            fadeDuration={0}
-          />
-          {committedBoxScreen && (
-            <View
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: committedBoxScreen.x,
-                top: committedBoxScreen.y,
-                width: committedBoxScreen.w,
-                height: committedBoxScreen.h,
-                borderWidth: 2,
-                borderColor: "#FF3B30",
-                borderStyle: "dashed",
-              }}
-            />
-          )}
-          {vp.scale > 1.01 && (
-            <View style={{ position: "absolute", top: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-              <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
-            </View>
-          )}
-          <View style={{ position: "absolute", bottom: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-            <Text style={{ color: "#fff", fontSize: 11 }}>
-              {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
-              {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
-            </Text>
-          </View>
-          {showRoiOverlay && (
-            <RoiOverlay
-              imageWidth={frame.imageWidth}
-              imageHeight={frame.imageHeight}
-              vp={vp}
-              canvas={canvas}
-              canvasPageOffset={canvasPageOffsetRef.current}
-              onRoiSet={(roi) => {
-                setBox(roi);
-                setShowRoiOverlay(false);
-              }}
-              theme={theme}
-            />
-          )}
-          {showPoseOverlay && (
-            <BatterBoxOverlay
-              ref={poseOverlayRef}
-              imageWidth={frame.imageWidth}
-              imageHeight={frame.imageHeight}
-              vp={vp}
-              canvas={canvas}
-              canvasPageOffset={canvasPageOffsetRef.current}
-            />
-          )}
-        </View>
-      )}
-
-      {!result && frame && (
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 8 }}>
-          <Pressable onPress={() => frameStep(-1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>«1s</Text>
-          </Pressable>
-          <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>‹ frame</Text>
-          </Pressable>
-          <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>frame ›</Text>
-          </Pressable>
-          <Pressable onPress={() => frameStep(1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>1s»</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {!result && frame && (
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-          {VISIBLE_MODES.map((m) => (
-            <Pressable
-              key={m}
-              onPress={() => setTrackerMode(m)}
-              style={[
-                styles.btn,
-                {
-                  minWidth: "31%",
-                  flexGrow: 1,
-                  backgroundColor: trackerMode === m ? theme.primary : theme.surfaceAlt,
-                  borderWidth: trackerMode === m ? 0 : StyleSheet.hairlineWidth,
-                  borderColor: theme.border,
-                },
-              ]}
-            >
-              <Text style={[styles.btnText, { color: trackerMode === m ? "#fff" : theme.text }]}>
-                {MODE_LABEL[m]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {!result && frame && (
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-          <Pressable
-            onPress={() => {
-              if (cameraPose && !showPoseOverlay) { setCameraPose(null); }
-              else { setShowPoseOverlay((v) => !v); setShowRoiOverlay(false); }
-            }}
-            disabled={!!busy}
-            style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : cameraPose ? theme.primary : theme.surfaceAlt, flex: 1 }]}
-          >
-            <Text style={[styles.btnText, { color: showPoseOverlay || cameraPose ? "#fff" : theme.text, fontSize: 11 }]}>
-              {cameraPose ? "Pose ✓" : showPoseOverlay ? "Calibrate…" : "Calibrate"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              if (box && !showRoiOverlay) { setBox(null); }
-              else { setShowRoiOverlay((v) => !v); setShowPoseOverlay(false); }
-            }}
-            disabled={!!busy}
-            style={[styles.btn, { backgroundColor: showRoiOverlay ? "#FF3B30" : box ? "#FF3B30" : theme.surfaceAlt, flex: 1 }]}
-          >
-            <Text style={[styles.btnText, { color: showRoiOverlay || box ? "#fff" : theme.text, fontSize: 11 }]}>
-              {box ? "ROI ✓" : showRoiOverlay ? "ROI…" : "ROI"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }}
-            disabled={!!busy}
-            style={[styles.btn, { backgroundColor: startTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1 }]}
-          >
-            <Text style={[styles.btnText, { color: startTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
-              {startTimeSec != null ? `Start ${startTimeSec.toFixed(1)}s` : "Set Start"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }}
-            disabled={!!busy}
-            style={[styles.btn, { backgroundColor: endTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1 }]}
-          >
-            <Text style={[styles.btnText, { color: endTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
-              {endTimeSec != null ? `End ${endTimeSec.toFixed(1)}s` : "Set End"}
-            </Text>
-          </Pressable>
-        </View>
-      )}
-
-      {!result && frame && showPoseOverlay && (
-        <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-          <Pressable
-            onPress={() => poseOverlayRef.current?.reset()}
-            style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
-          >
-            <Text style={[styles.btnText, { color: theme.text }]}>Reset Corners</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              const pose = poseOverlayRef.current?.solve();
-              if (pose) {
-                setCameraPose(pose);
-                setShowPoseOverlay(false);
-              }
-            }}
-            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
-          >
-            <Text style={styles.btnText}>Set Pose</Text>
-          </Pressable>
-        </View>
-      )}
-
-      {!result && frame && (
+      {/* Video + Controls: side-by-side in landscape, stacked in portrait */}
+      {videoCanvas && controlsBlock && isLandscape ? (
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-          <Pressable
-            onPress={runTracker}
-            disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
-            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
-          >
-            <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => { setBox(null); setResult(null); setCameraPose(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
-            disabled={!box}
-            style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
-          >
-            <Text style={[styles.btnText, { color: theme.text }]}>Clear box</Text>
-          </Pressable>
+          {videoCanvas}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }} nestedScrollEnabled>
+            {controlsBlock}
+          </ScrollView>
         </View>
-      )}
-
-      {busy && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <ActivityIndicator color={theme.primary} />
-          <Text style={{ color: theme.textSubtle }}>{busy}</Text>
-        </View>
+      ) : (
+        <>
+          {videoCanvas && <View style={{ marginBottom: 8 }}>{videoCanvas}</View>}
+          {controlsBlock}
+        </>
       )}
 
       {result && (

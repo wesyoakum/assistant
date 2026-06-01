@@ -13,6 +13,7 @@
 //
 // Pure geometry — no native/React deps → unit-testable.
 
+// @ts-ignore .ts extension needed for node test runner
 import { type GroundPoint } from "./fieldTemplate.ts";
 import {
   fitHomography,
@@ -20,6 +21,7 @@ import {
   type Correspondence,
   type Homography,
   type HomographyFit,
+// @ts-ignore .ts extension needed for node test runner
 } from "./videoHomography.ts";
 
 // ── MLB plate + box dimensions (feet) ────────────────────────────────────────
