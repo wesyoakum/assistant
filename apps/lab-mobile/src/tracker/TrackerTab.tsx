@@ -636,7 +636,7 @@ export function TrackerTab() {
   // ── Controls block (reused in both portrait and landscape) ──────────
   const controlsBlock = !result && frame ? (
     <View style={{ gap: 6, flex: isLandscape ? 1 : undefined }}>
-      {/* Frame step */}
+      {/* Frame step + zoom */}
       <View style={{ flexDirection: "row", gap: 6 }}>
         <Pressable onPress={() => frameStep(-1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
           <Text style={[styles.btnText, { color: theme.text }]}>«1s</Text>
@@ -649,6 +649,15 @@ export function TrackerTab() {
         </Pressable>
         <Pressable onPress={() => frameStep(1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
           <Text style={[styles.btnText, { color: theme.text }]}>1s»</Text>
+        </Pressable>
+        <Pressable onPress={() => zoomBy(1 / 1.5)} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
+          <Text style={[styles.btnText, { color: theme.text }]}>−</Text>
+        </Pressable>
+        <Pressable onPress={resetViewport} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
+          <Text style={[styles.btnText, { color: theme.text, fontSize: 10 }]}>{vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"}</Text>
+        </Pressable>
+        <Pressable onPress={() => zoomBy(1.5)} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
+          <Text style={[styles.btnText, { color: theme.text }]}>+</Text>
         </Pressable>
       </View>
 
