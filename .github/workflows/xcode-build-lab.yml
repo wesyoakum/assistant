@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       build_number:
-        description: 'Build number (leave blank to auto-increment from last TestFlight build)'
-        required: false
-        default: ''
+        description: 'Build number (must be higher than last TestFlight build)'
+        required: true
+        default: '45'
 
 concurrency:
   group: xcode-build-lab
@@ -89,16 +89,10 @@ jobs:
       - name: Set build number
         working-directory: ${{ env.APP_DIR }}
         run: |
-          if [ -n "${{ inputs.build_number }}" ]; then
-            BUILD_NUM="${{ inputs.build_number }}"
-          else
-            # Read current from Info.plist and increment
-            CURRENT=$(defaults read "$(pwd)/ios/WHYLab/Info.plist" CFBundleVersion 2>/dev/null || echo "0")
-            BUILD_NUM=$((CURRENT + 1))
-          fi
+          BUILD_NUM="${{ inputs.build_number }}"
           echo "BUILD_NUMBER=$BUILD_NUM" >> "$GITHUB_ENV"
 
-          # Stamp it into the plist
+          # Stamp it into the generated Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUM" \
             ios/WHYLab/Info.plist
           echo "Build number: $BUILD_NUM"
@@ -120,6 +114,15 @@ jobs:
             -allowProvisioningUpdates \
             | xcbeautify || true
 
+      # --- Write ASC API key (needed for export + upload) ---
+      - name: Write App Store Connect API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p ~/.private_keys
+          echo "$ASC_KEY_P8" > ~/.private_keys/AuthKey_${ASC_KEY_ID}.p8
+
       # --- Export IPA ---
       - name: Create ExportOptions.plist
         run: |
@@ -135,8 +138,6 @@ jobs:
             <string>${{ secrets.APPLE_TEAM_ID }}</string>
             <key>uploadSymbols</key>
             <true/>
-            <key>destination</key>
-            <string>upload</string>
             <key>signingStyle</key>
             <string>manual</string>
             <key>provisioningProfiles</key>
@@ -153,27 +154,19 @@ jobs:
           xcodebuild -exportArchive \
             -archivePath $RUNNER_TEMP/WHYLab.xcarchive \
             -exportPath $RUNNER_TEMP/export \
-            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+            -authenticationKeyPath ~/.private_keys/AuthKey_${{ secrets.ASC_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.ASC_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.ASC_ISSUER_ID }}
 
       # --- Upload to TestFlight ---
       - name: Upload to App Store Connect
-        env:
-          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.ASC_API_KEY_P8 }}
         run: |
-          # Write the API key to a file
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$APP_STORE_CONNECT_API_KEY" > \
-            ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8
-
-          xcrun notarytool --help > /dev/null 2>&1 || true
-
           xcrun altool --upload-app \
             --type ios \
             --file "$RUNNER_TEMP/export/WHY Lab.ipa" \
-            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+            --apiKey "${{ secrets.ASC_KEY_ID }}" \
+            --apiIssuer "${{ secrets.ASC_ISSUER_ID }}"
 
       # --- Cleanup ---
       - name: Cleanup keychain

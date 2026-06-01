@@ -19,6 +19,8 @@ import { TrackNet } from "expo-tracknet";
 import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
+import { BatterBoxOverlay } from "./BatterBoxOverlay";
+import { type CameraPose } from "../field/batterBox";
 import { useTheme } from "../theme";
 
 type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
@@ -63,6 +65,8 @@ export function TrackerTab() {
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState<1 | 0.5 | 0.25 | 0.125>(1);
+  const [showPoseOverlay, setShowPoseOverlay] = useState(false);
+  const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -504,7 +508,7 @@ export function TrackerTab() {
     if (!result) return;
     const interp = interpolated ?? [];
     const trace = {
-      schema: "whyapp.tracker.trace/v2",
+      schema: "whyapp.tracker.trace/v3",
       capturedAt: new Date().toISOString(),
       mode: result.mode,
       videoWidth: result.videoWidth,
@@ -513,6 +517,7 @@ export function TrackerTab() {
       elapsedMs: result.elapsedMs,
       startTimeSec: frameTimeSec,
       initialBox: box,
+      cameraPose: cameraPose ? { side: cameraPose.side, rmsPx: cameraPose.fit.rmsPx, H: cameraPose.fit.H } : null,
       frames: result.frames.map((f, i) => {
         const ip = interp[i];
         const interpBox = ip?.interpolated && ip.box ? ip.box : null;
@@ -671,6 +676,20 @@ export function TrackerTab() {
               {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
             </Text>
           </View>
+          {showPoseOverlay && (
+            <BatterBoxOverlay
+              imageWidth={frame.imageWidth}
+              imageHeight={frame.imageHeight}
+              vp={vp}
+              canvas={canvas}
+              canvasPageOffset={canvasPageOffsetRef.current}
+              onPoseSet={(pose) => {
+                setCameraPose(pose);
+                setShowPoseOverlay(false);
+              }}
+              theme={theme}
+            />
+          )}
         </View>
       )}
 
@@ -719,14 +738,23 @@ export function TrackerTab() {
       {!result && frame && (
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
           <Pressable
+            onPress={() => setShowPoseOverlay((v) => !v)}
+            disabled={!!busy}
+            style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : theme.surfaceAlt, flex: 1 }]}
+          >
+            <Text style={[styles.btnText, { color: showPoseOverlay ? "#fff" : theme.text }]}>
+              {cameraPose ? "Pose set ✓" : "Calibrate"}
+            </Text>
+          </Pressable>
+          <Pressable
             onPress={runTracker}
             disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
-            style={[styles.btn, { backgroundColor: theme.highlight, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
+            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
           >
             <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : `Run ${MODE_LABEL[trackerMode]}`}</Text>
           </Pressable>
           <Pressable
-            onPress={() => { setBox(null); setResult(null); }}
+            onPress={() => { setBox(null); setResult(null); setCameraPose(null); setShowPoseOverlay(false); }}
             disabled={!box}
             style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
           >
