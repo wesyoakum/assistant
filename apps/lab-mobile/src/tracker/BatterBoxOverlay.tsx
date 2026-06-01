@@ -1,22 +1,21 @@
 // Batter's box calibration overlay.
 //
-// Shows both batter's boxes as wireframes with only 4 draggable corner
-// handles (the outer corners of the pair). The inner edges and plate gap
-// are computed from the homography since all geometry is known. The user
-// drags 4 points → both boxes move together correctly.
-//
-// Controls (Reset, Set Pose) live in the parent TrackerTab, not here.
+// Shows both batter's boxes as wireframes with 4 outer corner handles.
+// Single responder for all touch interaction:
+//   - Touch INSIDE the quad → drag the whole template
+//   - Touch OUTSIDE the quad → grab the nearest corner handle
+//   - 2-finger pinch → scale the template around its center
+// Controls (Reset, Set Pose) live in the parent TrackerTab.
 
 import React, { useCallback, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { View, Text, StyleSheet, PanResponder } from "react-native";
-import Svg, { Polygon, Line } from "react-native-svg";
+import Svg, { Polygon, Line, Circle } from "react-native-svg";
 import {
   solveFromOuterCorners,
   allEightCorners,
   type CameraPose,
 } from "../field/batterBox";
 import { applyHomography } from "../field/videoHomography";
-// Note: Metro resolves without .ts extension; node tests use .ts in the field/ files.
 
 export interface BatterBoxOverlayProps {
   imageWidth: number;
@@ -35,21 +34,46 @@ export interface BatterBoxOverlayHandle {
 type Corner = { nx: number; ny: number };
 type FourCorners = [Corner, Corner, Corner, Corner];
 
-const HANDLE_RADIUS = 16;
-
+const HANDLE_RADIUS = 18;
 const BOX_COLOR = "rgba(0,200,255,0.9)";
 const BOX_FILL = "rgba(0,200,255,0.06)";
-
 const HANDLE_LABELS = ["L Front", "R Front", "R Back", "L Back"] as const;
 
-/** Default outer corners — a rough trapezoidal pair in center-bottom of frame. */
 function defaultCorners(): FourCorners {
   return [
-    { nx: 0.25, ny: 0.50 }, // left front-outside
-    { nx: 0.75, ny: 0.50 }, // right front-outside
-    { nx: 0.80, ny: 0.82 }, // right back-outside
-    { nx: 0.20, ny: 0.82 }, // left back-outside
+    { nx: 0.25, ny: 0.50 },
+    { nx: 0.75, ny: 0.50 },
+    { nx: 0.80, ny: 0.82 },
+    { nx: 0.20, ny: 0.82 },
   ];
+}
+
+/** Is point (px,py) inside the polygon defined by pts? (ray casting) */
+function pointInQuad(px: number, py: number, pts: { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i]!.x, yi = pts[i]!.y;
+    const xj = pts[j]!.x, yj = pts[j]!.y;
+    if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+/** Distance between two points. */
+function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Find index of the nearest corner handle to a screen point. */
+function nearestHandle(sx: number, sy: number, handles: { x: number; y: number }[]): number {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < handles.length; i++) {
+    const d = dist({ x: sx, y: sy }, handles[i]!);
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
 }
 
 export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOverlayProps>(
@@ -57,6 +81,9 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     const [corners, setCorners] = useState<FourCorners>(defaultCorners);
     const [activeHandle, setActiveHandle] = useState<number | null>(null);
     const [err, setErr] = useState<string | null>(null);
+
+    const cornersRef = useRef(corners);
+    cornersRef.current = corners;
 
     const imageToScreen = useCallback(
       (nx: number, ny: number) => {
@@ -84,115 +111,141 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       [canvas, vp],
     );
 
-    // Screen positions of the 4 drag handles.
     const screenHandles = useMemo(
       () => corners.map((c) => imageToScreen(c.nx, c.ny)),
       [corners, imageToScreen],
     );
+    const screenHandlesRef = useRef(screenHandles);
+    screenHandlesRef.current = screenHandles;
 
-    // Try to solve the homography live so we can project the inner edges.
+    // Live homography projection for inner edges.
     const liveProjection = useMemo(() => {
       const imgCorners = corners.map((c) => ({
         u: c.nx * imageWidth,
         v: c.ny * imageHeight,
       })) as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
-
       const pose = solveFromOuterCorners(imgCorners);
       if (!pose) return null;
-
-      // Project all 8 corners to image coords, then to screen coords.
       const all = allEightCorners();
       const projectCorner = (pt: { x: number; z: number }) => {
         const img = applyHomography(pose.fit.H, pt.x, pt.z);
         if (!img) return null;
         return imageToScreen(img.x / imageWidth, img.y / imageHeight);
       };
-
       const leftScreen = all.left.map((p) => projectCorner(p));
       const rightScreen = all.right.map((p) => projectCorner(p));
       if (leftScreen.some((p) => !p) || rightScreen.some((p) => !p)) return null;
-
       return {
         left: leftScreen as { x: number; y: number }[],
         right: rightScreen as { x: number; y: number }[],
       };
     }, [corners, imageWidth, imageHeight, imageToScreen]);
 
-    // SVG polygon points.
-    const leftPoly = liveProjection
-      ? liveProjection.left.map((p) => `${p.x},${p.y}`).join(" ")
-      : null;
-    const rightPoly = liveProjection
-      ? liveProjection.right.map((p) => `${p.x},${p.y}`).join(" ")
-      : null;
-
-    // Fallback: just draw lines between the 4 outer handles if homography fails.
+    const leftPoly = liveProjection ? liveProjection.left.map((p) => `${p.x},${p.y}`).join(" ") : null;
+    const rightPoly = liveProjection ? liveProjection.right.map((p) => `${p.x},${p.y}`).join(" ") : null;
     const outerPoly = screenHandles.map((p) => `${p.x},${p.y}`).join(" ");
 
-    // Ref so the body-drag responder can read corners without re-creating.
-    const cornersRef = useRef(corners);
-    cornersRef.current = corners;
+    // ── Single unified responder ────────────────────────────────────────
+    // Determines mode on grant: "corner" (drag nearest handle), "body"
+    // (move all), or "scale" (2-finger pinch).
 
-    // 4 corner PanResponders + 1 body-drag responder.
-    const responders = useMemo(() => {
-      return [0, 1, 2, 3].map((idx) =>
-        PanResponder.create({
-          onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
-          onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
-          onStartShouldSetPanResponderCapture: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
-          onMoveShouldSetPanResponderCapture: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
-          onPanResponderTerminationRequest: () => true,
-          onPanResponderGrant: () => setActiveHandle(idx),
-          onPanResponderMove: (_, gs) => {
+    type DragMode = { type: "corner"; idx: number } | { type: "body"; startCorners: FourCorners; startImg: Corner } | { type: "scale"; startCorners: FourCorners; startDist: number; center: Corner };
+    const dragRef = useRef<DragMode | null>(null);
+
+    const unifiedResponder = useMemo(() =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onPanResponderTerminationRequest: () => true,
+        onPanResponderGrant: (e, gs) => {
+          const touches = e.nativeEvent.touches;
+          if (touches && touches.length >= 2) {
+            // Pinch → scale mode.
+            const t0 = touches[0]!, t1 = touches[1]!;
+            const d = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
+            const c = cornersRef.current;
+            const center: Corner = {
+              nx: (c[0].nx + c[1].nx + c[2].nx + c[3].nx) / 4,
+              ny: (c[0].ny + c[1].ny + c[2].ny + c[3].ny) / 4,
+            };
+            dragRef.current = { type: "scale", startCorners: [...c] as FourCorners, startDist: Math.max(1, d), center };
+            setActiveHandle(-2);
+            return;
+          }
+
+          const localX = gs.x0 - canvasPageOffset.x;
+          const localY = gs.y0 - canvasPageOffset.y;
+          const touchPt = { x: localX, y: localY };
+          const handles = screenHandlesRef.current;
+
+          // Check if inside the quad → body drag.
+          if (pointInQuad(localX, localY, handles)) {
+            const img = screenToImage(localX, localY);
+            dragRef.current = { type: "body", startCorners: [...cornersRef.current] as FourCorners, startImg: img };
+            setActiveHandle(-1);
+          } else {
+            // Outside → grab nearest corner.
+            const idx = nearestHandle(localX, localY, handles);
+            dragRef.current = { type: "corner", idx };
+            setActiveHandle(idx);
+          }
+        },
+        onPanResponderMove: (e, gs) => {
+          const drag = dragRef.current;
+          if (!drag) return;
+
+          // Check for pinch promotion.
+          const touches = e.nativeEvent.touches;
+          if (touches && touches.length >= 2 && drag.type !== "scale") {
+            const t0 = touches[0]!, t1 = touches[1]!;
+            const d = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
+            const c = cornersRef.current;
+            const center: Corner = {
+              nx: (c[0].nx + c[1].nx + c[2].nx + c[3].nx) / 4,
+              ny: (c[0].ny + c[1].ny + c[2].ny + c[3].ny) / 4,
+            };
+            dragRef.current = { type: "scale", startCorners: [...c] as FourCorners, startDist: Math.max(1, d), center };
+            setActiveHandle(-2);
+            return;
+          }
+
+          if (drag.type === "scale" && touches && touches.length >= 2) {
+            const t0 = touches[0]!, t1 = touches[1]!;
+            const curD = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
+            const ratio = curD / drag.startDist;
+            setCorners(drag.startCorners.map((c) => ({
+              nx: Math.max(0, Math.min(1, drag.center.nx + (c.nx - drag.center.nx) * ratio)),
+              ny: Math.max(0, Math.min(1, drag.center.ny + (c.ny - drag.center.ny) * ratio)),
+            })) as FourCorners);
+            return;
+          }
+
+          if (drag.type === "corner") {
             const localX = gs.moveX - canvasPageOffset.x;
             const localY = gs.moveY - canvasPageOffset.y;
             const img = screenToImage(localX, localY);
             setCorners((prev) => {
               const next = [...prev] as FourCorners;
-              next[idx] = img;
+              next[drag.idx] = img;
               return next;
             });
-          },
-          onPanResponderRelease: () => setActiveHandle(null),
-          onPanResponderTerminate: () => setActiveHandle(null),
-        }),
-      );
-    }, [canvasPageOffset, screenToImage]);
+            return;
+          }
 
-    const dragStartRef = useRef<{ corners: FourCorners; startImg: Corner } | null>(null);
-
-    const bodyResponder = useMemo(() =>
-      PanResponder.create({
-        // Only claim single-finger touches; let 2-finger pinch pass to the
-        // canvas responder for zoom/pan.
-        onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
-        onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
-        onPanResponderTerminationRequest: () => true,
-        onPanResponderGrant: (_, gs) => {
-          setActiveHandle(-1);
-          const localX = gs.x0 - canvasPageOffset.x;
-          const localY = gs.y0 - canvasPageOffset.y;
-          const startImg = screenToImage(localX, localY);
-          dragStartRef.current = {
-            corners: [...cornersRef.current] as FourCorners,
-            startImg,
-          };
+          if (drag.type === "body") {
+            const localX = gs.moveX - canvasPageOffset.x;
+            const localY = gs.moveY - canvasPageOffset.y;
+            const curImg = screenToImage(localX, localY);
+            const dx = curImg.nx - drag.startImg.nx;
+            const dy = curImg.ny - drag.startImg.ny;
+            setCorners(drag.startCorners.map((c) => ({
+              nx: Math.max(0, Math.min(1, c.nx + dx)),
+              ny: Math.max(0, Math.min(1, c.ny + dy)),
+            })) as FourCorners);
+          }
         },
-        onPanResponderMove: (_, gs) => {
-          const drag = dragStartRef.current;
-          if (!drag) return;
-          const localX = gs.moveX - canvasPageOffset.x;
-          const localY = gs.moveY - canvasPageOffset.y;
-          const curImg = screenToImage(localX, localY);
-          const dx = curImg.nx - drag.startImg.nx;
-          const dy = curImg.ny - drag.startImg.ny;
-          setCorners(drag.corners.map((c) => ({
-            nx: Math.max(0, Math.min(1, c.nx + dx)),
-            ny: Math.max(0, Math.min(1, c.ny + dy)),
-          })) as FourCorners);
-        },
-        onPanResponderRelease: () => { setActiveHandle(null); dragStartRef.current = null; },
-        onPanResponderTerminate: () => { setActiveHandle(null); dragStartRef.current = null; },
+        onPanResponderRelease: () => { dragRef.current = null; setActiveHandle(null); },
+        onPanResponderTerminate: () => { dragRef.current = null; setActiveHandle(null); },
       }),
     [canvasPageOffset, screenToImage]);
 
@@ -203,96 +256,48 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           u: c.nx * imageWidth,
           v: c.ny * imageHeight,
         })) as [{ u: number; v: number }, { u: number; v: number }, { u: number; v: number }, { u: number; v: number }];
-
         const pose = solveFromOuterCorners(imgCorners);
-        if (!pose) {
-          setErr("Could not solve pose — try adjusting the corners");
-          return null;
-        }
-        if (pose.fit.rmsPx > 5) {
-          setErr(`High reprojection error (${pose.fit.rmsPx.toFixed(1)}px)`);
-        }
+        if (!pose) { setErr("Could not solve pose — try adjusting the corners"); return null; }
+        if (pose.fit.rmsPx > 5) { setErr(`High reprojection error (${pose.fit.rmsPx.toFixed(1)}px)`); }
         return pose;
       },
-      reset: () => {
-        setCorners(defaultCorners());
-        setErr(null);
-      },
+      reset: () => { setCorners(defaultCorners()); setErr(null); },
       getError: () => err,
     }), [corners, imageWidth, imageHeight, err]);
 
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        {/* SVG wireframes */}
         <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
           {liveProjection ? (
             <>
               <Polygon points={leftPoly!} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
               <Polygon points={rightPoly!} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
-              <Line
-                x1={liveProjection.left[0]!.x} y1={liveProjection.left[0]!.y}
-                x2={liveProjection.left[3]!.x} y2={liveProjection.left[3]!.y}
-                stroke={BOX_COLOR} strokeWidth={1}
-              />
-              <Line
-                x1={liveProjection.right[0]!.x} y1={liveProjection.right[0]!.y}
-                x2={liveProjection.right[3]!.x} y2={liveProjection.right[3]!.y}
-                stroke={BOX_COLOR} strokeWidth={1}
-              />
+              <Line x1={liveProjection.left[0]!.x} y1={liveProjection.left[0]!.y} x2={liveProjection.left[3]!.x} y2={liveProjection.left[3]!.y} stroke={BOX_COLOR} strokeWidth={1} />
+              <Line x1={liveProjection.right[0]!.x} y1={liveProjection.right[0]!.y} x2={liveProjection.right[3]!.x} y2={liveProjection.right[3]!.y} stroke={BOX_COLOR} strokeWidth={1} />
             </>
           ) : (
             <Polygon points={outerPoly} fill="rgba(0,200,255,0.05)" stroke={BOX_COLOR} strokeWidth={1.5} />
           )}
+          {/* Corner dots */}
+          {screenHandles.map((p, i) => (
+            <Circle key={i} cx={p.x} cy={p.y} r={activeHandle === i ? HANDLE_RADIUS : 8}
+              fill={activeHandle === i ? "rgba(0,200,255,0.4)" : "rgba(0,200,255,0.2)"}
+              stroke={BOX_COLOR} strokeWidth={2} />
+          ))}
         </Svg>
 
-        {/* Body drag area — tap+drag anywhere not on a corner to move all */}
-        <View
-          {...bodyResponder.panHandlers}
-          style={StyleSheet.absoluteFill}
-        />
+        {/* Single touch area — covers the full canvas */}
+        <View {...unifiedResponder.panHandlers} style={StyleSheet.absoluteFill} />
 
-        {/* Handle labels */}
+        {/* Corner labels */}
         {screenHandles.map((p, i) => (
-          <View
-            key={`label-${i}`}
-            pointerEvents="none"
-            style={{
-              position: "absolute",
-              left: p.x + (i === 0 || i === 3 ? -60 : 14),
-              top: p.y + (i <= 1 ? -18 : 6),
-            }}
-          >
-            <Text style={{ color: BOX_COLOR, fontSize: 9, fontWeight: "600" }}>
-              {HANDLE_LABELS[i]}
-            </Text>
+          <View key={`label-${i}`} pointerEvents="none"
+            style={{ position: "absolute", left: p.x + (i === 0 || i === 3 ? -55 : 12), top: p.y - 16 }}>
+            <Text style={{ color: BOX_COLOR, fontSize: 9, fontWeight: "600" }}>{HANDLE_LABELS[i]}</Text>
           </View>
         ))}
 
-        {/* 4 draggable corner handles */}
-        {screenHandles.map((p, i) => {
-          return (
-            <View
-              key={`handle-${i}`}
-              {...responders[i]!.panHandlers}
-              style={{
-                position: "absolute",
-                left: p.x - HANDLE_RADIUS,
-                top: p.y - HANDLE_RADIUS,
-                width: HANDLE_RADIUS * 2,
-                height: HANDLE_RADIUS * 2,
-                borderRadius: HANDLE_RADIUS,
-                backgroundColor: activeHandle === i ? "rgba(0,200,255,0.5)" : "transparent",
-                borderWidth: 2,
-                borderColor: BOX_COLOR,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" }} />
-            </View>
-          );
-        })}
-
-        {/* Error */}
         {err && (
           <View style={{ position: "absolute", top: 8, left: 8, right: 8, backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6 }}>
             <Text style={{ color: "#fff", fontSize: 11 }}>{err}</Text>

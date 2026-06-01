@@ -20,7 +20,7 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
-import { RoiOverlay } from "./RoiOverlay";
+import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
@@ -78,6 +78,7 @@ export function TrackerTab() {
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
   const poseOverlayRef = useRef<BatterBoxOverlayHandle>(null);
+  const roiOverlayRef = useRef<RoiOverlayHandle>(null);
   // Refs so the PanResponder (memoized) can read overlay state without re-creating.
   const showPoseOverlayRef = useRef(false);
   const showRoiOverlayRef = useRef(false);
@@ -672,6 +673,21 @@ export function TrackerTab() {
         </View>
       )}
 
+      {/* ROI overlay controls */}
+      {showRoiOverlay && (
+        <View style={{ flexDirection: "row", gap: 6 }}>
+          <Pressable onPress={() => roiOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }}
+            style={[styles.btn, { backgroundColor: "#FF3B30", flex: 2 }]}
+          >
+            <Text style={styles.btnText}>Set ROI</Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Run / Clear */}
       <View style={{ flexDirection: "row", gap: 6 }}>
         <Pressable
@@ -751,16 +767,12 @@ export function TrackerTab() {
       </View>
       {showRoiOverlay && (
         <RoiOverlay
+          ref={roiOverlayRef}
           imageWidth={frame.imageWidth}
           imageHeight={frame.imageHeight}
           vp={vp}
           canvas={canvas}
           canvasPageOffset={canvasPageOffsetRef.current}
-          onRoiSet={(roi) => {
-            setBox(roi);
-            setShowRoiOverlay(false);
-          }}
-          theme={theme}
         />
       )}
       {showPoseOverlay && (
@@ -855,8 +867,8 @@ export function TrackerTab() {
 
       {/* Video + Controls: side-by-side in landscape, stacked in portrait */}
       {videoCanvas && controlsBlock && isLandscape ? (
-        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-          {videoCanvas}
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, height: canvas.height || 300 }}>
+          <View style={{ flex: 2 }}>{videoCanvas}</View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }} nestedScrollEnabled>
             {controlsBlock}
           </ScrollView>
