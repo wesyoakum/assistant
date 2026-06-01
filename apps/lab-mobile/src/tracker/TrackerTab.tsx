@@ -22,6 +22,7 @@ import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
 import { RoiOverlay } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
+import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useTheme } from "../theme";
 
 type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
@@ -66,6 +67,8 @@ export function TrackerTab() {
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playSpeed, setPlaySpeed] = useState<1 | 0.5 | 0.25 | 0.125>(1);
+  const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
+  const [isSaved, setIsSaved] = useState(false);
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
@@ -77,6 +80,9 @@ export function TrackerTab() {
   const showRoiOverlayRef = useRef(false);
   useEffect(() => { showPoseOverlayRef.current = showPoseOverlay; }, [showPoseOverlay]);
   useEffect(() => { showRoiOverlayRef.current = showRoiOverlay; }, [showRoiOverlay]);
+
+  // Load saved videos on mount.
+  useEffect(() => { listSavedVideos().then(setSavedVideos).catch(() => {}); }, []);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -115,10 +121,15 @@ export function TrackerTab() {
     });
     if (res.canceled || !res.assets?.length) return;
     const asset = res.assets[0]!;
-    setVideoUri(asset.uri);
+    loadVideo(asset.uri);
+  };
+
+  const loadVideo = (uri: string) => {
+    setVideoUri(uri);
     setFrame(null);
     setFrameTimeSec(0);
     setBox(null);
+    setIsSaved(savedVideos.some((v) => v.uri === uri));
     setResult(null);
     setVp({ scale: 1, tx: 0, ty: 0 });
     await loadFrame(asset.uri, 0);
@@ -588,14 +599,63 @@ export function TrackerTab() {
 
       <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
         <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
-          <Text style={styles.btnText}>{videoUri ? "Pick another video" : "Pick video"}</Text>
+          <Text style={styles.btnText}>{videoUri ? "Pick another" : "Pick video"}</Text>
         </Pressable>
+        {videoUri && !isSaved && (
+          <Pressable
+            onPress={async () => {
+              if (!videoUri) return;
+              setBusy("saving…");
+              try {
+                const saved = await saveVideo(videoUri);
+                loadVideo(saved.uri);
+                setSavedVideos(await listSavedVideos());
+                setIsSaved(true);
+              } catch (e) { setErr((e as Error).message); }
+              finally { setBusy(null); }
+            }}
+            disabled={!!busy}
+            style={[styles.btn, { backgroundColor: theme.highlight, opacity: busy ? 0.5 : 1 }]}
+          >
+            <Text style={styles.btnText}>Save</Text>
+          </Pressable>
+        )}
+        {videoUri && isSaved && (
+          <View style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
+            <Text style={[styles.btnText, { color: theme.textSubtle }]}>Saved ✓</Text>
+          </View>
+        )}
         {frame && (
           <Pressable onPress={resetViewport} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
             <Text style={[styles.btnText, { color: theme.text }]}>Reset zoom</Text>
           </Pressable>
         )}
       </View>
+
+      {!videoUri && savedVideos.length > 0 && (
+        <View style={{ marginBottom: 8 }}>
+          <Text style={{ color: theme.textSubtle, fontSize: 12, marginBottom: 4 }}>Saved videos:</Text>
+          {savedVideos.map((v) => (
+            <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+              <Pressable
+                onPress={() => loadVideo(v.uri)}
+                style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, paddingVertical: 8 }]}
+              >
+                <Text style={[styles.btnText, { color: theme.text, fontSize: 12 }]} numberOfLines={1}>{v.name}</Text>
+              </Pressable>
+              <Pressable
+                onPress={async () => {
+                  await deleteSavedVideo(v.id);
+                  setSavedVideos(await listSavedVideos());
+                }}
+                style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 8, paddingHorizontal: 8 }]}
+              >
+                <Text style={{ color: theme.destructive, fontSize: 12, fontWeight: "600" }}>X</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
 
       {err && (
         <View style={{ padding: 10, backgroundColor: theme.destructive, borderRadius: 8, marginBottom: 8 }}>
