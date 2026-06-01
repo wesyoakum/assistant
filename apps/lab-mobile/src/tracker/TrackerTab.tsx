@@ -205,14 +205,13 @@ export function TrackerTab() {
 
   const responder = useMemo(() =>
     PanResponder.create({
-      // When an overlay (Calibrate / ROI) is showing, don't capture —
-      // let the overlay's own PanResponders handle the touches.
+      // When overlays are active: only claim 2-finger (pinch) gestures so
+      // single-finger drags go to the overlay's corner/body handlers.
+      // When no overlay: claim everything (pinch + single-finger pan).
       onStartShouldSetPanResponderCapture: (e) => {
-        if (showPoseOverlayRef.current || showRoiOverlayRef.current) return false;
-        return e.nativeEvent.touches.length >= 2; // only capture pinch
+        return e.nativeEvent.touches.length >= 2;
       },
       onMoveShouldSetPanResponderCapture: (e) => {
-        if (showPoseOverlayRef.current || showRoiOverlayRef.current) return false;
         return e.nativeEvent.touches.length >= 2;
       },
       onStartShouldSetPanResponder: (e) => {

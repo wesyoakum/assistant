@@ -140,11 +140,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     const responders = useMemo(() => {
       return [0, 1, 2, 3].map((idx) =>
         PanResponder.create({
-          onStartShouldSetPanResponder: () => true,
-          onMoveShouldSetPanResponder: () => true,
-          onStartShouldSetPanResponderCapture: () => true,
-          onMoveShouldSetPanResponderCapture: () => true,
-          onPanResponderTerminationRequest: () => false,
+          onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
+          onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
+          onStartShouldSetPanResponderCapture: (e) => e.nativeEvent.touches.length < 2,
+          onMoveShouldSetPanResponderCapture: (e) => e.nativeEvent.touches.length < 2,
+          onPanResponderTerminationRequest: (e) => e.nativeEvent.touches.length >= 2,
           onPanResponderGrant: () => setActiveHandle(idx),
           onPanResponderMove: (_, gs) => {
             const localX = gs.moveX - canvasPageOffset.x;
@@ -166,9 +166,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
 
     const bodyResponder = useMemo(() =>
       PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderTerminationRequest: () => false,
+        // Only claim single-finger touches; let 2-finger pinch pass to the
+        // canvas responder for zoom/pan.
+        onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
+        onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
+        onPanResponderTerminationRequest: (e) => e.nativeEvent.touches.length >= 2,
         onPanResponderGrant: (_, gs) => {
           setActiveHandle(-1);
           const localX = gs.x0 - canvasPageOffset.x;
