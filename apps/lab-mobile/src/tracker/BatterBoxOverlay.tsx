@@ -63,12 +63,14 @@ function strikeZoneCorners3D(): { x: number; y: number; z: number }[] {
   ];
 }
 
+/** Default outer corners for a typical backstop camera
+ *  (~6.8m behind plate, ~2m high, near-centered). */
 function defaultCorners(): FourCorners {
   return [
-    { nx: 0.25, ny: 0.50 },
-    { nx: 0.75, ny: 0.50 },
-    { nx: 0.80, ny: 0.82 },
-    { nx: 0.20, ny: 0.82 },
+    { nx: 0.30, ny: 0.48 }, // left front-outside (toward pitcher, 1B side)
+    { nx: 0.70, ny: 0.48 }, // right front-outside (toward pitcher, 3B side)
+    { nx: 0.73, ny: 0.72 }, // right back-outside (toward catcher, 3B side)
+    { nx: 0.27, ny: 0.72 }, // left back-outside (toward catcher, 1B side)
   ];
 }
 
@@ -163,11 +165,25 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const plateScreen = homePlateCorners().map((p) => projectCorner(p));
       const plateValid = plateScreen.every((p) => p != null);
 
-      // Bases (ground plane — use homography directly)
+      // Bases as 15" squares on the ground plane, rotated 45° (diamond shape).
+      // Each base center is at the landmark position; corners are ±half-diag
+      // along the foul-line axes.
       const landmarks = fieldLandmarks("littleLeague");
-      const bases = (["first_base", "second_base", "third_base"] as const).map((id) => {
-        const lm = landmarks[id];
-        return projectCorner(lm);
+      const BASE_HALF_FT = (15 / 12) / 2; // half of 15" side = half-diagonal of diamond
+      const baseIds = ["first_base", "second_base", "third_base"] as const;
+      const bases = baseIds.map((id) => {
+        const c = landmarks[id];
+        // Diamond corners: up/down/left/right relative to base center
+        // In field coords, "up" on the diamond points along the foul line direction
+        const corners = [
+          { x: c.x + BASE_HALF_FT, z: c.z },               // toward 1B foul line
+          { x: c.x, z: c.z + BASE_HALF_FT },               // toward 3B foul line
+          { x: c.x - BASE_HALF_FT, z: c.z },               // away from 1B
+          { x: c.x, z: c.z - BASE_HALF_FT },               // away from 3B
+        ];
+        const screenPts = corners.map((p) => projectCorner(p));
+        if (screenPts.some((p) => !p)) return null;
+        return screenPts as { x: number; y: number }[];
       });
 
       // Strike zone (3D — needs camera intrinsics + full projection)
@@ -184,7 +200,7 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
         left: leftScreen as { x: number; y: number }[],
         right: rightScreen as { x: number; y: number }[],
         plate: plateValid ? (plateScreen as { x: number; y: number }[]) : null,
-        bases: bases as ({ x: number; y: number } | null)[],
+        bases: bases as ({ x: number; y: number }[] | null)[],
         strikeZone: szValid ? (szScreen as { x: number; y: number }[]) : null,
       };
     }, [corners, imageWidth, imageHeight, imageToScreen]);
@@ -288,11 +304,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
                   strokeWidth={1.5}
                 />
               )}
-              {/* Bases as diamonds */}
+              {/* Bases as perspective-correct diamonds */}
               {liveProjection.bases.map((b, i) => b && (
                 <Polygon
                   key={`base-${i}`}
-                  points={`${b.x},${b.y - 6} ${b.x + 6},${b.y} ${b.x},${b.y + 6} ${b.x - 6},${b.y}`}
+                  points={b.map((p) => `${p.x},${p.y}`).join(" ")}
                   fill="rgba(255,255,255,0.3)"
                   stroke="rgba(255,255,255,0.9)"
                   strokeWidth={1.5}
