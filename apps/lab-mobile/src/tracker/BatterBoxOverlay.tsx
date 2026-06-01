@@ -37,11 +37,8 @@ type FourCorners = [Corner, Corner, Corner, Corner];
 
 const HANDLE_RADIUS = 16;
 
-const LEFT_COLOR = "rgba(0,200,255,0.9)";
-const RIGHT_COLOR = "rgba(255,150,0,0.9)";
-const LEFT_FILL = "rgba(0,200,255,0.06)";
-const RIGHT_FILL = "rgba(255,150,0,0.06)";
-const INNER_COLOR = "rgba(255,255,255,0.4)";
+const BOX_COLOR = "rgba(0,200,255,0.9)";
+const BOX_FILL = "rgba(0,200,255,0.06)";
 
 const HANDLE_LABELS = ["L Front", "R Front", "R Back", "L Back"] as const;
 
@@ -140,11 +137,11 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     const responders = useMemo(() => {
       return [0, 1, 2, 3].map((idx) =>
         PanResponder.create({
-          onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
-          onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
-          onStartShouldSetPanResponderCapture: (e) => e.nativeEvent.touches.length < 2,
-          onMoveShouldSetPanResponderCapture: (e) => e.nativeEvent.touches.length < 2,
-          onPanResponderTerminationRequest: (e) => e.nativeEvent.touches.length >= 2,
+          onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
+          onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
+          onStartShouldSetPanResponderCapture: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
+          onMoveShouldSetPanResponderCapture: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
+          onPanResponderTerminationRequest: () => true,
           onPanResponderGrant: () => setActiveHandle(idx),
           onPanResponderMove: (_, gs) => {
             const localX = gs.moveX - canvasPageOffset.x;
@@ -168,9 +165,9 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       PanResponder.create({
         // Only claim single-finger touches; let 2-finger pinch pass to the
         // canvas responder for zoom/pan.
-        onStartShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
-        onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length < 2,
-        onPanResponderTerminationRequest: (e) => e.nativeEvent.touches.length >= 2,
+        onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
+        onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) < 2,
+        onPanResponderTerminationRequest: () => true,
         onPanResponderGrant: (_, gs) => {
           setActiveHandle(-1);
           const localX = gs.x0 - canvasPageOffset.x;
@@ -229,25 +226,21 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
         <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
           {liveProjection ? (
             <>
-              {/* Full left box */}
-              <Polygon points={leftPoly!} fill={LEFT_FILL} stroke={LEFT_COLOR} strokeWidth={2} />
-              {/* Full right box */}
-              <Polygon points={rightPoly!} fill={RIGHT_FILL} stroke={RIGHT_COLOR} strokeWidth={2} />
-              {/* Inner edges (plate gap) in subtle white */}
+              <Polygon points={leftPoly!} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
+              <Polygon points={rightPoly!} fill={BOX_FILL} stroke={BOX_COLOR} strokeWidth={2} />
               <Line
                 x1={liveProjection.left[0]!.x} y1={liveProjection.left[0]!.y}
                 x2={liveProjection.left[3]!.x} y2={liveProjection.left[3]!.y}
-                stroke={INNER_COLOR} strokeWidth={1} strokeDasharray="4,3"
+                stroke={BOX_COLOR} strokeWidth={1}
               />
               <Line
                 x1={liveProjection.right[0]!.x} y1={liveProjection.right[0]!.y}
                 x2={liveProjection.right[3]!.x} y2={liveProjection.right[3]!.y}
-                stroke={INNER_COLOR} strokeWidth={1} strokeDasharray="4,3"
+                stroke={BOX_COLOR} strokeWidth={1}
               />
             </>
           ) : (
-            /* Fallback: just outer quad */
-            <Polygon points={outerPoly} fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.5)" strokeWidth={1.5} strokeDasharray="6,4" />
+            <Polygon points={outerPoly} fill="rgba(0,200,255,0.05)" stroke={BOX_COLOR} strokeWidth={1.5} />
           )}
         </Svg>
 
@@ -268,7 +261,7 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
               top: p.y + (i <= 1 ? -18 : 6),
             }}
           >
-            <Text style={{ color: i === 0 || i === 3 ? LEFT_COLOR : RIGHT_COLOR, fontSize: 9, fontWeight: "600" }}>
+            <Text style={{ color: BOX_COLOR, fontSize: 9, fontWeight: "600" }}>
               {HANDLE_LABELS[i]}
             </Text>
           </View>
@@ -276,8 +269,6 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
 
         {/* 4 draggable corner handles */}
         {screenHandles.map((p, i) => {
-          const isLeft = i === 0 || i === 3;
-          const color = isLeft ? LEFT_COLOR : RIGHT_COLOR;
           return (
             <View
               key={`handle-${i}`}
@@ -289,9 +280,9 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
                 width: HANDLE_RADIUS * 2,
                 height: HANDLE_RADIUS * 2,
                 borderRadius: HANDLE_RADIUS,
-                backgroundColor: activeHandle === i ? (isLeft ? "rgba(0,200,255,0.5)" : "rgba(255,150,0,0.5)") : "transparent",
+                backgroundColor: activeHandle === i ? "rgba(0,200,255,0.5)" : "transparent",
                 borderWidth: 2,
-                borderColor: color,
+                borderColor: BOX_COLOR,
                 alignItems: "center",
                 justifyContent: "center",
               }}
