@@ -107,7 +107,9 @@ export const VisionTracker = {
   },
   /** Preprocess a base64 JPEG: grayscale + contrast boost. Returns new base64. */
   preprocessFrame(base64: string, contrast = 1.8, jpegQuality = 0.85): Promise<string> {
-    if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
+    if (!Native || typeof Native.preprocessFrame !== "function") {
+      return Promise.reject(new Error("preprocessFrame not available in this build"));
+    }
     return Native.preprocessFrame(base64, contrast, jpegQuality);
   },
   /** Classical bright-moving-blob ball tracker — no initial box needed. */
