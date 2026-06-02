@@ -99,16 +99,11 @@ export function decomposeCameraPose(
   let posZ = -(r2[0]! * t[0]! + r2[1]! * t[1]! + r2[2]! * t[2]!);
   let posY = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
 
-  // Sign ambiguity in lambda only affects posY (the up/down component).
-  // When lambda flips sign: r1→-r1, r2→-r2, t→-t, but r3 = r1×r2 is unchanged.
-  // posX = -(r1·t) and posZ = -(r2·t) are invariant (both factors negate).
-  // posY = -(r3·t) flips because only t negates.
-  // Fix: if posY < 0 (camera below ground), negate only posY.
-  let sign = 1;
-  if (posY < 0) {
-    posY = -posY;
-    sign = -1;
-  }
+  // No forced sign correction — report the raw decomposition result.
+  // The sign ambiguity in lambda affects the entire solution; forcing
+  // positive posY was incorrectly altering the rotation extraction.
+  // The user can verify camera Z > 0 (above ground) from the output.
+  const sign = 1;
 
   // R maps world → camera. R = [r1 r2 r3] as columns, but our columns
   // correspond to (field_X, field_Z, field_Y) axes. Reorder to get the

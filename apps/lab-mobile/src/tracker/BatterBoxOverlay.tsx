@@ -212,9 +212,8 @@ function projectAll(
     const solV = solve3x3(A, bv);
     if (!solU || !solV) return null;
 
-    // Affine determinant = a*d - b*c. Positive = no flip.
-    const affineDet = solU[0]! * solV[1]! - solU[1]! * solV[0]!;
-    if (affineDet <= 0) return null; // field would be flipped
+    // Removed affine determinant check — it was rejecting valid
+    // configurations from certain camera angles (e.g., 1B side).
 
     const result: Record<string, { nx: number; ny: number }> = {};
     for (const lm of LANDMARKS) {
