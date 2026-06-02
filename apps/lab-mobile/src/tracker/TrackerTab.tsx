@@ -61,6 +61,27 @@ interface ViewState {
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
 
+/** Displays a preprocessed (grayscale + contrast) version of a frame. */
+function ProcessedImage({ base64 }: { base64: string }) {
+  const [processed, setProcessed] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    VisionTracker.preprocessFrame(base64, 1.8, 0.85)
+      .then((p) => { if (!cancelled) setProcessed(p); })
+      .catch(() => { if (!cancelled) setProcessed(null); });
+    return () => { cancelled = true; };
+  }, [base64]);
+  if (!processed) return null;
+  return (
+    <Image
+      source={{ uri: `data:image/jpeg;base64,${processed}` }}
+      style={{ width: "100%", height: "100%" }}
+      fadeDuration={0}
+      resizeMode="cover"
+    />
+  );
+}
+
 export function TrackerTab() {
   const theme = useTheme();
   const orientation = useOrientation();
@@ -101,6 +122,8 @@ export function TrackerTab() {
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [preprocessEnabled, setPreprocessEnabled] = useState(true);
+  const [showProcessed, setShowProcessed] = useState(false);
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -439,9 +462,20 @@ export function TrackerTab() {
         // are still in full-image coordinates.
         const roi = box ?? undefined;
         const detect = async (uri: string): Promise<RawDetection[]> => {
+          let detectUri = uri;
+          if (preprocessEnabled) {
+            try {
+              // Strip data URI prefix to get raw base64.
+              const raw = uri.replace(/^data:image\/\w+;base64,/, "");
+              const processed = await VisionTracker.preprocessFrame(raw, 1.8, 0.85);
+              detectUri = `data:image/jpeg;base64,${processed}`;
+            } catch {
+              // Preprocessing unavailable (old build), use original.
+            }
+          }
           const res = trackerMode === "yolo"
-            ? await Yolo.detect(uri, { minConfidence: 0.10, roi })
-            : await Baseball.detect(uri, { minConfidence: 0.10 });
+            ? await Yolo.detect(detectUri, { minConfidence: 0.10, roi })
+            : await Baseball.detect(detectUri, { minConfidence: 0.10 });
           return res.detections.map((d) => ({ label: d.label, confidence: d.confidence, box: d.box }));
         };
         const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
@@ -765,13 +799,19 @@ export function TrackerTab() {
         </View>
       )}
 
-      {/* Model selector + Run / Clear */}
+      {/* Model selector + Preprocess + Run / Clear */}
       <View style={{ flexDirection: "row", gap: 6 }}>
         <Pressable
           onPress={() => setShowModelPicker(true)}
           style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
         >
           <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>{MODE_LABEL[trackerMode]} ▾</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setPreprocessEnabled((v) => !v)}
+          style={[styles.btn, { backgroundColor: preprocessEnabled ? theme.primary : theme.surfaceAlt }]}
+        >
+          <Text style={[styles.btnText, { color: preprocessEnabled ? "#fff" : theme.text, fontSize: 10 }]}>B&W</Text>
         </Pressable>
         <Pressable
           onPress={runTracker}
@@ -1078,7 +1118,10 @@ export function TrackerTab() {
                   transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
                 }}
               >
-                {reviewImage && (
+                {reviewImage && showProcessed && (
+                  <ProcessedImage base64={reviewImage.base64} />
+                )}
+                {reviewImage && !showProcessed && (
                   <Image
                     source={{ uri: `data:image/jpeg;base64,${reviewImage.base64}` }}
                     style={{ width: "100%", height: "100%" }}
@@ -1298,6 +1341,12 @@ export function TrackerTab() {
           <View style={{ flexDirection: "row", gap: 6 }}>
             <Pressable onPress={copyTrace} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
               <Text style={[styles.btnText, { color: theme.text }]}>Copy trace</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setShowProcessed((v) => !v)}
+              style={[styles.btn, { backgroundColor: showProcessed ? theme.primary : theme.surfaceAlt }]}
+            >
+              <Text style={[styles.btnText, { color: showProcessed ? "#fff" : theme.text, fontSize: 10 }]}>B&W</Text>
             </Pressable>
             <Pressable
               onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }}

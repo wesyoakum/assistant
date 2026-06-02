@@ -22,6 +22,31 @@ public final class VisionTrackerModule: Module {
       return try generateFrame(uri: uri, timeSec: timeSec, jpegQuality: jpegQuality)
     }
 
+    // Preprocess a base64 JPEG: convert to grayscale and boost contrast.
+    // Returns a new base64 JPEG. Used before YOLO detection for better results.
+    AsyncFunction("preprocessFrame") { (base64: String, contrast: Double, jpegQuality: Double) -> String in
+      guard let data = Data(base64Encoded: base64),
+            let ciImage = CIImage(data: data) else {
+        throw NSError.tracker("Failed to decode image for preprocessing")
+      }
+      let filter = CIFilter(name: "CIColorControls")!
+      filter.setValue(ciImage, forKey: kCIInputImageKey)
+      filter.setValue(0.0, forKey: kCIInputSaturationKey)  // grayscale
+      filter.setValue(contrast, forKey: kCIInputContrastKey) // boost contrast
+      guard let output = filter.outputImage else {
+        throw NSError.tracker("CIFilter produced no output")
+      }
+      let ctx = CIContext()
+      guard let cgImage = ctx.createCGImage(output, from: output.extent) else {
+        throw NSError.tracker("Failed to render preprocessed image")
+      }
+      let uiImage = UIImage(cgImage: cgImage)
+      guard let jpeg = uiImage.jpegData(compressionQuality: CGFloat(jpegQuality)) else {
+        throw NSError.tracker("Failed to encode preprocessed image")
+      }
+      return jpeg.base64EncodedString()
+    }
+
     // Track a single object through the video, starting from the given box on
     // the first frame. Coordinates are top-left normalized [0,1] in image space.
     //
