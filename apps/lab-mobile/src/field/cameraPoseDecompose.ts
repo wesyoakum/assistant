@@ -99,15 +99,14 @@ export function decomposeCameraPose(
   let posZ = -(r2[0]! * t[0]! + r2[1]! * t[1]! + r2[2]! * t[2]!);
   let posY = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
 
-  // Sign ambiguity: lambda could be negative. Resolve by checking that
-  // the field origin is in front of the camera (positive depth in camera frame).
-  // Depth of origin = r1[2]*0 + r2[2]*0 + t[2] = t[2] (the z-component of t).
-  // If t[2] < 0, the origin is behind the camera — flip the solution.
+  // Sign ambiguity in lambda only affects posY (the up/down component).
+  // When lambda flips sign: r1→-r1, r2→-r2, t→-t, but r3 = r1×r2 is unchanged.
+  // posX = -(r1·t) and posZ = -(r2·t) are invariant (both factors negate).
+  // posY = -(r3·t) flips because only t negates.
+  // Fix: if posY < 0 (camera below ground), negate only posY.
   let sign = 1;
-  if (t[2]! < 0) {
-    posX = -posX;
+  if (posY < 0) {
     posY = -posY;
-    posZ = -posZ;
     sign = -1;
   }
 
