@@ -34,6 +34,9 @@ export interface YoloDetectOptions {
 interface NativeModule {
   isReady(): boolean;
   loadError(): string | null;
+  currentModel(): string;
+  availableModels(): string[];
+  switchModel(name: string): Promise<boolean>;
   detect(uri: string, opts: YoloDetectOptions): Promise<YoloResult>;
 }
 
@@ -53,6 +56,18 @@ export const Yolo = {
   loadError(): string | null {
     if (!Native) return "Native module not in this build";
     try { return Native.loadError(); } catch { return null; }
+  },
+  currentModel(): string {
+    if (!Native) return "";
+    try { return Native.currentModel(); } catch { return ""; }
+  },
+  availableModels(): string[] {
+    if (!Native) return [];
+    try { return Native.availableModels(); } catch { return []; }
+  },
+  switchModel(name: string): Promise<boolean> {
+    if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
+    return Native.switchModel(name);
   },
   detect(uri: string, opts: YoloDetectOptions = {}): Promise<YoloResult> {
     if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));

@@ -7,41 +7,14 @@ import AudioToolbox
 public final class YoloModule: Module {
   private var visionModel: VNCoreMLModel?
   private var loadError: String?
+  private var currentModelName: String = ""
 
   public func definition() -> ModuleDefinition {
     Name("ExpoYolo")
 
     OnCreate {
-      // Silence the camera shutter sound app-wide. Sound ID 1108 is the
-      // shutter on iOS — disposing it once suppresses the click that
-      // AVCapturePhotoOutput plays on every takePictureAsync.
       AudioServicesDisposeSystemSoundID(1108)
-
-      do {
-        // CocoaPods resource_bundle ships the compiled model as
-        // ExpoYoloModels.bundle/YOLO26n.mlmodelc next to the main bundle.
-        let candidates: [URL?] = [
-          Bundle.main.url(forResource: "YOLO26n", withExtension: "mlmodelc"),
-          Bundle.main.url(forResource: "YOLO26n", withExtension: "mlmodelc", subdirectory: "ExpoYoloModels.bundle"),
-          {
-            if let bundleURL = Bundle.main.url(forResource: "ExpoYoloModels", withExtension: "bundle"),
-               let b = Bundle(url: bundleURL) {
-              return b.url(forResource: "YOLO26n", withExtension: "mlmodelc")
-            }
-            return nil
-          }(),
-        ]
-        guard let modelURL = candidates.compactMap({ $0 }).first else {
-          self.loadError = "YOLO26n.mlmodelc not found in app bundle"
-          return
-        }
-        let config = MLModelConfiguration()
-        config.computeUnits = .all
-        let mlModel = try MLModel(contentsOf: modelURL, configuration: config)
-        self.visionModel = try VNCoreMLModel(for: mlModel)
-      } catch {
-        self.loadError = "Model load failed: \(error.localizedDescription)"
-      }
+      self.loadModel(name: "YOLO26n")
     }
 
     Function("isReady") { () -> Bool in
@@ -50,6 +23,36 @@ public final class YoloModule: Module {
 
     Function("loadError") { () -> String? in
       return self.loadError
+    }
+
+    Function("currentModel") { () -> String in
+      return self.currentModelName
+    }
+
+    // List available models in the bundle.
+    Function("availableModels") { () -> [String] in
+      var models: [String] = []
+      // Check main bundle and ExpoYoloModels resource bundle.
+      let bundles: [Bundle] = [
+        Bundle.main,
+        Bundle.main.url(forResource: "ExpoYoloModels", withExtension: "bundle")
+          .flatMap { Bundle(url: $0) },
+      ].compactMap { $0 }
+      for b in bundles {
+        if let urls = b.urls(forResourcesWithExtension: "mlmodelc", subdirectory: nil) {
+          for url in urls {
+            let name = url.deletingPathExtension().lastPathComponent
+            if !models.contains(name) { models.append(name) }
+          }
+        }
+      }
+      return models.sorted()
+    }
+
+    // Switch to a different model at runtime.
+    AsyncFunction("switchModel") { (name: String) -> Bool in
+      self.loadModel(name: name)
+      return self.visionModel != nil
     }
 
     AsyncFunction("detect") { (uri: String, opts: [String: Any]) -> [String: Any] in
@@ -103,6 +106,37 @@ public final class YoloModule: Module {
         "elapsedMs": elapsedMs,
         "detections": detections,
       ]
+    }
+  }
+}
+
+  private func loadModel(name: String) {
+    self.loadError = nil
+    self.visionModel = nil
+    self.currentModelName = ""
+    do {
+      let candidates: [URL?] = [
+        Bundle.main.url(forResource: name, withExtension: "mlmodelc"),
+        Bundle.main.url(forResource: name, withExtension: "mlmodelc", subdirectory: "ExpoYoloModels.bundle"),
+        {
+          if let bundleURL = Bundle.main.url(forResource: "ExpoYoloModels", withExtension: "bundle"),
+             let b = Bundle(url: bundleURL) {
+            return b.url(forResource: name, withExtension: "mlmodelc")
+          }
+          return nil
+        }(),
+      ]
+      guard let modelURL = candidates.compactMap({ $0 }).first else {
+        self.loadError = "\(name).mlmodelc not found in app bundle"
+        return
+      }
+      let config = MLModelConfiguration()
+      config.computeUnits = .all
+      let mlModel = try MLModel(contentsOf: modelURL, configuration: config)
+      self.visionModel = try VNCoreMLModel(for: mlModel)
+      self.currentModelName = name
+    } catch {
+      self.loadError = "Model load failed: \(error.localizedDescription)"
     }
   }
 }

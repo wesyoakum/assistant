@@ -34,22 +34,34 @@ import { useNavigation } from "expo-router";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useTheme } from "../theme";
 
-type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "baseball";
+type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "yolo-s" | "yolo-m" | "yolo-l" | "yolo-x" | "baseball";
 
 // Modes that detect the ball themselves (no user-drawn box required).
-const DETECTOR_MODES: TrackerMode[] = ["tracknet", "blob", "yolo", "baseball"];
+const DETECTOR_MODES: TrackerMode[] = ["tracknet", "blob", "yolo", "yolo-s", "yolo-m", "yolo-l", "yolo-x", "baseball"];
 
 const MODE_LABEL: Record<TrackerMode, string> = {
   template: "Template",
   vision: "Apple Vision",
   tracknet: "TrackNet",
   blob: "Blob",
-  yolo: "YOLO ball",
+  yolo: "YOLO26n",
+  "yolo-s": "YOLO26s",
+  "yolo-m": "YOLO26m",
+  "yolo-l": "YOLO26l",
+  "yolo-x": "YOLO26x",
   baseball: "Baseball",
 };
 
+const YOLO_MODEL_NAME: Record<string, string> = {
+  "yolo": "YOLO26n",
+  "yolo-s": "YOLO26s",
+  "yolo-m": "YOLO26m",
+  "yolo-l": "YOLO26l",
+  "yolo-x": "YOLO26x",
+};
+
 // All modes available for selection.
-const ALL_MODES: TrackerMode[] = ["yolo", "baseball", "blob", "tracknet", "vision", "template"];
+const ALL_MODES: TrackerMode[] = ["yolo", "yolo-s", "yolo-m", "yolo-l", "yolo-x", "baseball", "blob", "tracknet", "vision", "template"];
 const BOX_COLOR_TEXT = "rgba(0,200,255,1)";
 
 interface ViewState {
@@ -452,28 +464,26 @@ export function TrackerTab() {
         r = await VisionTracker.trackBlobInVideo(videoUri, {
           sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec, downsample: 2,
         });
-      } else if (trackerMode === "yolo" || trackerMode === "baseball") {
-        // JS frame-walk: run the object detector on each frame's JPEG. COCO YOLO
-        // is filtered to the ball class; the baseball model emits only baseballs.
-        // When the user drew a box, pass it as a region-of-interest to YOLO so
-        // Vision crops to that rectangle before running the model — improves
-        // small-ball detection (the crop gets upscaled to 640×640) and
-        // eliminates false positives outside the box. The returned detections
-        // are still in full-image coordinates.
+      } else if (trackerMode.startsWith("yolo") || trackerMode === "baseball") {
+        // Switch YOLO model if needed.
+        const yoloModelName = YOLO_MODEL_NAME[trackerMode];
+        if (yoloModelName && Yolo.currentModel() !== yoloModelName) {
+          setBusy(`loading ${yoloModelName}…`);
+          const ok = await Yolo.switchModel(yoloModelName).catch(() => false);
+          if (!ok) { setErr(`Failed to load ${yoloModelName} — model may not be bundled`); setBusy(null); return; }
+        }
+        const isYolo = trackerMode.startsWith("yolo");
         const roi = box ?? undefined;
         const detect = async (uri: string): Promise<RawDetection[]> => {
           let detectUri = uri;
           if (preprocessEnabled) {
             try {
-              // Strip data URI prefix to get raw base64.
               const raw = uri.replace(/^data:image\/\w+;base64,/, "");
               const processed = await VisionTracker.preprocessFrame(raw, 1.8, 0.85);
               detectUri = `data:image/jpeg;base64,${processed}`;
-            } catch {
-              // Preprocessing unavailable (old build), use original.
-            }
+            } catch {}
           }
-          const res = trackerMode === "yolo"
+          const res = isYolo
             ? await Yolo.detect(detectUri, { minConfidence: 0.10, roi })
             : await Baseball.detect(detectUri, { minConfidence: 0.10 });
           return res.detections.map((d) => ({ label: d.label, confidence: d.confidence, box: d.box }));
@@ -495,7 +505,7 @@ export function TrackerTab() {
             // gaps get filled by interpolation downstream, and we don't want
             // to truncate the result early.
             maxMisses: Number.POSITIVE_INFINITY,
-            labelFilter: trackerMode === "yolo" ? (l) => l === "sports ball" : undefined,
+            labelFilter: isYolo ? (l) => l === "sports ball" : undefined,
           },
         );
       } else {
@@ -1502,7 +1512,11 @@ export function TrackerTab() {
                 {MODE_LABEL[m]}
               </Text>
               <Text style={{ color: trackerMode === m ? "rgba(255,255,255,0.7)" : theme.textSubtle, fontSize: 11 }}>
-                {m === "yolo" ? "COCO sports-ball detector (recommended)" :
+                {m === "yolo" ? "Nano — fastest, ~6MB (bundled)" :
+                 m === "yolo-s" ? "Small — better accuracy, ~22MB" :
+                 m === "yolo-m" ? "Medium — balanced, ~52MB" :
+                 m === "yolo-l" ? "Large — high accuracy, ~90MB" :
+                 m === "yolo-x" ? "Extra-large — best accuracy, ~130MB" :
                  m === "baseball" ? "Custom baseball detector" :
                  m === "blob" ? "Classical bright-blob detector (no model)" :
                  m === "tracknet" ? "TrackNet ML ball tracker" :
