@@ -209,8 +209,11 @@ a{color:#0cf}
 <a class="btn" href="/tracking/list/view">All Sessions</a>
 
 <h2>3D Field View</h2>
+<div style="position:relative">
 <div id="scene3d-container" style="width:100%;max-width:800px;height:500px;position:relative;border-radius:8px;overflow:hidden;background:#0a0a0a">
   <canvas id="scene3d"></canvas>
+</div>
+<button id="toggleYZ" style="position:absolute;top:8px;right:8px;padding:4px 10px;border-radius:4px;border:1px solid #ffcc00;background:rgba(255,204,0,0.2);color:#ffcc00;font-size:12px;cursor:pointer">YZ Plane</button>
 </div>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 <script type="module">
@@ -266,6 +269,14 @@ const bases = {
   '2b': f2u(bp, bp),
   '3b': f2u(0, bp),
 };
+const foulEnd = bp + 2.5 * bp; // foul line extends past bases
+
+// Foul lines (pink, from apex past bases)
+const foulMat = new THREE.LineBasicMaterial({ color: 0xff78b4 });
+const foul1b = f2u(foulEnd, 0);
+const foul3b = f2u(0, foulEnd);
+scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([u2t(0,0,0), u2t(foul1b[0],foul1b[1],0)]), foulMat));
+scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([u2t(0,0,0), u2t(foul3b[0],foul3b[1],0)]), foulMat));
 
 // Basepaths (pink)
 const bpMat = new THREE.LineBasicMaterial({ color: 0xff78b4 });
@@ -284,13 +295,63 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   scene.add(m);
 });
 
-// Plate (white pentagon — simplified as flat disk)
-const plateMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-const plateG = new THREE.CircleGeometry(0.22, 5);
-const plate = new THREE.Mesh(plateG, plateMat);
-plate.rotation.x = -Math.PI / 2;
-plate.position.set(0, 0.01, 0);
-scene.add(plate);
+// Home plate (white pentagon with actual shape)
+{
+  const plateFront = 17/12; // ft
+  const halfW = 8.5/12;
+  const sideD = 8.5/12;
+  const fwd = {x: D, z: D}, rgt = {x: D, z: -D};
+  const fc = {x: plateFront*fwd.x, z: plateFront*fwd.z};
+  const plateCorners = [
+    [0, 0], // apex
+    [fc.x - sideD*fwd.x + halfW*rgt.x, fc.z - sideD*fwd.z + halfW*rgt.z], // right bevel
+    [fc.x + halfW*rgt.x, fc.z + halfW*rgt.z], // front right
+    [fc.x - halfW*rgt.x, fc.z - halfW*rgt.z], // front left
+    [fc.x - sideD*fwd.x - halfW*rgt.x, fc.z - sideD*fwd.z - halfW*rgt.z], // left bevel
+  ];
+  const plateShape = new THREE.Shape();
+  plateCorners.forEach((c, i) => {
+    const u = f2u(c[0], c[1]);
+    if (i === 0) plateShape.moveTo(u[0], -u[1]); // negate Y for shape (XZ plane)
+    else plateShape.lineTo(u[0], -u[1]);
+  });
+  plateShape.closePath();
+  const plateGeo = new THREE.ShapeGeometry(plateShape);
+  const plateMesh = new THREE.Mesh(plateGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+  plateMesh.rotation.x = -Math.PI / 2;
+  plateMesh.position.y = 0.01;
+  scene.add(plateMesh);
+  // Plate outline
+  const plateLinePts = [...plateCorners, plateCorners[0]].map(c => {
+    const u = f2u(c[0], c[1]);
+    return u2t(u[0], u[1], 0.02);
+  });
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(plateLinePts), new THREE.LineBasicMaterial({ color: 0xff78b4 })));
+}
+
+// Batter's boxes (cyan outlines)
+{
+  const boxW = 4, boxL = 6;
+  const plateW = 17/12, insideGap = 0.5;
+  const fwd = {x: D, z: D}, rgt = {x: D, z: -D};
+  const pcx = (17/12/2)*D, pcz = (17/12/2)*D;
+  const frontDist = 3, backDist = -3;
+  const insideOff = plateW/2 + insideGap;
+  const outsideOff = insideOff + boxW;
+  [1, -1].forEach(sign => { // left=1, right=-1
+    const corners = [
+      [pcx + frontDist*fwd.x + sign*insideOff*rgt.x, pcz + frontDist*fwd.z + sign*insideOff*rgt.z],
+      [pcx + frontDist*fwd.x + sign*outsideOff*rgt.x, pcz + frontDist*fwd.z + sign*outsideOff*rgt.z],
+      [pcx + backDist*fwd.x + sign*outsideOff*rgt.x, pcz + backDist*fwd.z + sign*outsideOff*rgt.z],
+      [pcx + backDist*fwd.x + sign*insideOff*rgt.x, pcz + backDist*fwd.z + sign*insideOff*rgt.z],
+    ];
+    const pts = [...corners, corners[0]].map(c => {
+      const u = f2u(c[0], c[1]);
+      return u2t(u[0], u[1], 0.02);
+    });
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x00c8ff })));
+  });
+}
 
 // Camera marker (red cone)
 const camMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
@@ -298,20 +359,20 @@ const camMesh = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 8), camMat);
 camMesh.position.copy(u2t(camData.x, camData.y, camData.z));
 scene.add(camMesh);
 
-// YZ plane (semi-transparent yellow, at X=0)
+// YZ plane (semi-transparent yellow, at X=0) — toggleable
+const yzGroup = new THREE.Group();
 const yzGeo = new THREE.PlaneGeometry(20, 6);
 const yzMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
-const yzPlane = new THREE.Mesh(yzGeo, yzMat);
-// YZ plane in user coords: X=0, spans Y and Z. In Three.js: x=0, spans z (=-Y) and y (=Z).
-yzPlane.rotation.y = Math.PI / 2;
-yzPlane.position.set(0, 3, 0);
-scene.add(yzPlane);
-// YZ plane border
+const yzPlaneMesh = new THREE.Mesh(yzGeo, yzMat);
+yzPlaneMesh.rotation.y = Math.PI / 2;
+yzPlaneMesh.position.set(0, 3, 0);
+yzGroup.add(yzPlaneMesh);
 const yzBorder = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
   new THREE.Vector3(0, 0, -10), new THREE.Vector3(0, 0, 10),
   new THREE.Vector3(0, 6, 10), new THREE.Vector3(0, 6, -10),
 ]), new THREE.LineBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.4 }));
-scene.add(yzBorder);
+yzGroup.add(yzBorder);
+scene.add(yzGroup);
 
 // Rays and intersection points
 const rayMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.3 });
@@ -332,6 +393,12 @@ detData.forEach(d => {
   const sph = new THREE.Mesh(sphGeo, d.type === 'detect' ? detectSphMat : interpSphMat);
   sph.position.copy(intPt);
   scene.add(sph);
+});
+
+// YZ plane toggle
+document.getElementById('toggleYZ').addEventListener('click', function() {
+  yzGroup.visible = !yzGroup.visible;
+  this.style.opacity = yzGroup.visible ? '1' : '0.4';
 });
 
 function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
