@@ -1151,8 +1151,12 @@ export function TrackerTab() {
                   const cx = p.box.x + p.box.width / 2;
                   const cy = p.box.y + p.box.height / 2;
                   const denom = Math.max(1, reviewIdx - 1);
-                  const alpha = 0.25 + (i / denom) * 0.7;
+                  const t = i / denom; // 0 = oldest, 1 = newest
+                  const alpha = 0.25 + t * 0.7;
+                  // Size: shrink from full size (newest) to half (oldest).
+                  const sizeFactor = 0.5 + t * 0.5;
                   if (p.interpolated) {
+                    const sz = 6 * sizeFactor;
                     return (
                       <View
                         key={`trail-${i}`}
@@ -1161,11 +1165,11 @@ export function TrackerTab() {
                           position: "absolute",
                           left: `${cx * 100}%`,
                           top: `${cy * 100}%`,
-                          width: 6,
-                          height: 6,
-                          marginLeft: -3,
-                          marginTop: -3,
-                          borderRadius: 3,
+                          width: sz,
+                          height: sz,
+                          marginLeft: -sz / 2,
+                          marginTop: -sz / 2,
+                          borderRadius: sz / 2,
                           borderWidth: 1,
                           borderColor: `rgba(255,204,0,${alpha})`,
                           backgroundColor: "transparent",
@@ -1173,6 +1177,7 @@ export function TrackerTab() {
                       />
                     );
                   }
+                  const sz = 8 * sizeFactor;
                   return (
                     <View
                       key={`trail-${i}`}
@@ -1181,11 +1186,11 @@ export function TrackerTab() {
                         position: "absolute",
                         left: `${cx * 100}%`,
                         top: `${cy * 100}%`,
-                        width: 8,
-                        height: 8,
-                        marginLeft: -4,
-                        marginTop: -4,
-                        borderRadius: 4,
+                        width: sz,
+                        height: sz,
+                        marginLeft: -sz / 2,
+                        marginTop: -sz / 2,
+                        borderRadius: sz / 2,
                         backgroundColor: `rgba(255,204,0,${alpha})`,
                       }}
                     />
