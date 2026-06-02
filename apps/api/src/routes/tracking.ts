@@ -52,6 +52,41 @@ tracking.get("/", async (c) => {
   return c.json({ sessions });
 });
 
+// ── Static paths MUST come before /:id to avoid being swallowed ──
+
+// GET /tracking/list/view — HTML page listing all tracking sessions with links.
+tracking.get("/list/view", async (c) => {
+  // Try to get userId if authed, otherwise list nothing (public but needs auth to see own data).
+  let userId: string | undefined;
+  try { userId = c.get("userId"); } catch {}
+  if (!userId) return new Response("Sign in to view your sessions", { status: 401 });
+  const prefix = `users/${userId}/tracking/`;
+  const list = await c.env.FILES.list({ prefix, limit: 100 });
+  const items = list.objects
+    .filter((o) => o.key.endsWith(".json"))
+    .map((o) => ({
+      id: o.key.replace(prefix, "").replace(".json", ""),
+      size: o.size,
+      uploaded: o.uploaded.toISOString(),
+    }))
+    .sort((a, b) => b.uploaded.localeCompare(a.uploaded));
+
+  const rows = items.map((i) =>
+    `<tr><td><a href="/tracking/${i.id}/view">${i.id}</a></td><td>${i.uploaded}</td><td>${(i.size/1024).toFixed(1)} KB</td></tr>`
+  ).join("\n");
+
+  return new Response(`<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tracking Sessions</title>
+<style>body{font-family:system-ui;max-width:800px;margin:40px auto;padding:0 20px;background:#111;color:#eee}
+table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #333}
+a{color:#0cf;text-decoration:none}a:hover{text-decoration:underline}</style></head>
+<body><h1>Tracking Sessions</h1>
+<table><thead><tr><th>ID</th><th>Date</th><th>Size</th></tr></thead>
+<tbody>${rows || "<tr><td colspan=3>No sessions saved yet</td></tr>"}</tbody></table>
+</body></html>`, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
+});
+
 // GET /tracking/:id — retrieve a specific tracking session.
 tracking.get("/:id", async (c) => {
   const userId = c.get("userId");
@@ -122,36 +157,6 @@ tracking.get("/models/:name", async (c) => {
   return new Response(obj.body, {
     headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${name}.mlmodel"` },
   });
-});
-
-// GET /tracking/list/view — HTML page listing all tracking sessions with links.
-tracking.get("/list/view", async (c) => {
-  const userId = c.get("userId");
-  const prefix = `users/${userId}/tracking/`;
-  const list = await c.env.FILES.list({ prefix, limit: 100 });
-  const items = list.objects
-    .filter((o) => o.key.endsWith(".json"))
-    .map((o) => ({
-      id: o.key.replace(prefix, "").replace(".json", ""),
-      size: o.size,
-      uploaded: o.uploaded.toISOString(),
-    }))
-    .sort((a, b) => b.uploaded.localeCompare(a.uploaded));
-
-  const rows = items.map((i) =>
-    `<tr><td><a href="/tracking/${i.id}/view">${i.id}</a></td><td>${i.uploaded}</td><td>${(i.size/1024).toFixed(1)} KB</td></tr>`
-  ).join("\n");
-
-  return new Response(`<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Tracking Sessions</title>
-<style>body{font-family:system-ui;max-width:800px;margin:40px auto;padding:0 20px;background:#111;color:#eee}
-table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #333}
-a{color:#0cf;text-decoration:none}a:hover{text-decoration:underline}</style></head>
-<body><h1>Tracking Sessions</h1>
-<table><thead><tr><th>ID</th><th>Date</th><th>Size</th></tr></thead>
-<tbody>${rows || "<tr><td colspan=3>No sessions saved yet</td></tr>"}</tbody></table>
-</body></html>`, { headers: { "Content-Type": "text/html;charset=UTF-8" } });
 });
 
 function viewerHTML(id: string, data: any): string {
