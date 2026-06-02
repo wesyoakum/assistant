@@ -229,8 +229,8 @@ const D = Math.SQRT1_2;
 const DEG = Math.PI / 180;
 
 // User coords: X→1B, Y→2B, Z→up
-// Three.js:    X→right, Y→up, Z→toward viewer
-// Mapping: threeX = userX, threeY = userZ, threeZ = -userY
+// Three.js:    X→right, Y→up, Z→toward viewer (right-handed)
+// Mapping: threeX = userX, threeY = userZ (up), threeZ = -userY (2B into screen)
 function u2t(ux, uy, uz) { return new THREE.Vector3(ux, uz, -uy); }
 // Internal field (x→1B foul, z→3B foul) → user coords (meters)
 function f2u(fx, fz) { return [(fx - fz) * D * FT, (fx + fz) * D * FT]; }
@@ -240,10 +240,10 @@ const W = container.clientWidth, H = container.clientHeight;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0a);
 const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 500);
-// Start the viewer looking from behind and above the camera position
-const cp = u2t(camPos.x, camPos.y, camPos.z);
-camera.position.set(cp.x + 8, cp.y + 8, cp.z + 8);
-camera.lookAt(0, 0, 0);
+// Start behind home plate looking toward 2B (catcher's view).
+// User Y negative = behind plate → Three.js Z positive = toward viewer.
+camera.position.set(0, 8, 15); // elevated, behind plate
+camera.lookAt(0, 0, -10); // look toward 2B (negative Three.js Z)
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene3d'), antialias: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(window.devicePixelRatio);
