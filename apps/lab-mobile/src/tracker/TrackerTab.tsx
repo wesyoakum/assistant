@@ -27,6 +27,7 @@ import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from ".
 import { fieldToUser, formatXYZ } from "../field/userCoords";
 import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { apiFetch } from "../api/client";
+import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
@@ -75,14 +76,15 @@ const MAX_SCALE = 8;
 
 /** Displays a preprocessed (grayscale + contrast) version of a frame. */
 function ProcessedImage({ base64 }: { base64: string }) {
+  const { contrastLevel } = useTrackerSettings();
   const [processed, setProcessed] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
-    VisionTracker.preprocessFrame(base64, 1.8, 0.85)
+    VisionTracker.preprocessFrame(base64, contrastLevel, 0.85)
       .then((p) => { if (!cancelled) setProcessed(p); })
       .catch(() => { if (!cancelled) setProcessed(null); });
     return () => { cancelled = true; };
-  }, [base64]);
+  }, [base64, contrastLevel]);
   if (!processed) return null;
   return (
     <Image
@@ -134,8 +136,8 @@ export function TrackerTab() {
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const [preprocessEnabled, setPreprocessEnabled] = useState(true);
   const [showProcessed, setShowProcessed] = useState(false);
+  const { preprocessBW, contrastLevel } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -479,10 +481,10 @@ export function TrackerTab() {
         const roi = box ?? undefined;
         const detect = async (uri: string): Promise<RawDetection[]> => {
           let detectUri = uri;
-          if (preprocessEnabled) {
+          if (preprocessBW) {
             try {
               const raw = uri.replace(/^data:image\/\w+;base64,/, "");
-              const processed = await VisionTracker.preprocessFrame(raw, 1.8, 0.85);
+              const processed = await VisionTracker.preprocessFrame(raw, contrastLevel, 0.85);
               detectUri = `data:image/jpeg;base64,${processed}`;
             } catch {}
           }
@@ -820,12 +822,11 @@ export function TrackerTab() {
         >
           <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>{MODE_LABEL[trackerMode]} ▾</Text>
         </Pressable>
-        <Pressable
-          onPress={() => setPreprocessEnabled((v) => !v)}
-          style={[styles.btn, { backgroundColor: preprocessEnabled ? theme.primary : theme.surfaceAlt }]}
-        >
-          <Text style={[styles.btnText, { color: preprocessEnabled ? "#fff" : theme.text, fontSize: 10 }]}>B&W</Text>
-        </Pressable>
+        <View style={[styles.btn, { backgroundColor: preprocessBW ? theme.primary : theme.surfaceAlt }]}>
+          <Text style={[styles.btnText, { color: preprocessBW ? "#fff" : theme.text, fontSize: 10 }]}>
+            {preprocessBW ? `B&W ${contrastLevel.toFixed(1)}×` : "Color"}
+          </Text>
+        </View>
         <Pressable
           onPress={runTracker}
           disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}

@@ -3,6 +3,7 @@ import { useAuth } from "../../src/state/auth";
 import { type Theme } from "../../src/theme";
 import { useStyles } from "../../src/hooks/useStyles";
 import { useAppearance, type AppearanceMode } from "../../src/theme";
+import { useTrackerSettings } from "../../src/state/trackerSettings";
 
 export default function SettingsScreen() {
   const styles = useStyles(makeStyles);
@@ -32,11 +33,49 @@ export default function SettingsScreen() {
         ))}
       </View>
 
+      <TrackerSettingsSection styles={styles} />
+
       <Text style={styles.sectionTitle}>Account</Text>
       <Pressable style={styles.signOutButton} onPress={clearToken}>
         <Text style={styles.signOutText}>Sign out</Text>
       </Pressable>
     </ScrollView>
+  );
+}
+
+const CONTRAST_LEVELS = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0];
+
+function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyles> }) {
+  const { preprocessBW, contrastLevel, setPreprocessBW, setContrastLevel } = useTrackerSettings();
+  return (
+    <>
+      <Text style={styles.sectionTitle}>Tracker Preprocessing</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <Text style={styles.chipText}>Black & White</Text>
+        <Pressable
+          onPress={() => setPreprocessBW(!preprocessBW)}
+          style={[styles.chip, preprocessBW && styles.chipActive]}
+        >
+          <Text style={[styles.chipText, preprocessBW && styles.chipTextActive]}>
+            {preprocessBW ? "ON" : "OFF"}
+          </Text>
+        </Pressable>
+      </View>
+      <Text style={[styles.chipText, { marginBottom: 8 }]}>Contrast: {contrastLevel.toFixed(1)}×</Text>
+      <View style={styles.row}>
+        {CONTRAST_LEVELS.map((v) => (
+          <Pressable
+            key={v}
+            onPress={() => setContrastLevel(v)}
+            style={[styles.chip, contrastLevel === v && styles.chipActive, { paddingHorizontal: 10 }]}
+          >
+            <Text style={[styles.chipText, contrastLevel === v && styles.chipTextActive, { fontSize: 12 }]}>
+              {v.toFixed(1)}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </>
   );
 }
 
