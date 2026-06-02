@@ -1109,11 +1109,6 @@ export function TrackerTab() {
 
       {result && (
         <View style={{ marginTop: 6 }}>
-          <Text style={{ color: theme.text, fontWeight: "600", marginBottom: 6 }}>
-            [{MODE_LABEL[result.mode]}] tracked {result.frames.length} frames in {result.elapsedMs} ms
-            {"  ·  "}
-            {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps source` : "?"}
-          </Text>
           {reviewedFrame && (
             <View
               ref={canvasRef2}
@@ -1380,6 +1375,13 @@ export function TrackerTab() {
           {copyHint && (
             <Text style={{ color: theme.textSubtle, fontSize: 11, marginTop: 6, textAlign: "center" }}>{copyHint}</Text>
           )}
+
+          {/* Tracking stats */}
+          <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 8 }}>
+            <Text style={{ color: theme.text, fontSize: 10, fontWeight: "600" }}>
+              {MODE_LABEL[result.mode]}  ·  {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected  ·  {result.elapsedMs}ms  ·  {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps` : "?"}
+            </Text>
+          </View>
 
           {/* Camera pose + detection data (visible during review) */}
           {cameraXYZ && (
