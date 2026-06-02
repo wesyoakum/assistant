@@ -26,19 +26,19 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
+        name="tracker"
+        options={{
+          title: "Tracker",
+          tabBarIcon: tabIcon("locate-outline"),
+        }}
+      />
+      <Tabs.Screen
         name="ar"
         options={{
           title: "Plate",
           headerShown: false,
           tabBarIcon: tabIcon("scan-outline"),
           href: null,
-        }}
-      />
-      <Tabs.Screen
-        name="tracker"
-        options={{
-          title: "Tracker",
-          tabBarIcon: tabIcon("locate-outline"),
         }}
       />
       <Tabs.Screen
