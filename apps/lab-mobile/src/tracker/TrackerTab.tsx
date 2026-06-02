@@ -1466,31 +1466,41 @@ export function TrackerTab() {
           )}
 
           {/* Save to whyapp.us */}
-          {allRayInfo && cameraXYZ && (
+          {result && (
             <Pressable
               onPress={async () => {
                 setBusy("saving to whyapp.us…");
                 try {
-                  const detections = allRayInfo.map((r) => ({
-                    frame: r.frameIndex,
-                    time: Number(r.timeSec.toFixed(4)),
-                    type: r.interpolated ? "interp" : "detect",
-                    pixel: { x: Number(r.pixelX.toFixed(1)), y: Number((result!.videoHeight - r.pixelY).toFixed(1)) },
-                    yzPlane: { y: Number(r.yzY.toFixed(4)), z: Number(r.yzZ.toFixed(4)) },
-                    ray: { dx: Number(r.rayDirX.toFixed(5)), dy: Number(r.rayDirY.toFixed(5)), dz: Number(r.rayDirZ.toFixed(5)) },
-                  }));
+                  const ip = interpolated ?? [];
+                  const detections = result!.frames.map((f, i) => {
+                    const p = ip[i];
+                    const box = p?.box ?? f.box;
+                    if (!box) return null;
+                    const cx = box.x + box.width / 2;
+                    const cy = box.y + box.height / 2;
+                    const ri = allRayInfo?.find((r) => r.frameIndex === i);
+                    return {
+                      frame: i,
+                      time: Number(f.timeSec.toFixed(4)),
+                      type: f.lost ? (p?.interpolated ? "interp" : "lost") : "detect",
+                      pixel: { x: Number((cx * result!.videoWidth).toFixed(1)), y: Number(((1 - cy) * result!.videoHeight).toFixed(1)) },
+                      yzPlane: ri ? { y: Number(ri.yzY.toFixed(4)), z: Number(ri.yzZ.toFixed(4)) } : null,
+                      ray: ri ? { dx: Number(ri.rayDirX.toFixed(5)), dy: Number(ri.rayDirY.toFixed(5)), dz: Number(ri.rayDirZ.toFixed(5)) } : null,
+                    };
+                  }).filter(Boolean);
                   const payload = {
-                    cameraPose: {
+                    cameraPose: cameraXYZ ? {
                       position: { x: Number(cameraXYZ.x.toFixed(3)), y: Number(cameraXYZ.y.toFixed(3)), z: Number(cameraXYZ.z.toFixed(3)) },
                       rotation: cameraAngles ? { rx: Number(cameraAngles.tiltDeg.toFixed(1)), ry: Number(cameraAngles.rollDeg.toFixed(1)), rz: Number(cameraAngles.panDeg.toFixed(1)) } : null,
-                    },
+                    } : null,
+                    homography: cameraPose ? { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx } : null,
                     imageSize: { width: result!.videoWidth, height: result!.videoHeight },
                     frameRate: result!.frameRate,
                     trackerMode: result!.mode,
                     detections,
                   };
-                  await apiFetch("/tracking", { method: "POST", body: JSON.stringify(payload) });
-                  setCopyHint("Saved to whyapp.us");
+                  const res = await apiFetch<{ id: string }>("/tracking", { method: "POST", body: JSON.stringify(payload) });
+                  setCopyHint(`Saved → api.whyapp.us/tracking/${res.id}/view`);
                   setTimeout(() => setCopyHint(null), 3000);
                 } catch (e) {
                   setCopyHint(`Save failed: ${(e as Error).message}`);
