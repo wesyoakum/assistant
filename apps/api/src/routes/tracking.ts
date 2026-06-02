@@ -303,9 +303,30 @@ scene.add(dl);
 
 // Axes
 const axLen = 3;
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), axLen, 0xff0000));
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), axLen, 0x00ff00));
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), axLen, 0x0000ff));
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), axLen, 0xff0000)); // X = toward 1B
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), axLen, 0x00ff00)); // Y(three) = Z(user) = up
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(0,0,0), axLen, 0x0066ff)); // -Z(three) = Y(user) = toward 2B
+
+// Sprite labels for bases
+function makeLabel(text, pos, color) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 48;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = color || '#fff';
+  ctx.font = 'bold 28px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 64, 34);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+  const spr = new THREE.Sprite(mat);
+  spr.position.copy(pos);
+  spr.position.y += 1;
+  spr.scale.set(2, 0.8, 1);
+  scene.add(spr);
+}
+const b1b = bases['1b']; makeLabel('1B', u2t(b1b[0], b1b[1], 0), '#ffdc00');
+const b3b = bases['3b']; makeLabel('3B', u2t(b3b[0], b3b[1], 0), '#ffdc00');
+const b2b = bases['2b']; makeLabel('2B', u2t(b2b[0], b2b[1], 0), '#ffdc00');
 
 // Field geometry
 const bases = {

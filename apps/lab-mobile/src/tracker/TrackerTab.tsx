@@ -1269,7 +1269,6 @@ export function TrackerTab() {
           {reviewedFrame && (
             <View
               ref={canvasRef2}
-              {...resultResponder.panHandlers}
               onLayout={onCanvasLayout}
               style={{ aspectRatio: result.videoWidth / result.videoHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginBottom: 8, position: "relative" }}
             >
