@@ -20,6 +20,10 @@ export interface TrackedFrame {
   confidence: number;
   lost: boolean;
   error?: string;
+  /** True if this detection was rejected by outlier filtering. */
+  rejected?: boolean;
+  /** Original box before outlier rejection nulled it out. */
+  rejectedBox?: { x: number; y: number; width: number; height: number };
 }
 
 export interface DetectorBox {

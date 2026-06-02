@@ -27,6 +27,7 @@ import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from ".
 import { fieldToUser, formatXYZ } from "../field/userCoords";
 import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { apiFetch } from "../api/client";
+import { rejectOutliers } from "./outlierRejection";
 import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
@@ -137,7 +138,7 @@ export function TrackerTab() {
   const [isSaved, setIsSaved] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showProcessed, setShowProcessed] = useState(false);
-  const { preprocessBW, contrastLevel } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -519,6 +520,25 @@ export function TrackerTab() {
           confidenceCutoff: 0.15, searchPadding: 3, downsample: 2,
         });
       }
+      // Outlier rejection (two-pass RANSAC + refit).
+      let rejectedCount = 0;
+      if (outlierRejection) {
+        const rej = rejectOutliers(r.frames, { inlierThreshold: outlierThreshold });
+        if (rej.applied) {
+          for (const label of rej.labels) {
+            if (!label.inlier && label.residual !== null) {
+              const f = r.frames[label.frameIndex] as any;
+              if (f && f.box) {
+                f.rejectedBox = { ...f.box };
+                f.box = null;
+                f.lost = true;
+                f.rejected = true;
+                rejectedCount++;
+              }
+            }
+          }
+        }
+      }
       setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate, mode: trackerMode });
       setReviewIdx(0);
     } catch (e) {
@@ -825,6 +845,11 @@ export function TrackerTab() {
         <View style={[styles.btn, { backgroundColor: preprocessBW ? theme.primary : theme.surfaceAlt }]}>
           <Text style={[styles.btnText, { color: preprocessBW ? "#fff" : theme.text, fontSize: 10 }]}>
             {preprocessBW ? `B&W ${contrastLevel.toFixed(1)}×` : "Color"}
+          </Text>
+        </View>
+        <View style={[styles.btn, { backgroundColor: outlierRejection ? theme.primary : theme.surfaceAlt }]}>
+          <Text style={[styles.btnText, { color: outlierRejection ? "#fff" : theme.text, fontSize: 10 }]}>
+            {outlierRejection ? "Filter" : "No filter"}
           </Text>
         </View>
         <Pressable
@@ -1208,6 +1233,31 @@ export function TrackerTab() {
                     />
                   );
                 })}
+                {/* Rejected points (red hollow circles) */}
+                {result.frames.slice(0, reviewIdx + 1).map((f: any, i) => {
+                  if (!f.rejected || !f.rejectedBox) return null;
+                  const cx = f.rejectedBox.x + f.rejectedBox.width / 2;
+                  const cy = f.rejectedBox.y + f.rejectedBox.height / 2;
+                  return (
+                    <View
+                      key={`rej-${i}`}
+                      pointerEvents="none"
+                      style={{
+                        position: "absolute",
+                        left: `${cx * 100}%`,
+                        top: `${cy * 100}%`,
+                        width: 8,
+                        height: 8,
+                        marginLeft: -4,
+                        marginTop: -4,
+                        borderRadius: 4,
+                        borderWidth: 1.5,
+                        borderColor: "rgba(255,59,48,0.7)",
+                        backgroundColor: "transparent",
+                      }}
+                    />
+                  );
+                })}
                 {(() => {
                   const cur = interpolated?.[reviewIdx];
                   if (!cur?.box) return null;
@@ -1379,7 +1429,7 @@ export function TrackerTab() {
           {/* Tracking stats */}
           <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 8 }}>
             <Text style={{ color: theme.text, fontSize: 10, fontWeight: "600" }}>
-              {MODE_LABEL[result.mode]}  ·  {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected  ·  {result.elapsedMs}ms  ·  {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps` : "?"}
+              {MODE_LABEL[result.mode]}  ·  {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected  ·  {result.frames.filter((f: any) => f.rejected).length > 0 ? `${result.frames.filter((f: any) => f.rejected).length} rejected  ·  ` : ""}{result.elapsedMs}ms  ·  {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps` : "?"}
             </Text>
           </View>
 

@@ -35,6 +35,7 @@ export default function SettingsScreen() {
 
       <TrackerSettingsSection styles={styles} />
 
+
       <Text style={styles.sectionTitle}>Account</Text>
       <Pressable style={styles.signOutButton} onPress={clearToken}>
         <Text style={styles.signOutText}>Sign out</Text>
@@ -44,9 +45,10 @@ export default function SettingsScreen() {
 }
 
 const CONTRAST_LEVELS = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0];
+const THRESHOLD_LEVELS = [0.01, 0.02, 0.03, 0.05, 0.07, 0.10];
 
 function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyles> }) {
-  const { preprocessBW, contrastLevel, setPreprocessBW, setContrastLevel } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold } = useTrackerSettings();
   return (
     <>
       <Text style={styles.sectionTitle}>Tracker Preprocessing</Text>
@@ -75,6 +77,36 @@ function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyl
           </Pressable>
         ))}
       </View>
+      <Text style={styles.sectionTitle}>Outlier Rejection</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <Text style={styles.chipText}>Filter outliers</Text>
+        <Pressable
+          onPress={() => setOutlierRejection(!outlierRejection)}
+          style={[styles.chip, outlierRejection && styles.chipActive]}
+        >
+          <Text style={[styles.chipText, outlierRejection && styles.chipTextActive]}>
+            {outlierRejection ? "ON" : "OFF"}
+          </Text>
+        </Pressable>
+      </View>
+      {outlierRejection && (
+        <>
+          <Text style={[styles.chipText, { marginBottom: 8 }]}>Threshold: {(outlierThreshold * 100).toFixed(0)}% of frame</Text>
+          <View style={styles.row}>
+            {THRESHOLD_LEVELS.map((v) => (
+              <Pressable
+                key={v}
+                onPress={() => setOutlierThreshold(v)}
+                style={[styles.chip, outlierThreshold === v && styles.chipActive, { paddingHorizontal: 10 }]}
+              >
+                <Text style={[styles.chipText, outlierThreshold === v && styles.chipTextActive, { fontSize: 12 }]}>
+                  {(v * 100).toFixed(0)}%
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      )}
     </>
   );
 }
