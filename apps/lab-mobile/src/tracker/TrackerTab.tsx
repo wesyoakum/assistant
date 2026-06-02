@@ -26,6 +26,7 @@ import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
 import { fieldToUser, formatXYZ } from "../field/userCoords";
 import { computeBallDirection, type BallDirection } from "../field/ballAngles";
+import { apiFetch } from "../api/client";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { useOrientation } from "../hooks/useOrientation";
@@ -843,7 +844,7 @@ export function TrackerTab() {
                   "",
                   "frame\ttime\ttype\tpixel_x\tpixel_y\tground_x\tground_y\tray_dir_x\tray_dir_y\tray_dir_z",
                   ...allRayInfo.map((r) =>
-                    `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${r.pixelY.toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
+                    `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
                   ),
                 ].filter(Boolean).join("\n");
                 await Clipboard.setStringAsync(lines);
@@ -862,7 +863,7 @@ export function TrackerTab() {
                   f{r.frameIndex} t={r.timeSec.toFixed(3)}s {r.interpolated ? "INTERP" : "DETECT"}
                 </Text>
                 <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                  pixel  x={r.pixelX.toFixed(1)}  y={r.pixelY.toFixed(1)}
+                  pixel  x={r.pixelX.toFixed(1)}  y={(result!.videoHeight - r.pixelY).toFixed(1)}
                 </Text>
                 <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
                   ground x={r.groundX.toFixed(3)}  y={r.groundY.toFixed(3)} m
@@ -1355,7 +1356,7 @@ export function TrackerTab() {
                       "",
                       "frame\ttime\ttype\tpixel_x\tpixel_y\tground_x\tground_y\tray_dir_x\tray_dir_y\tray_dir_z",
                       ...allRayInfo.map((r) =>
-                        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${r.pixelY.toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
+                        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
                       ),
                     ].filter(Boolean).join("\n");
                     await Clipboard.setStringAsync(lines);
@@ -1374,7 +1375,7 @@ export function TrackerTab() {
                       f{r.frameIndex} t={r.timeSec.toFixed(3)}s {r.interpolated ? "INTERP" : "DETECT"}
                     </Text>
                     <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                      pixel  x={r.pixelX.toFixed(1)}  y={r.pixelY.toFixed(1)}
+                      pixel  x={r.pixelX.toFixed(1)}  y={(result!.videoHeight - r.pixelY).toFixed(1)}
                     </Text>
                     <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
                       ground x={r.groundX.toFixed(3)}  y={r.groundY.toFixed(3)} m
@@ -1386,6 +1387,47 @@ export function TrackerTab() {
                 ))}
               </ScrollView>
             </View>
+          )}
+
+          {/* Save to whyapp.us */}
+          {allRayInfo && cameraXYZ && (
+            <Pressable
+              onPress={async () => {
+                setBusy("saving to whyapp.us…");
+                try {
+                  const detections = allRayInfo.map((r) => ({
+                    frame: r.frameIndex,
+                    time: Number(r.timeSec.toFixed(4)),
+                    type: r.interpolated ? "interp" : "detect",
+                    pixel: { x: Number(r.pixelX.toFixed(1)), y: Number((result!.videoHeight - r.pixelY).toFixed(1)) },
+                    ground: { x: Number(r.groundX.toFixed(4)), y: Number(r.groundY.toFixed(4)) },
+                    ray: { dx: Number(r.rayDirX.toFixed(5)), dy: Number(r.rayDirY.toFixed(5)), dz: Number(r.rayDirZ.toFixed(5)) },
+                  }));
+                  const payload = {
+                    cameraPose: {
+                      position: { x: Number(cameraXYZ.x.toFixed(3)), y: Number(cameraXYZ.y.toFixed(3)), z: Number(cameraXYZ.z.toFixed(3)) },
+                      rotation: cameraAngles ? { rx: Number(cameraAngles.tiltDeg.toFixed(1)), ry: Number(cameraAngles.rollDeg.toFixed(1)), rz: Number(cameraAngles.panDeg.toFixed(1)) } : null,
+                    },
+                    imageSize: { width: result!.videoWidth, height: result!.videoHeight },
+                    frameRate: result!.frameRate,
+                    trackerMode: result!.mode,
+                    detections,
+                  };
+                  await apiFetch("/tracking", { method: "POST", body: JSON.stringify(payload) });
+                  setCopyHint("Saved to whyapp.us");
+                  setTimeout(() => setCopyHint(null), 3000);
+                } catch (e) {
+                  setCopyHint(`Save failed: ${(e as Error).message}`);
+                  setTimeout(() => setCopyHint(null), 5000);
+                } finally {
+                  setBusy(null);
+                }
+              }}
+              disabled={!!busy}
+              style={[styles.btn, { backgroundColor: theme.highlight, marginTop: 8, opacity: busy ? 0.5 : 1 }]}
+            >
+              <Text style={styles.btnText}>Save to whyapp.us</Text>
+            </Pressable>
           )}
         </View>
       )}
