@@ -54,25 +54,21 @@ tracking.get("/", async (c) => {
 
 // ── Static paths MUST come before /:id to avoid being swallowed ──
 
-// GET /tracking/list/view — HTML page listing all tracking sessions with links.
+// GET /tracking/list/view — public HTML page listing all tracking sessions.
 tracking.get("/list/view", async (c) => {
-  // Try to get userId if authed, otherwise list nothing (public but needs auth to see own data).
-  let userId: string | undefined;
-  try { userId = c.get("userId"); } catch {}
-  if (!userId) return new Response("Sign in to view your sessions", { status: 401 });
-  const prefix = `users/${userId}/tracking/`;
-  const list = await c.env.FILES.list({ prefix, limit: 100 });
-  const items = list.objects
-    .filter((o) => o.key.endsWith(".json"))
+  const allList = await c.env.FILES.list({ prefix: "users/", limit: 500 });
+  const items = allList.objects
+    .filter((o) => o.key.includes("/tracking/") && o.key.endsWith(".json"))
     .map((o) => ({
-      id: o.key.replace(prefix, "").replace(".json", ""),
+      id: o.key.split("/tracking/")[1]?.replace(".json", "") || "",
       size: o.size,
       uploaded: o.uploaded.toISOString(),
     }))
+    .filter((i) => i.id)
     .sort((a, b) => b.uploaded.localeCompare(a.uploaded));
 
   const rows = items.map((i) =>
-    `<tr><td><a href="/tracking/${i.id}/view">${i.id}</a></td><td>${i.uploaded}</td><td>${(i.size/1024).toFixed(1)} KB</td></tr>`
+    `<tr><td><a href="/tracking/${i.id}/view">${i.id}</a></td><td>${i.uploaded}</td><td>${(i.size / 1024).toFixed(1)} KB</td></tr>`
   ).join("\n");
 
   return new Response(`<!DOCTYPE html>
