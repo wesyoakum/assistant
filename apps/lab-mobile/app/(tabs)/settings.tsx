@@ -48,7 +48,7 @@ const CONTRAST_LEVELS = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0];
 const THRESHOLD_LEVELS = [0.01, 0.02, 0.03, 0.05, 0.07, 0.10];
 
 function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyles> }) {
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold, setRoiSize } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize, basepathFt, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold, setRoiSize, setBasepathFt } = useTrackerSettings();
   return (
     <>
       <Text style={styles.sectionTitle}>Tracker Preprocessing</Text>
@@ -88,6 +88,19 @@ function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyl
             <Text style={[styles.chipText, roiSize === v && styles.chipTextActive]}>
               {v}×{v}
             </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={[styles.chipText, { marginTop: 12, marginBottom: 8 }]}>Base Distance (ft)</Text>
+      <View style={styles.row}>
+        {[46, 50, 60, 70, 90].map((v) => (
+          <Pressable
+            key={v}
+            onPress={() => setBasepathFt(v)}
+            style={[styles.chip, basepathFt === v && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, basepathFt === v && styles.chipTextActive]}>{v}</Text>
           </Pressable>
         ))}
       </View>

@@ -128,8 +128,9 @@ export function TrackerTab() {
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -1534,10 +1535,13 @@ export function TrackerTab() {
                     imageSize: { width: result!.videoWidth, height: result!.videoHeight },
                     frameRate: result!.frameRate,
                     trackerMode: result!.mode,
+                    basepathFt,
                     detections,
                   };
                   const res = await apiFetch<{ id: string }>("/tracking", { method: "POST", body: JSON.stringify(payload) });
-                  setCopyHint(`Saved → api.whyapp.us/tracking/${res.id}/view`);
+                  const viewUrl = `https://api.whyapp.us/tracking/${res.id}/view`;
+                  setSavedViewUrl(viewUrl);
+                  setCopyHint("Saved!");
                   setTimeout(() => setCopyHint(null), 3000);
                 } catch (e) {
                   setCopyHint(`Save failed: ${(e as Error).message}`);
@@ -1550,6 +1554,11 @@ export function TrackerTab() {
               style={[styles.btn, { backgroundColor: theme.highlight, marginTop: 8, opacity: busy ? 0.5 : 1 }]}
             >
               <Text style={styles.btnText}>Save to whyapp.us</Text>
+            </Pressable>
+          )}
+          {savedViewUrl && (
+            <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }} style={{ marginTop: 4 }}>
+              <Text style={{ color: "rgba(0,200,255,1)", fontSize: 11, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
             </Pressable>
           )}
         </View>

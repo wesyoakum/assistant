@@ -208,6 +208,142 @@ a{color:#0cf}
 <a class="btn" id="csvBtn" href="#">Download CSV</a>
 <a class="btn" href="/tracking/list/view">All Sessions</a>
 
+<h2>3D Field View</h2>
+<div id="scene3d-container" style="width:100%;max-width:800px;height:500px;position:relative;border-radius:8px;overflow:hidden;background:#0a0a0a">
+  <canvas id="scene3d"></canvas>
+</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const camData = ${JSON.stringify(cam.position || { x: 0, y: -7, z: 2 })};
+const detData = ${JSON.stringify(detected.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray })))};
+const bp = ${data.basepathFt || 60}; // basepath in feet
+const FT = 0.3048;
+const D = Math.SQRT1_2;
+
+// Coord mapping: user (X→1B, Y→2B, Z→up) → Three.js (X→right, Y→up, Z→toward viewer)
+function u2t(ux, uy, uz) { return new THREE.Vector3(ux, uz, -uy); }
+// Internal field (x→1B foul, z→3B foul) → user coords (meters)
+function f2u(fx, fz) { return [(fx - fz) * D * FT, (fx + fz) * D * FT]; }
+
+const container = document.getElementById('scene3d-container');
+const W = container.clientWidth, H = container.clientHeight;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0a);
+const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 200);
+const cp = u2t(camData.x, camData.y, camData.z);
+camera.position.set(cp.x + 5, cp.y + 5, cp.z + 5);
+camera.lookAt(0, 0, 0);
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene3d'), antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(window.devicePixelRatio);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.update();
+
+// Lighting
+scene.add(new THREE.AmbientLight(0x666666));
+const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+dl.position.set(5, 10, 5);
+scene.add(dl);
+
+// Ground grid
+const grid = new THREE.GridHelper(40, 40, 0x333333, 0x222222);
+scene.add(grid);
+
+// Axes
+const axLen = 3;
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), axLen, 0xff0000));
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), axLen, 0x00ff00));
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,0), axLen, 0x0000ff));
+
+// Field geometry
+const bases = {
+  apex: f2u(0, 0),
+  '1b': f2u(bp, 0),
+  '2b': f2u(bp, bp),
+  '3b': f2u(0, bp),
+};
+
+// Basepaths (pink)
+const bpMat = new THREE.LineBasicMaterial({ color: 0xff78b4 });
+const bpKeys = ['apex', '1b', '2b', '3b', 'apex'];
+const bpPts = bpKeys.map(k => { const p = bases[k]; return u2t(p[0], p[1], 0); });
+scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(bpPts), bpMat));
+
+// Bases (yellow boxes)
+const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
+['1b', '2b', '3b'].forEach(k => {
+  const p = bases[k];
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.05, 0.38), baseMat);
+  const tp = u2t(p[0], p[1], 0);
+  m.position.set(tp.x, tp.y + 0.025, tp.z);
+  m.rotation.y = Math.PI / 4;
+  scene.add(m);
+});
+
+// Plate (white pentagon — simplified as flat disk)
+const plateMat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+const plateG = new THREE.CircleGeometry(0.22, 5);
+const plate = new THREE.Mesh(plateG, plateMat);
+plate.rotation.x = -Math.PI / 2;
+plate.position.set(0, 0.01, 0);
+scene.add(plate);
+
+// Camera marker (red cone)
+const camMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
+const camMesh = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 8), camMat);
+camMesh.position.copy(u2t(camData.x, camData.y, camData.z));
+scene.add(camMesh);
+
+// YZ plane (semi-transparent yellow, at X=0)
+const yzGeo = new THREE.PlaneGeometry(20, 6);
+const yzMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
+const yzPlane = new THREE.Mesh(yzGeo, yzMat);
+// YZ plane in user coords: X=0, spans Y and Z. In Three.js: x=0, spans z (=-Y) and y (=Z).
+yzPlane.rotation.y = Math.PI / 2;
+yzPlane.position.set(0, 3, 0);
+scene.add(yzPlane);
+// YZ plane border
+const yzBorder = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(0, 0, -10), new THREE.Vector3(0, 0, 10),
+  new THREE.Vector3(0, 6, 10), new THREE.Vector3(0, 6, -10),
+]), new THREE.LineBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.4 }));
+scene.add(yzBorder);
+
+// Rays and intersection points
+const rayMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.3 });
+const camPos3 = u2t(camData.x, camData.y, camData.z);
+const detectSphMat = new THREE.MeshBasicMaterial({ color: 0x34c759 });
+const interpSphMat = new THREE.MeshBasicMaterial({ color: 0xff9500 });
+const sphGeo = new THREE.SphereGeometry(0.06, 8, 8);
+
+detData.forEach(d => {
+  if (!d.yz) return;
+  const intPt = u2t(0, d.yz.y, d.yz.z);
+  // Ray line from camera to intersection
+  scene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([camPos3, intPt]),
+    rayMat
+  ));
+  // Intersection sphere
+  const sph = new THREE.Mesh(sphGeo, d.type === 'detect' ? detectSphMat : interpSphMat);
+  sph.position.copy(intPt);
+  scene.add(sph);
+});
+
+function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+animate();
+
+window.addEventListener('resize', () => {
+  const w = container.clientWidth, h = container.clientHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+});
+</script>
+
 <h2>Pixel Position Plot (detected)</h2>
 <canvas id="plot" width="700" height="400"></canvas>
 
