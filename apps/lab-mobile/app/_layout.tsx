@@ -35,8 +35,9 @@ function AuthGate() {
   const theme = useTheme();
   useHydrateAppearance();
 
+  // Allow all orientations — landscape is useful for the tracker.
   useEffect(() => {
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    ScreenOrientation.unlockAsync().catch(() => {});
   }, []);
 
   useOTAUpdates();
