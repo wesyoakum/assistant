@@ -354,11 +354,12 @@ export function TrackerTab() {
   // only one of the two canvases is rendered at a time.
   const resultResponder = useMemo(() =>
     PanResponder.create({
-      onStartShouldSetPanResponderCapture: () => true,
-      onMoveShouldSetPanResponderCapture: () => true,
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderTerminationRequest: () => false,
+      // Only capture 2-finger pinch; let 1-finger scroll pass to ScrollView.
+      onStartShouldSetPanResponderCapture: (e) => (e.nativeEvent.touches?.length ?? 1) >= 2,
+      onMoveShouldSetPanResponderCapture: (e) => (e.nativeEvent.touches?.length ?? 1) >= 2,
+      onStartShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) >= 2,
+      onMoveShouldSetPanResponder: (e) => (e.nativeEvent.touches?.length ?? 1) >= 2,
+      onPanResponderTerminationRequest: () => true,
       onPanResponderGrant: (e) => {
         remeasure();
         setScrollEnabled(false);
