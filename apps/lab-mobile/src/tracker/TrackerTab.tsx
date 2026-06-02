@@ -1500,31 +1500,63 @@ export function TrackerTab() {
     {/* Model picker modal */}
     <Modal visible={showModelPicker} transparent animationType="fade" onRequestClose={() => setShowModelPicker(false)}>
       <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => setShowModelPicker(false)}>
-        <View style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 260 }}>
+        <View style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 300, maxHeight: "80%" }}>
           <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15, marginBottom: 12 }}>Tracker Model</Text>
-          {ALL_MODES.map((m) => (
-            <Pressable
-              key={m}
-              onPress={() => { setTrackerMode(m); setShowModelPicker(false); }}
-              style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, backgroundColor: trackerMode === m ? theme.primary : "transparent" }}
-            >
-              <Text style={{ color: trackerMode === m ? "#fff" : theme.text, fontWeight: trackerMode === m ? "700" : "400", fontSize: 14 }}>
-                {MODE_LABEL[m]}
+          <ScrollView>
+            {ALL_MODES.map((m) => (
+              <Pressable
+                key={m}
+                onPress={() => { setTrackerMode(m); setShowModelPicker(false); }}
+                style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, backgroundColor: trackerMode === m ? theme.primary : "transparent" }}
+              >
+                <Text style={{ color: trackerMode === m ? "#fff" : theme.text, fontWeight: trackerMode === m ? "700" : "400", fontSize: 14 }}>
+                  {MODE_LABEL[m]}
+                </Text>
+                <Text style={{ color: trackerMode === m ? "rgba(255,255,255,0.7)" : theme.textSubtle, fontSize: 11 }}>
+                  {m === "yolo" ? "Nano — fastest, ~6MB (bundled)" :
+                   m === "yolo-s" ? "Small — better accuracy, ~22MB" :
+                   m === "yolo-m" ? "Medium — balanced, ~52MB" :
+                   m === "yolo-l" ? "Large — high accuracy, ~90MB" :
+                   m === "yolo-x" ? "Extra-large — best accuracy, ~130MB" :
+                   m === "baseball" ? "Custom baseball detector" :
+                   m === "blob" ? "Classical bright-blob detector (no model)" :
+                   m === "tracknet" ? "TrackNet ML ball tracker" :
+                   m === "vision" ? "Apple Vision object tracker (needs box)" :
+                   "Template matching tracker (needs box)"}
+                </Text>
+              </Pressable>
+            ))}
+
+            {/* Download from server */}
+            <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, marginTop: 8, paddingTop: 8 }}>
+              <Text style={{ color: theme.textSubtle, fontSize: 11, marginBottom: 6 }}>Download from whyapp.us:</Text>
+              <Pressable
+                onPress={async () => {
+                  try {
+                    setBusy("fetching model list…");
+                    setShowModelPicker(false);
+                    const res = await apiFetch<{ models: { name: string; size: number }[] }>("/tracking/models");
+                    if (!res.models.length) { setErr("No models on server"); setBusy(null); return; }
+                    // Download the first one not already available.
+                    const local = Yolo.availableModels();
+                    const toDownload = res.models.find((m) => !local.includes(m.name));
+                    if (!toDownload) { setCopyHint("All server models already downloaded"); setBusy(null); setTimeout(() => setCopyHint(null), 3000); return; }
+                    setBusy(`downloading ${toDownload.name} (${(toDownload.size / 1024 / 1024).toFixed(1)}MB)…`);
+                    await Yolo.downloadModel(`https://api.whyapp.us/tracking/models/${toDownload.name}`, toDownload.name);
+                    setCopyHint(`Downloaded ${toDownload.name}`);
+                    setTimeout(() => setCopyHint(null), 3000);
+                  } catch (e) { setErr((e as Error).message); }
+                  finally { setBusy(null); }
+                }}
+                style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}
+              >
+                <Text style={[styles.btnText, { color: theme.text, fontSize: 12 }]}>Check for models</Text>
+              </Pressable>
+              <Text style={{ color: theme.textSubtle, fontSize: 9, marginTop: 4 }}>
+                Available: {Yolo.availableModels().join(", ") || "loading…"}
               </Text>
-              <Text style={{ color: trackerMode === m ? "rgba(255,255,255,0.7)" : theme.textSubtle, fontSize: 11 }}>
-                {m === "yolo" ? "Nano — fastest, ~6MB (bundled)" :
-                 m === "yolo-s" ? "Small — better accuracy, ~22MB" :
-                 m === "yolo-m" ? "Medium — balanced, ~52MB" :
-                 m === "yolo-l" ? "Large — high accuracy, ~90MB" :
-                 m === "yolo-x" ? "Extra-large — best accuracy, ~130MB" :
-                 m === "baseball" ? "Custom baseball detector" :
-                 m === "blob" ? "Classical bright-blob detector (no model)" :
-                 m === "tracknet" ? "TrackNet ML ball tracker" :
-                 m === "vision" ? "Apple Vision object tracker (needs box)" :
-                 "Template matching tracker (needs box)"}
-              </Text>
-            </Pressable>
-          ))}
+            </View>
+          </ScrollView>
         </View>
       </Pressable>
     </Modal>

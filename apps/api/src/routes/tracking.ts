@@ -59,4 +59,45 @@ tracking.get("/:id", async (c) => {
   return c.json(data);
 });
 
+// ── Model storage ──────────────────────────────────────────────────
+
+// POST /tracking/models — upload a .mlmodel file.
+// Body is the raw model bytes. Name from query param.
+tracking.post("/models", async (c) => {
+  const userId = c.get("userId");
+  const name = c.req.query("name");
+  if (!name) return c.json({ error: "name query param required" }, 400);
+  const data = await c.req.arrayBuffer();
+  if (data.byteLength === 0) return c.json({ error: "Empty body" }, 400);
+  const key = `models/${name}.mlmodel`;
+  await c.env.FILES.put(key, data, {
+    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: { uploadedBy: userId, uploadedAt: new Date().toISOString() },
+  });
+  return c.json({ key, size: data.byteLength });
+});
+
+// GET /tracking/models — list available models.
+tracking.get("/models", async (c) => {
+  const list = await c.env.FILES.list({ prefix: "models/", limit: 50 });
+  const models = list.objects.map((obj) => ({
+    name: obj.key.replace("models/", "").replace(".mlmodel", ""),
+    key: obj.key,
+    size: obj.size,
+    uploaded: obj.uploaded.toISOString(),
+  }));
+  return c.json({ models });
+});
+
+// GET /tracking/models/:name — download a model file.
+tracking.get("/models/:name", async (c) => {
+  const name = c.req.param("name");
+  const key = `models/${name}.mlmodel`;
+  const obj = await c.env.FILES.get(key);
+  if (!obj) return c.json({ error: "Model not found" }, 404);
+  return new Response(obj.body, {
+    headers: { "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${name}.mlmodel"` },
+  });
+});
+
 export { tracking };

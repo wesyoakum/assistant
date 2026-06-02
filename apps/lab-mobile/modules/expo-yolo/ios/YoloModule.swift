@@ -29,30 +29,58 @@ public final class YoloModule: Module {
       return self.currentModelName
     }
 
-    // List available models in the bundle.
+    // List available models (bundled + downloaded).
     Function("availableModels") { () -> [String] in
-      var models: [String] = []
-      // Check main bundle and ExpoYoloModels resource bundle.
-      let bundles: [Bundle] = [
-        Bundle.main,
-        Bundle.main.url(forResource: "ExpoYoloModels", withExtension: "bundle")
-          .flatMap { Bundle(url: $0) },
-      ].compactMap { $0 }
-      for b in bundles {
-        if let urls = b.urls(forResourcesWithExtension: "mlmodelc", subdirectory: nil) {
-          for url in urls {
-            let name = url.deletingPathExtension().lastPathComponent
-            if !models.contains(name) { models.append(name) }
-          }
-        }
-      }
-      return models.sorted()
+      return self.listAllModels()
     }
 
     // Switch to a different model at runtime.
     AsyncFunction("switchModel") { (name: String) -> Bool in
       self.loadModel(name: name)
       return self.visionModel != nil
+    }
+
+    // Download a .mlmodel from a URL, compile it, and save to documents.
+    // Returns the model name on success.
+    AsyncFunction("downloadModel") { (urlString: String, name: String) -> String in
+      guard let url = URL(string: urlString) else {
+        throw YoloError.notReady("Invalid URL")
+      }
+      let (data, _) = try await URLSession.shared.data(from: url)
+      // Write to temp .mlmodel file.
+      let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("\(name).mlmodel")
+      try data.write(to: tempFile)
+      // Compile the model.
+      let compiledURL = try MLModel.compileModel(at: tempFile)
+      // Move compiled model to our models directory.
+      let destURL = self.modelsDir.appendingPathComponent("\(name).mlmodelc")
+      if FileManager.default.fileExists(atPath: destURL.path) {
+        try FileManager.default.removeItem(at: destURL)
+      }
+      try FileManager.default.moveItem(at: compiledURL, to: destURL)
+      try? FileManager.default.removeItem(at: tempFile)
+      return name
+    }
+
+    // Import a .mlmodel from a local file URI, compile it, save to documents.
+    AsyncFunction("importModel") { (fileUri: String, name: String) -> String in
+      guard let url = URL(string: fileUri) ?? URL(fileURLWithPath: fileUri) as URL? else {
+        throw YoloError.notReady("Invalid file URI")
+      }
+      let compiledURL = try MLModel.compileModel(at: url)
+      let destURL = self.modelsDir.appendingPathComponent("\(name).mlmodelc")
+      if FileManager.default.fileExists(atPath: destURL.path) {
+        try FileManager.default.removeItem(at: destURL)
+      }
+      try FileManager.default.moveItem(at: compiledURL, to: destURL)
+      return name
+    }
+
+    // Delete a downloaded model.
+    Function("deleteModel") { (name: String) -> Bool in
+      let path = self.modelsDir.appendingPathComponent("\(name).mlmodelc")
+      try? FileManager.default.removeItem(at: path)
+      return true
     }
 
     AsyncFunction("detect") { (uri: String, opts: [String: Any]) -> [String: Any] in
@@ -110,12 +138,22 @@ public final class YoloModule: Module {
   }
 }
 
+  /// Directory for downloaded/imported models.
+  private var modelsDir: URL {
+    let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    let dir = docs.appendingPathComponent("yolo-models", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    return dir
+  }
+
   private func loadModel(name: String) {
     self.loadError = nil
     self.visionModel = nil
     self.currentModelName = ""
     do {
+      // Search: 1) documents dir, 2) app bundle, 3) resource bundle.
       let candidates: [URL?] = [
+        modelsDir.appendingPathComponent("\(name).mlmodelc"),
         Bundle.main.url(forResource: name, withExtension: "mlmodelc"),
         Bundle.main.url(forResource: name, withExtension: "mlmodelc", subdirectory: "ExpoYoloModels.bundle"),
         {
@@ -126,8 +164,9 @@ public final class YoloModule: Module {
           return nil
         }(),
       ]
-      guard let modelURL = candidates.compactMap({ $0 }).first else {
-        self.loadError = "\(name).mlmodelc not found in app bundle"
+      let existing = candidates.compactMap { $0 }.filter { FileManager.default.fileExists(atPath: $0.path) }
+      guard let modelURL = existing.first else {
+        self.loadError = "\(name) not found (bundle or downloads)"
         return
       }
       let config = MLModelConfiguration()
@@ -138,6 +177,33 @@ public final class YoloModule: Module {
     } catch {
       self.loadError = "Model load failed: \(error.localizedDescription)"
     }
+  }
+
+  /// List models in both the bundle and the documents directory.
+  private func listAllModels() -> [String] {
+    var models: [String] = []
+    // Bundle models.
+    let bundles: [Bundle] = [
+      Bundle.main,
+      Bundle.main.url(forResource: "ExpoYoloModels", withExtension: "bundle")
+        .flatMap { Bundle(url: $0) },
+    ].compactMap { $0 }
+    for b in bundles {
+      if let urls = b.urls(forResourcesWithExtension: "mlmodelc", subdirectory: nil) {
+        for url in urls {
+          let name = url.deletingPathExtension().lastPathComponent
+          if !models.contains(name) { models.append(name) }
+        }
+      }
+    }
+    // Downloaded models.
+    if let contents = try? FileManager.default.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) {
+      for url in contents where url.pathExtension == "mlmodelc" {
+        let name = url.deletingPathExtension().lastPathComponent
+        if !models.contains(name) { models.append(name) }
+      }
+    }
+    return models.sorted()
   }
 }
 

@@ -37,6 +37,9 @@ interface NativeModule {
   currentModel(): string;
   availableModels(): string[];
   switchModel(name: string): Promise<boolean>;
+  downloadModel(url: string, name: string): Promise<string>;
+  importModel(fileUri: string, name: string): Promise<string>;
+  deleteModel(name: string): boolean;
   detect(uri: string, opts: YoloDetectOptions): Promise<YoloResult>;
 }
 
@@ -68,6 +71,21 @@ export const Yolo = {
   switchModel(name: string): Promise<boolean> {
     if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
     return Native.switchModel(name);
+  },
+  /** Download a .mlmodel from a URL, compile on-device, and save. */
+  downloadModel(url: string, name: string): Promise<string> {
+    if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
+    return Native.downloadModel(url, name);
+  },
+  /** Import a local .mlmodel file, compile on-device, and save. */
+  importModel(fileUri: string, name: string): Promise<string> {
+    if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
+    return Native.importModel(fileUri, name);
+  },
+  /** Delete a downloaded model. */
+  deleteModel(name: string): boolean {
+    if (!Native) return false;
+    try { return Native.deleteModel(name); } catch { return false; }
   },
   detect(uri: string, opts: YoloDetectOptions = {}): Promise<YoloResult> {
     if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
