@@ -317,11 +317,16 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
     [fc.x - halfW*rgt.x, fc.z - halfW*rgt.z], // front left
     [fc.x - sideD*fwd.x - halfW*rgt.x, fc.z - sideD*fwd.z - halfW*rgt.z], // left bevel
   ];
-  const plateShape = new THREE.Shape();
-  plateCorners.forEach((c, i) => {
+  // Build plate as line loop + filled shape using u2t directly.
+  const platePts3D = plateCorners.map(c => {
     const u = f2u(c[0], c[1]);
-    if (i === 0) plateShape.moveTo(u[0], -u[1]); // negate Y for shape (XZ plane)
-    else plateShape.lineTo(u[0], -u[1]);
+    return u2t(u[0], u[1], 0.01);
+  });
+  // Filled shape via ShapeGeometry in XZ plane.
+  const plateShape = new THREE.Shape();
+  platePts3D.forEach((p, i) => {
+    if (i === 0) plateShape.moveTo(p.x, p.z);
+    else plateShape.lineTo(p.x, p.z);
   });
   plateShape.closePath();
   const plateGeo = new THREE.ShapeGeometry(plateShape);
@@ -330,10 +335,7 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   plateMesh.position.y = 0.01;
   scene.add(plateMesh);
   // Plate outline
-  const plateLinePts = [...plateCorners, plateCorners[0]].map(c => {
-    const u = f2u(c[0], c[1]);
-    return u2t(u[0], u[1], 0.02);
-  });
+  const plateLinePts = [...platePts3D, platePts3D[0]];
   scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(plateLinePts), new THREE.LineBasicMaterial({ color: 0xff78b4 })));
 }
 
