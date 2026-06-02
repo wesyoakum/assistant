@@ -30,6 +30,8 @@ export interface BatterBoxOverlayHandle {
   solve: () => CameraPose | null;
   reset: () => void;
   anchoredCount: () => number;
+  getState: () => { positions: Record<string, { nx: number; ny: number }>; anchored: Record<string, boolean> };
+  setState: (s: { positions: Record<string, { nx: number; ny: number }>; anchored: Record<string, boolean> }) => void;
 }
 
 const BOX_COLOR = "rgba(0,200,255,0.9)";
@@ -429,7 +431,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       solve: (): CameraPose | null => homography ? { fit: homography, sides: ["left", "right"] } : null,
       reset: () => { setPositions(defaultPositions()); setAnchored({}); setActiveId(null); },
       anchoredCount: () => anchorCount,
-    }), [homography, anchorCount]);
+      getState: () => ({ positions, anchored }),
+      setState: (s: { positions: Record<string, { nx: number; ny: number }>; anchored: Record<string, boolean> }) => {
+        setPositions(s.positions);
+        setAnchored(s.anchored);
+      },
+    }), [homography, anchorCount, positions, anchored]);
 
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">

@@ -27,6 +27,7 @@ import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from ".
 import { fieldToUser, formatXYZ } from "../field/userCoords";
 import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { apiFetch } from "../api/client";
+import type { TrackerSession } from "./session";
 import { rejectOutliers } from "./outlierRejection";
 import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
@@ -198,6 +199,63 @@ export function TrackerTab() {
     setResult(null);
     setVp({ scale: 1, tx: 0, ty: 0 });
     await loadFrame(uri, 0);
+  };
+
+  const restoreSession = async (s: TrackerSession) => {
+    // Restore settings
+    const ts = useTrackerSettings.getState();
+    ts.setPreprocessBW(s.settings.preprocessBW);
+    ts.setContrastLevel(s.settings.contrastLevel);
+    ts.setOutlierRejection(s.settings.outlierRejection);
+    ts.setOutlierThreshold(s.settings.outlierThreshold);
+    ts.setRoiSize(s.settings.roiSize);
+    ts.setBasepathFt(s.settings.basepathFt);
+
+    // Restore tracker state
+    setTrackerMode(s.trackerMode as TrackerMode);
+    setStartTimeSec(s.startTimeSec);
+    setEndTimeSec(s.endTimeSec);
+    setBox(s.roi);
+
+    // Restore calibration
+    if (s.cameraPose) {
+      setCameraPose({ fit: s.cameraPose.fit as any, sides: s.cameraPose.sides as any });
+    } else {
+      setCameraPose(null);
+    }
+    setCameraXYZ(s.cameraXYZ);
+    setCameraAngles(s.cameraAngles);
+
+    // Restore overlay positions (deferred — overlay may not be mounted yet)
+    if (s.overlayPositions && s.overlayAnchored) {
+      setShowPoseOverlay(true);
+      setTimeout(() => {
+        poseOverlayRef.current?.setState?.({ positions: s.overlayPositions!, anchored: s.overlayAnchored! });
+      }, 100);
+    }
+
+    // Restore results
+    if (s.result) {
+      setResult(s.result as any);
+      setReviewIdx(s.reviewIdx);
+    }
+
+    // Load the video last (triggers frame load)
+    if (s.videoUri) {
+      setVideoUri(s.videoUri);
+      setIsSaved(true);
+      setFrameTimeSec(s.frameTimeSec);
+      try {
+        const f = await VisionTracker.firstFrame(s.videoUri, 0.85);
+        setFrame(f);
+        if (s.frameTimeSec > 0) {
+          const f2 = await VisionTracker.frameAtTime(s.videoUri, s.frameTimeSec, 0.85);
+          setFrame(f2);
+        }
+      } catch (e) {
+        setErr(`Video not available: ${(e as Error).message}`);
+      }
+    }
   };
 
   const loadFrame = async (uri: string, timeSec: number) => {
@@ -1043,6 +1101,31 @@ export function TrackerTab() {
         <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
           <Text style={styles.btnText}>{videoUri ? "Pick another" : "Pick video"}</Text>
         </Pressable>
+        <Pressable
+          onPress={async () => {
+            setBusy("loading sessions…");
+            try {
+              const res = await apiFetch<{ sessions: { id: string; uploaded: string }[] }>("/tracking");
+              if (!res.sessions.length) { setErr("No saved sessions"); setBusy(null); return; }
+              // Load the most recent session
+              const latest = res.sessions[0]!;
+              setBusy(`loading ${latest.id}…`);
+              const data = await apiFetch<any>(`/tracking/${latest.id}`);
+              if (data.session) {
+                await restoreSession(data.session);
+                setCopyHint(`Loaded session ${latest.id}`);
+                setTimeout(() => setCopyHint(null), 3000);
+              } else {
+                setErr("Session data not found in saved payload");
+              }
+            } catch (e) { setErr((e as Error).message); }
+            finally { setBusy(null); }
+          }}
+          disabled={!!busy}
+          style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: busy ? 0.5 : 1 }]}
+        >
+          <Text style={[styles.btnText, { color: theme.text }]}>Load</Text>
+        </Pressable>
         {videoUri && !isSaved && (
           <Pressable
             onPress={async () => {
@@ -1503,59 +1586,77 @@ export function TrackerTab() {
             </View>
           )}
 
-          {/* Save to whyapp.us */}
-          {result && (
-            <Pressable
-              onPress={async () => {
-                setBusy("saving to whyapp.us…");
-                try {
-                  const ip = interpolated ?? [];
-                  const detections = result!.frames.map((f, i) => {
-                    const p = ip[i];
-                    const box = p?.box ?? f.box;
-                    if (!box) return null;
-                    const cx = box.x + box.width / 2;
-                    const cy = box.y + box.height / 2;
-                    const ri = allRayInfo?.find((r) => r.frameIndex === i);
-                    return {
-                      frame: i,
-                      time: Number(f.timeSec.toFixed(4)),
-                      type: f.lost ? (p?.interpolated ? "interp" : "lost") : "detect",
-                      pixel: { x: Number((cx * result!.videoWidth).toFixed(1)), y: Number(((1 - cy) * result!.videoHeight).toFixed(1)) },
-                      yzPlane: ri ? { y: Number(ri.yzY.toFixed(4)), z: Number(ri.yzZ.toFixed(4)) } : null,
-                      ray: ri ? { dx: Number(ri.rayDirX.toFixed(5)), dy: Number(ri.rayDirY.toFixed(5)), dz: Number(ri.rayDirZ.toFixed(5)) } : null,
-                    };
-                  }).filter(Boolean);
-                  const payload = {
-                    cameraPose: cameraXYZ ? {
-                      position: { x: Number(cameraXYZ.x.toFixed(3)), y: Number(cameraXYZ.y.toFixed(3)), z: Number(cameraXYZ.z.toFixed(3)) },
-                      rotation: cameraAngles ? { rx: Number(cameraAngles.tiltDeg.toFixed(1)), ry: Number(cameraAngles.rollDeg.toFixed(1)), rz: Number(cameraAngles.panDeg.toFixed(1)) } : null,
-                    } : null,
-                    homography: cameraPose ? { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx } : null,
-                    imageSize: { width: result!.videoWidth, height: result!.videoHeight },
-                    frameRate: result!.frameRate,
-                    trackerMode: result!.mode,
-                    basepathFt,
-                    detections,
+          {/* Save full session to whyapp.us */}
+          <Pressable
+            onPress={async () => {
+              setBusy("saving session…");
+              try {
+                // Build detection data for the viewer
+                const ip = interpolated ?? [];
+                const detections = result ? result.frames.map((f, i) => {
+                  const p = ip[i];
+                  const bx = p?.box ?? f.box;
+                  if (!bx) return null;
+                  const cx = bx.x + bx.width / 2, cy = bx.y + bx.height / 2;
+                  const ri = allRayInfo?.find((r) => r.frameIndex === i);
+                  return {
+                    frame: i, time: Number(f.timeSec.toFixed(4)),
+                    type: f.lost ? (p?.interpolated ? "interp" : "lost") : "detect",
+                    pixel: { x: Number((cx * result.videoWidth).toFixed(1)), y: Number(((1 - cy) * result.videoHeight).toFixed(1)) },
+                    yzPlane: ri ? { y: Number(ri.yzY.toFixed(4)), z: Number(ri.yzZ.toFixed(4)) } : null,
+                    ray: ri ? { dx: Number(ri.rayDirX.toFixed(5)), dy: Number(ri.rayDirY.toFixed(5)), dz: Number(ri.rayDirZ.toFixed(5)) } : null,
                   };
-                  const res = await apiFetch<{ id: string }>("/tracking", { method: "POST", body: JSON.stringify(payload) });
-                  const viewUrl = `https://api.whyapp.us/tracking/${res.id}/view`;
-                  setSavedViewUrl(viewUrl);
-                  setCopyHint("Saved!");
-                  setTimeout(() => setCopyHint(null), 3000);
-                } catch (e) {
-                  setCopyHint(`Save failed: ${(e as Error).message}`);
-                  setTimeout(() => setCopyHint(null), 5000);
-                } finally {
-                  setBusy(null);
-                }
-              }}
-              disabled={!!busy}
-              style={[styles.btn, { backgroundColor: theme.highlight, marginTop: 8, opacity: busy ? 0.5 : 1 }]}
-            >
-              <Text style={styles.btnText}>Save to whyapp.us</Text>
-            </Pressable>
-          )}
+                }).filter(Boolean) : [];
+
+                // Full session for restore
+                const overlayState = poseOverlayRef.current?.getState?.() ?? null;
+                const session: TrackerSession = {
+                  version: 2,
+                  savedAt: new Date().toISOString(),
+                  videoUri,
+                  frameTimeSec,
+                  trackerMode,
+                  startTimeSec,
+                  endTimeSec,
+                  roi: box,
+                  cameraPose: cameraPose ? { fit: { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx, count: cameraPose.fit.count }, sides: cameraPose.sides } : null,
+                  cameraXYZ,
+                  cameraAngles,
+                  overlayPositions: overlayState?.positions ?? null,
+                  overlayAnchored: overlayState?.anchored ?? null,
+                  result: result ? { frames: result.frames, elapsedMs: result.elapsedMs, videoWidth: result.videoWidth, videoHeight: result.videoHeight, frameRate: result.frameRate, mode: result.mode } : null,
+                  reviewIdx,
+                  settings: { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize: useTrackerSettings.getState().roiSize, basepathFt },
+                };
+
+                // Also include viewer data in the payload
+                const payload = {
+                  session,
+                  cameraPose: cameraXYZ ? { position: cameraXYZ, rotation: cameraAngles } : null,
+                  homography: cameraPose ? { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx } : null,
+                  imageSize: result ? { width: result.videoWidth, height: result.videoHeight } : null,
+                  frameRate: result?.frameRate ?? 0,
+                  trackerMode,
+                  basepathFt,
+                  detections,
+                };
+                const res = await apiFetch<{ id: string }>("/tracking", { method: "POST", body: JSON.stringify(payload) });
+                const viewUrl = `https://api.whyapp.us/tracking/${res.id}/view`;
+                setSavedViewUrl(viewUrl);
+                setCopyHint("Saved!");
+                setTimeout(() => setCopyHint(null), 3000);
+              } catch (e) {
+                setCopyHint(`Save failed: ${(e as Error).message}`);
+                setTimeout(() => setCopyHint(null), 5000);
+              } finally {
+                setBusy(null);
+              }
+            }}
+            disabled={!!busy}
+            style={[styles.btn, { backgroundColor: theme.highlight, marginTop: 8, opacity: busy ? 0.5 : 1 }]}
+          >
+            <Text style={styles.btnText}>Save Session</Text>
+          </Pressable>
           {savedViewUrl && (
             <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }} style={{ marginTop: 4 }}>
               <Text style={{ color: "rgba(0,200,255,1)", fontSize: 11, textDecorationLine: "underline" }}>{savedViewUrl}</Text>

@@ -99,10 +99,15 @@ export function decomposeCameraPose(
   let posZ = -(r2[0]! * t[0]! + r2[1]! * t[1]! + r2[2]! * t[2]!);
   let posY = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
 
-  // Camera should be above the ground (posY > 0). If not, flip.
+  // Sign ambiguity: lambda could be negative. Resolve by checking that
+  // the field origin is in front of the camera (positive depth in camera frame).
+  // Depth of origin = r1[2]*0 + r2[2]*0 + t[2] = t[2] (the z-component of t).
+  // If t[2] < 0, the origin is behind the camera — flip the solution.
   let sign = 1;
-  if (posY < 0) {
-    posX = -posX; posY = -posY; posZ = -posZ;
+  if (t[2]! < 0) {
+    posX = -posX;
+    posY = -posY;
+    posZ = -posZ;
     sign = -1;
   }
 
