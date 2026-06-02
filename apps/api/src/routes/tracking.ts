@@ -364,10 +364,12 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
     return u2t(u[0], u[1], 0.01);
   });
   // Filled shape via ShapeGeometry in XZ plane.
+  // Shape is drawn in 2D (x, y) then rotated -90° around X into XZ.
+  // After rotation, shape local Y → -world Z. So use -p.z to match.
   const plateShape = new THREE.Shape();
   platePts3D.forEach((p, i) => {
-    if (i === 0) plateShape.moveTo(p.x, p.z);
-    else plateShape.lineTo(p.x, p.z);
+    if (i === 0) plateShape.moveTo(p.x, -p.z);
+    else plateShape.lineTo(p.x, -p.z);
   });
   plateShape.closePath();
   const plateGeo = new THREE.ShapeGeometry(plateShape);
