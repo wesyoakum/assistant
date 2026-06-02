@@ -467,10 +467,13 @@ export function TrackerTab() {
       } else if (trackerMode.startsWith("yolo") || trackerMode === "baseball") {
         // Switch YOLO model if needed.
         const yoloModelName = YOLO_MODEL_NAME[trackerMode];
-        if (yoloModelName && Yolo.currentModel() !== yoloModelName) {
-          setBusy(`loading ${yoloModelName}…`);
-          const ok = await Yolo.switchModel(yoloModelName).catch(() => false);
-          if (!ok) { setErr(`Failed to load ${yoloModelName} — model may not be bundled`); setBusy(null); return; }
+        if (yoloModelName) {
+          const current = Yolo.currentModel();
+          if (current && current !== yoloModelName) {
+            setBusy(`loading ${yoloModelName}…`);
+            const ok = await Yolo.switchModel(yoloModelName).catch(() => false);
+            if (!ok) { setErr(`Failed to load ${yoloModelName} — model may not be bundled`); setBusy(null); return; }
+          }
         }
         const isYolo = trackerMode.startsWith("yolo");
         const roi = box ?? undefined;

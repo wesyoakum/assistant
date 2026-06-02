@@ -61,30 +61,27 @@ export const Yolo = {
     try { return Native.loadError(); } catch { return null; }
   },
   currentModel(): string {
-    if (!Native) return "";
+    if (!Native || typeof Native.currentModel !== "function") return "";
     try { return Native.currentModel(); } catch { return ""; }
   },
   availableModels(): string[] {
-    if (!Native) return [];
+    if (!Native || typeof Native.availableModels !== "function") return [];
     try { return Native.availableModels(); } catch { return []; }
   },
   switchModel(name: string): Promise<boolean> {
-    if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
+    if (!Native || typeof Native.switchModel !== "function") return Promise.resolve(false);
     return Native.switchModel(name);
   },
-  /** Download a .mlmodel from a URL, compile on-device, and save. */
   downloadModel(url: string, name: string): Promise<string> {
-    if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
+    if (!Native || typeof Native.downloadModel !== "function") return Promise.reject(new Error("Not available in this build"));
     return Native.downloadModel(url, name);
   },
-  /** Import a local .mlmodel file, compile on-device, and save. */
   importModel(fileUri: string, name: string): Promise<string> {
-    if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
+    if (!Native || typeof Native.importModel !== "function") return Promise.reject(new Error("Not available in this build"));
     return Native.importModel(fileUri, name);
   },
-  /** Delete a downloaded model. */
   deleteModel(name: string): boolean {
-    if (!Native) return false;
+    if (!Native || typeof Native.deleteModel !== "function") return false;
     try { return Native.deleteModel(name); } catch { return false; }
   },
   detect(uri: string, opts: YoloDetectOptions = {}): Promise<YoloResult> {
