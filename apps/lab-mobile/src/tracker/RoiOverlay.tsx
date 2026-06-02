@@ -7,6 +7,7 @@ import React, { useCallback, useMemo, useRef, useState, useImperativeHandle, for
 import { View, Text, StyleSheet, PanResponder } from "react-native";
 import Svg, { Rect } from "react-native-svg";
 import type { NormalizedBox } from "expo-vision-tracker";
+import { useTrackerSettings } from "../state/trackerSettings";
 
 export interface RoiOverlayProps {
   imageWidth: number;
@@ -23,8 +24,8 @@ export interface RoiOverlayHandle {
 
 const HANDLE_SIZE = 24;
 
-function defaultBox(imageWidth: number, imageHeight: number): { nx: number; ny: number; nw: number; nh: number } {
-  const side = Math.min(640 / imageWidth, 1);
+function defaultBox(imageWidth: number, imageHeight: number, roiPx: number): { nx: number; ny: number; nw: number; nh: number } {
+  const side = Math.min(roiPx / imageWidth, 1);
   const sideY = (side * imageWidth) / imageHeight;
   const nw = Math.min(side, 1);
   const nh = Math.min(sideY, 1);
@@ -38,7 +39,8 @@ function defaultBox(imageWidth: number, imageHeight: number): { nx: number; ny: 
 
 export const RoiOverlay = forwardRef<RoiOverlayHandle, RoiOverlayProps>(
   function RoiOverlay({ imageWidth, imageHeight, vp, canvas, canvasPageOffset }, ref) {
-    const [box, setBox] = useState(() => defaultBox(imageWidth, imageHeight));
+    const { roiSize } = useTrackerSettings();
+    const [box, setBox] = useState(() => defaultBox(imageWidth, imageHeight, roiSize));
     const boxRef = useRef(box);
     boxRef.current = box;
 
@@ -136,7 +138,7 @@ export const RoiOverlay = forwardRef<RoiOverlayHandle, RoiOverlayProps>(
 
     useImperativeHandle(ref, () => ({
       getBox: () => ({ x: box.nx, y: box.ny, width: box.nw, height: box.nh }),
-      reset: () => setBox(defaultBox(imageWidth, imageHeight)),
+      reset: () => setBox(defaultBox(imageWidth, imageHeight, roiSize)),
     }), [box, imageWidth, imageHeight]);
 
     return (

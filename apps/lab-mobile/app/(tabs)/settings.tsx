@@ -48,7 +48,7 @@ const CONTRAST_LEVELS = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0];
 const THRESHOLD_LEVELS = [0.01, 0.02, 0.03, 0.05, 0.07, 0.10];
 
 function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyles> }) {
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold, setRoiSize } = useTrackerSettings();
   return (
     <>
       <Text style={styles.sectionTitle}>Tracker Preprocessing</Text>
@@ -77,6 +77,21 @@ function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyl
           </Pressable>
         ))}
       </View>
+      <Text style={[styles.chipText, { marginTop: 12, marginBottom: 8 }]}>ROI Size</Text>
+      <View style={styles.row}>
+        {[640, 1280].map((v) => (
+          <Pressable
+            key={v}
+            onPress={() => setRoiSize(v)}
+            style={[styles.chip, roiSize === v && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, roiSize === v && styles.chipTextActive]}>
+              {v}×{v}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       <Text style={styles.sectionTitle}>Outlier Rejection</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <Text style={styles.chipText}>Filter outliers</Text>
