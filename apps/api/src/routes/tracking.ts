@@ -220,13 +220,17 @@ a{color:#0cf}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const camData = ${JSON.stringify(cam.position || { x: 0, y: -7, z: 2 })};
+const camPos = ${JSON.stringify(cam.position || { x: 0, y: -7, z: 2 })};
+const camRot = ${JSON.stringify(cam.rotation || { rx: 0, ry: 0, rz: 0 })};
 const detData = ${JSON.stringify(detected.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray })))};
 const bp = ${data.basepathFt || 60}; // basepath in feet
 const FT = 0.3048;
 const D = Math.SQRT1_2;
+const DEG = Math.PI / 180;
 
-// Coord mapping: user (X→1B, Y→2B, Z→up) → Three.js (X→right, Y→up, Z→toward viewer)
+// User coords: X→1B, Y→2B, Z→up
+// Three.js:    X→right, Y→up, Z→toward viewer
+// Mapping: threeX = userX, threeY = userZ, threeZ = -userY
 function u2t(ux, uy, uz) { return new THREE.Vector3(ux, uz, -uy); }
 // Internal field (x→1B foul, z→3B foul) → user coords (meters)
 function f2u(fx, fz) { return [(fx - fz) * D * FT, (fx + fz) * D * FT]; }
@@ -235,9 +239,10 @@ const container = document.getElementById('scene3d-container');
 const W = container.clientWidth, H = container.clientHeight;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0a);
-const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 200);
-const cp = u2t(camData.x, camData.y, camData.z);
-camera.position.set(cp.x + 5, cp.y + 5, cp.z + 5);
+const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 500);
+// Start the viewer looking from behind and above the camera position
+const cp = u2t(camPos.x, camPos.y, camPos.z);
+camera.position.set(cp.x + 8, cp.y + 8, cp.z + 8);
 camera.lookAt(0, 0, 0);
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene3d'), antialias: true });
 renderer.setSize(W, H);
@@ -253,8 +258,7 @@ dl.position.set(5, 10, 5);
 scene.add(dl);
 
 // Ground grid
-const grid = new THREE.GridHelper(40, 40, 0x333333, 0x222222);
-scene.add(grid);
+// Grid added after field geometry is computed (needs foulEnd).
 
 // Axes
 const axLen = 3;
@@ -270,6 +274,10 @@ const bases = {
   '3b': f2u(0, bp),
 };
 const foulEnd = bp + 2.5 * bp; // foul line extends past bases
+
+// Ground grid (sized to fit foul lines)
+const gridSize = Math.max(40, foulEnd * FT * 2.5);
+scene.add(new THREE.GridHelper(gridSize, Math.floor(gridSize / 2), 0x333333, 0x222222));
 
 // Foul lines (pink, from apex past bases)
 const foulMat = new THREE.LineBasicMaterial({ color: 0xff78b4 });
@@ -353,11 +361,49 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   });
 }
 
-// Camera marker (red cone)
-const camMat = new THREE.MeshBasicMaterial({ color: 0xff3333 });
-const camMesh = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5, 8), camMat);
-camMesh.position.copy(u2t(camData.x, camData.y, camData.z));
-scene.add(camMesh);
+// Camera marker (red frustum, oriented by saved rotation)
+{
+  const camGroup = new THREE.Group();
+  // Small pyramid pointing along -Z (Three.js camera convention: looks along -Z)
+  const frustH = 0.6, frustW = 0.4;
+  const frustGeo = new THREE.BufferGeometry();
+  const verts = new Float32Array([
+    0,0,0, -frustW/2,-frustW*0.6,-frustH, frustW/2,-frustW*0.6,-frustH,
+    0,0,0, frustW/2,-frustW*0.6,-frustH, frustW/2,frustW*0.6,-frustH,
+    0,0,0, frustW/2,frustW*0.6,-frustH, -frustW/2,frustW*0.6,-frustH,
+    0,0,0, -frustW/2,frustW*0.6,-frustH, -frustW/2,-frustW*0.6,-frustH,
+    -frustW/2,-frustW*0.6,-frustH, frustW/2,-frustW*0.6,-frustH, frustW/2,frustW*0.6,-frustH,
+    -frustW/2,-frustW*0.6,-frustH, frustW/2,frustW*0.6,-frustH, -frustW/2,frustW*0.6,-frustH,
+  ]);
+  frustGeo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  frustGeo.computeVertexNormals();
+  const frustMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+  camGroup.add(new THREE.Mesh(frustGeo, frustMat));
+
+  // Position in Three.js coords
+  const camP = u2t(camPos.x, camPos.y, camPos.z);
+  camGroup.position.copy(camP);
+
+  // Apply rotation: camRot has rx (tilt), ry (roll), rz (pan) in user coords.
+  // User pan (rz) = rotation about user Z (up) = rotation about Three.js Y
+  // User tilt (rx) = rotation about user X = rotation about Three.js X
+  // User roll (ry) = rotation about camera forward
+  // Build rotation: first pan (Y), then tilt (X)
+  const euler = new THREE.Euler(
+    -camRot.rx * DEG,   // tilt: negative because Three.js X rotation is opposite
+    -camRot.rz * DEG,   // pan: around Three.js Y (= user Z)
+    camRot.ry * DEG,    // roll
+    'YXZ'
+  );
+  camGroup.setRotationFromEuler(euler);
+
+  scene.add(camGroup);
+  // Also add a line from camera to origin for reference
+  scene.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([camP, new THREE.Vector3(0, 0, 0)]),
+    new THREE.LineBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.3 })
+  ));
+}
 
 // YZ plane (semi-transparent yellow, at X=0) — toggleable
 const yzGroup = new THREE.Group();
@@ -376,7 +422,7 @@ scene.add(yzGroup);
 
 // Rays and intersection points
 const rayMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.3 });
-const camPos3 = u2t(camData.x, camData.y, camData.z);
+const camPos3 = u2t(camPos.x, camPos.y, camPos.z);
 const detectSphMat = new THREE.MeshBasicMaterial({ color: 0x34c759 });
 const interpSphMat = new THREE.MeshBasicMaterial({ color: 0xff9500 });
 const sphGeo = new THREE.SphereGeometry(0.06, 8, 8);
