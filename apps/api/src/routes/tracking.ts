@@ -261,8 +261,9 @@ a{color:#0cf}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-const camPos = ${JSON.stringify(cam.position || { x: 0, y: -7, z: 2 })};
-const camRot = ${JSON.stringify(cam.rotation || { rx: 0, ry: 0, rz: 0 })};
+const camPos = ${JSON.stringify(cam?.position || { x: 0, y: -7, z: 2 })};
+const camRot = ${JSON.stringify(cam?.rotation || { rx: 0, ry: 0, rz: 0 })};
+const hasCam = ${!!(cam?.position)};
 const detData = ${JSON.stringify(detected.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray })))};
 const bp = ${data.basepathFt || 60}; // basepath in feet
 const FT = 0.3048;

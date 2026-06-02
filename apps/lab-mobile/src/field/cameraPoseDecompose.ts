@@ -60,11 +60,16 @@ export function decomposeCameraPose(
   const c1 = [M[1]!, M[4]!, M[7]!];
   const c2 = [M[2]!, M[5]!, M[8]!];
 
-  // Normalization: lambda = ||c0||
-  const lambda = Math.sqrt(c0[0]! * c0[0]! + c0[1]! * c0[1]! + c0[2]! * c0[2]!);
+  // Normalization: lambda = ||c0||, but sign matters.
+  // The correct sign puts the field origin in front of the camera (positive depth).
+  // Depth of origin = t[2] after normalization. If negative, flip lambda.
+  let lambda = Math.sqrt(c0[0]! * c0[0]! + c0[1]! * c0[1]! + c0[2]! * c0[2]!);
   if (lambda < 1e-10) return null;
 
-  // r1 = c0 / lambda, r2 = c1 / lambda, t = c2 / lambda
+  // Check sign: normalize with positive lambda first, check t[2]
+  const t2check = c2[2]! / lambda;
+  if (t2check < 0) lambda = -lambda; // flip to put origin in front
+
   const r1 = c0.map((v) => v / lambda);
   const r2 = c1.map((v) => v / lambda);
   const t  = c2.map((v) => v / lambda);
