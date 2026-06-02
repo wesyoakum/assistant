@@ -892,9 +892,9 @@ export function TrackerTab() {
                   `pos  x=${cameraXYZ!.x.toFixed(3)}  y=${cameraXYZ!.y.toFixed(3)}  z=${cameraXYZ!.z.toFixed(3)} m`,
                   cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
                   "",
-                  "frame\ttime\ttype\tpixel_x\tpixel_y\tground_x\tground_y\tray_dir_x\tray_dir_y\tray_dir_z",
+                  "frame\ttime\ttype\tpixel_x\tpixel_y\tyz_y\tyz_z\tray_dir_x\tray_dir_y\tray_dir_z",
                   ...allRayInfo.map((r) =>
-                    `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
+                    `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.yzY.toFixed(4)}\t${r.yzZ.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
                   ),
                 ].filter(Boolean).join("\n");
                 await Clipboard.setStringAsync(lines);
@@ -914,9 +914,12 @@ export function TrackerTab() {
                 </Text>
                 <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
                   pixel  x={r.pixelX.toFixed(1)}  y={(result!.videoHeight - r.pixelY).toFixed(1)}
+                    </Text>
+                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
+                  YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
                 </Text>
                 <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                  ground x={r.groundX.toFixed(3)}  y={r.groundY.toFixed(3)} m
+                  YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
                 </Text>
                 <Text style={{ color: theme.textSubtle, fontSize: 7, fontFamily: "monospace" }}>
                   {r.rayEquation}
@@ -1418,9 +1421,9 @@ export function TrackerTab() {
                       `pos  x=${cameraXYZ!.x.toFixed(3)}  y=${cameraXYZ!.y.toFixed(3)}  z=${cameraXYZ!.z.toFixed(3)} m`,
                       cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
                       "",
-                      "frame\ttime\ttype\tpixel_x\tpixel_y\tground_x\tground_y\tray_dir_x\tray_dir_y\tray_dir_z",
+                      "frame\ttime\ttype\tpixel_x\tpixel_y\tyz_y\tyz_z\tray_dir_x\tray_dir_y\tray_dir_z",
                       ...allRayInfo.map((r) =>
-                        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.groundX.toFixed(4)}\t${r.groundY.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
+                        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.yzY.toFixed(4)}\t${r.yzZ.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
                       ),
                     ].filter(Boolean).join("\n");
                     await Clipboard.setStringAsync(lines);
@@ -1442,7 +1445,10 @@ export function TrackerTab() {
                       pixel  x={r.pixelX.toFixed(1)}  y={(result!.videoHeight - r.pixelY).toFixed(1)}
                     </Text>
                     <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                      ground x={r.groundX.toFixed(3)}  y={r.groundY.toFixed(3)} m
+                  YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
+                    </Text>
+                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
+                      YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
                     </Text>
                     <Text style={{ color: theme.textSubtle, fontSize: 7, fontFamily: "monospace" }}>
                       {r.rayEquation}
@@ -1464,7 +1470,7 @@ export function TrackerTab() {
                     time: Number(r.timeSec.toFixed(4)),
                     type: r.interpolated ? "interp" : "detect",
                     pixel: { x: Number(r.pixelX.toFixed(1)), y: Number((result!.videoHeight - r.pixelY).toFixed(1)) },
-                    ground: { x: Number(r.groundX.toFixed(4)), y: Number(r.groundY.toFixed(4)) },
+                    yzPlane: { y: Number(r.yzY.toFixed(4)), z: Number(r.yzZ.toFixed(4)) },
                     ray: { dx: Number(r.rayDirX.toFixed(5)), dy: Number(r.rayDirY.toFixed(5)), dz: Number(r.rayDirZ.toFixed(5)) },
                   }));
                   const payload = {
