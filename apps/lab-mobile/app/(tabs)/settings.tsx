@@ -79,7 +79,7 @@ function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyl
       </View>
       <Text style={[styles.chipText, { marginTop: 12, marginBottom: 8 }]}>ROI Size</Text>
       <View style={styles.row}>
-        {[640, 1280].map((v) => (
+        {[320, 640, 1280].map((v) => (
           <Pressable
             key={v}
             onPress={() => setRoiSize(v)}
