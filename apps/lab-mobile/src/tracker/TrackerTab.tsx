@@ -846,27 +846,88 @@ export function TrackerTab() {
 
       {/* Pose overlay controls */}
       {showPoseOverlay && (
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          <Pressable onPress={() => poseOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              const pose = poseOverlayRef.current?.solve();
-              if (pose && frame) {
-                setCameraPose(pose);
-                const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
-                const decomp = decomposeCameraPose(pose.fit.H, K);
-                if (decomp) {
-                  setCameraXYZ(fieldToUser(decomp.position));
-                  setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
+        <View style={{ gap: 6 }}>
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <Pressable onPress={() => poseOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
+              <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                const pose = poseOverlayRef.current?.solve();
+                if (pose && frame) {
+                  setCameraPose(pose);
+                  const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
+                  const decomp = decomposeCameraPose(pose.fit.H, K);
+                  if (decomp) {
+                    setCameraXYZ(fieldToUser(decomp.position));
+                    setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
+                  }
                 }
-              }
-            }}
-            style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
-          >
-            <Text style={styles.btnText}>Set Pose</Text>
-          </Pressable>
+              }}
+              style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
+            >
+              <Text style={styles.btnText}>Set Pose</Text>
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: "row", gap: 6 }}>
+            <Pressable
+              onPress={async () => {
+                const state = poseOverlayRef.current?.getState?.();
+                if (!state) return;
+                setBusy("saving calibration…");
+                try {
+                  const pose = poseOverlayRef.current?.solve();
+                  const payload = {
+                    name: new Date().toLocaleString(),
+                    positions: state.positions,
+                    anchored: state.anchored,
+                    cameraPose: pose ? { H: pose.fit.H, Hinv: pose.fit.Hinv, rmsPx: pose.fit.rmsPx, count: pose.fit.count } : null,
+                    cameraXYZ,
+                    cameraAngles,
+                    basepathFt,
+                  };
+                  await apiFetch("/tracking/calibrations", { method: "POST", body: JSON.stringify(payload) });
+                  setCopyHint("Calibration saved");
+                  setTimeout(() => setCopyHint(null), 3000);
+                } catch (e) { setErr((e as Error).message); }
+                finally { setBusy(null); }
+              }}
+              disabled={!!busy}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: busy ? 0.5 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>Save Cal</Text>
+            </Pressable>
+            <Pressable
+              onPress={async () => {
+                setBusy("loading calibrations…");
+                try {
+                  const res = await apiFetch<{ calibrations: { id: string; uploaded: string }[] }>("/tracking/calibrations");
+                  if (!res.calibrations.length) { setErr("No saved calibrations"); setBusy(null); return; }
+                  const latest = res.calibrations[0]!;
+                  setBusy(`loading ${latest.id}…`);
+                  const cal = await apiFetch<any>(`/tracking/calibrations/${latest.id}`);
+                  // Restore overlay state
+                  if (cal.positions && cal.anchored) {
+                    poseOverlayRef.current?.setState?.({ positions: cal.positions, anchored: cal.anchored });
+                  }
+                  // Restore camera pose
+                  if (cal.cameraPose) {
+                    setCameraPose({ fit: cal.cameraPose as any, sides: ["left", "right"] });
+                  }
+                  if (cal.cameraXYZ) setCameraXYZ(cal.cameraXYZ);
+                  if (cal.cameraAngles) setCameraAngles(cal.cameraAngles);
+                  if (cal.basepathFt) useTrackerSettings.getState().setBasepathFt(cal.basepathFt);
+                  setCopyHint("Calibration loaded");
+                  setTimeout(() => setCopyHint(null), 3000);
+                } catch (e) { setErr((e as Error).message); }
+                finally { setBusy(null); }
+              }}
+              disabled={!!busy}
+              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: busy ? 0.5 : 1 }]}
+            >
+              <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>Load Cal</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 

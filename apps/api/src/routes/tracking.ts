@@ -114,6 +114,47 @@ tracking.get("/:id/view", async (c) => {
   });
 });
 
+// ── Calibration storage ────────────────────────────────────────────
+
+// POST /tracking/calibrations — save a calibration.
+tracking.post("/calibrations", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json();
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const key = `users/${userId}/calibrations/${id}.json`;
+  const payload = { id, userId, savedAt: new Date().toISOString(), ...body };
+  await c.env.FILES.put(key, JSON.stringify(payload, null, 2), {
+    httpMetadata: { contentType: "application/json" },
+  });
+  return c.json({ id });
+});
+
+// GET /tracking/calibrations — list saved calibrations.
+tracking.get("/calibrations", async (c) => {
+  const userId = c.get("userId");
+  const prefix = `users/${userId}/calibrations/`;
+  const list = await c.env.FILES.list({ prefix, limit: 50 });
+  const calibrations = list.objects
+    .filter((o) => o.key.endsWith(".json"))
+    .map((o) => ({
+      id: o.key.replace(prefix, "").replace(".json", ""),
+      size: o.size,
+      uploaded: o.uploaded.toISOString(),
+    }))
+    .sort((a, b) => b.uploaded.localeCompare(a.uploaded));
+  return c.json({ calibrations });
+});
+
+// GET /tracking/calibrations/:id — retrieve a calibration.
+tracking.get("/calibrations/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const key = `users/${userId}/calibrations/${id}.json`;
+  const obj = await c.env.FILES.get(key);
+  if (!obj) return c.json({ error: "Not found" }, 404);
+  return c.json(await obj.json());
+});
+
 // ── Model storage ──────────────────────────────────────────────────
 
 // POST /tracking/models — upload a .mlmodel file.
