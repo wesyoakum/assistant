@@ -162,35 +162,40 @@ function projectAll(
     // Affine:     u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns)
 
     if (n === 2) {
-      // Similarity: solve [a,b,tx,ty] from 4 equations.
+      // General linear transform (not similarity) — allows reflection/shear
+      // which is needed because image Y is inverted relative to field Z.
+      // u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns, 4 equations)
+      // Underdetermined — fix b=0 and c=0 to get a simple scale+translate per axis.
+      // Actually: solve each axis independently as a 1D linear interpolation.
       const [c0, c1] = correspondences;
       const f0 = FIELD_BY_ID[c0!.id]!, f1 = FIELD_BY_ID[c1!.id]!;
-      const u0 = c0!.nx, v0 = c0!.ny, u1 = c1!.nx, v1 = c1!.ny;
-      const x0 = f0.x, z0 = f0.z, x1 = f1.x, z1 = f1.z;
-      // [x0, -z0, 1, 0] [a]   [u0]
-      // [z0,  x0, 0, 1] [b] = [v0]
-      // [x1, -z1, 1, 0] [tx]  [u1]
-      // [z1,  x1, 0, 1] [ty]  [v1]
-      const dx = x1 - x0, dz = z1 - z0;
-      const du = u1 - u0, dv = v1 - v0;
-      const denom = dx * dx + dz * dz;
-      if (denom < 1e-10) return null;
-      const a = (dx * du + dz * dv) / denom;
-      const b = (dx * dv - dz * du) / denom;
 
-      // Scale = sqrt(a² + b²). Reject if < 2% or flipped (det < 0).
-      const scale = Math.hypot(a, b);
-      if (scale < 0.0002) return null; // too small (~0.02% of image)
-      const det = a * a + b * b; // always positive for similarity, but check scale
-      if (det < 0) return null;
+      // Map field coords to image coords using the two known points.
+      // For any field point, compute its position relative to the line f0→f1,
+      // then place it at the corresponding position relative to c0→c1.
+      const fdx = f1.x - f0.x, fdz = f1.z - f0.z;
+      const fLen2 = fdx * fdx + fdz * fdz;
+      if (fLen2 < 1e-10) return null;
 
-      const tx = u0 - a * x0 + b * z0;
-      const ty = v0 - b * x0 - a * z0;
+      // Perpendicular direction in field
+      const fpx = -fdz, fpz = fdx; // rotated 90°
+
+      // Image vectors
+      const idu = c1!.nx - c0!.nx, idv = c1!.ny - c0!.ny;
+      // Perpendicular in image (rotated 90°)
+      const ipu = -idv, ipv = idu;
 
       const result: Record<string, { nx: number; ny: number }> = {};
       for (const lm of LANDMARKS) {
-        const fx = lm.field.x, fz = lm.field.z;
-        result[lm.id] = { nx: a * fx - b * fz + tx, ny: b * fx + a * fz + ty };
+        const fx = lm.field.x - f0.x, fz = lm.field.z - f0.z;
+        // Project onto the f0→f1 line and perpendicular
+        const along = (fx * fdx + fz * fdz) / fLen2;
+        const perp = (fx * fpx + fz * fpz) / fLen2;
+        // Reconstruct in image space
+        result[lm.id] = {
+          nx: c0!.nx + along * idu + perp * ipu,
+          ny: c0!.ny + along * idv + perp * ipv,
+        };
       }
       return result;
     }
