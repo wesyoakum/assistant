@@ -162,36 +162,63 @@ function projectAll(
     // Affine:     u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns)
 
     if (n === 2) {
-      // General linear transform (not similarity) — allows reflection/shear
-      // which is needed because image Y is inverted relative to field Z.
-      // u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns, 4 equations)
-      // Underdetermined — fix b=0 and c=0 to get a simple scale+translate per axis.
-      // Actually: solve each axis independently as a 1D linear interpolation.
+      // Solve a full 2×2 + translation affine from 2 point pairs (4 equations, 4 unknowns).
+      // [nx] = [a  b] [field_x] + [tx]
+      // [ny]   [c  d] [field_y]   [ty]
+      // With 2 points we have 4 equations and 4 unknowns (a,b,tx for nx; c,d,ty for ny)
+      // but that's 6 unknowns. So use a similarity: a=d, b=-c (4 unknowns, 4 equations).
+      // BUT allow reflection by solving a general 2×2 per axis pair.
+      //
+      // Actually simplest: solve each output dimension independently as linear in (field_x, field_y).
+      // nx = a1 * field_x + b1 * field_y + tx1  — 3 unknowns but only 2 equations.
+      // Underdetermined. So use the direct mapping:
+      //
+      // Express each landmark as: field_pt = f0 + alpha * (f1 - f0) + beta * perp(f1 - f0)
+      // Map to: image_pt = c0 + alpha * (c1 - c0) + beta * perp_image(c1 - c0)
+      //
+      // The key question: which direction is perp_image?
+      // We don't know from 2 points alone. But we know the camera looks DOWN at the field,
+      // so the image is a top-down-ish view. The handedness depends on camera orientation.
+      // Use a heuristic: check if the default positions are closer to CW or CCW perpendicular.
+
       const [c0, c1] = correspondences;
       const f0 = FIELD_BY_ID[c0!.id]!, f1 = FIELD_BY_ID[c1!.id]!;
 
-      // Map field coords to image coords using the two known points.
-      // For any field point, compute its position relative to the line f0→f1,
-      // then place it at the corresponding position relative to c0→c1.
       const fdx = f1.x - f0.x, fdy = f1.y - f0.y;
       const fLen2 = fdx * fdx + fdy * fdy;
-      if (fLen2 < 1e-10) return null;
+      if (fLen2 < 1e-6) return null;
 
-      // Perpendicular direction in field (90° CCW in right-handed field)
+      // Field perpendicular (CCW)
       const fpx = -fdy, fpy = fdx;
 
-      // Image vectors
       const idu = c1!.nx - c0!.nx, idv = c1!.ny - c0!.ny;
-      // Perpendicular in image: 90° CW because image Y is inverted (v increases down)
-      const ipu = idv, ipv = -idu;
+
+      // Try both CW and CCW image perpendicular, pick the one that keeps
+      // a known third point (apex or 2B) closer to its default position.
+      const testId = c0!.id === "apex" || c1!.id === "apex" ? "2b" : "apex";
+      const testField = FIELD_BY_ID[testId]!;
+      const testDefault = defaultPositions()[testId]!;
+      const tfx = testField.x - f0.x, tfy = testField.y - f0.y;
+      const tAlong = (tfx * fdx + tfy * fdy) / fLen2;
+      const tPerp = (tfx * fpx + tfy * fpy) / fLen2;
+
+      // CW: ipu = idv, ipv = -idu.  CCW: ipu = -idv, ipv = idu.
+      const cwNx = c0!.nx + tAlong * idu + tPerp * idv;
+      const cwNy = c0!.ny + tAlong * idv + tPerp * (-idu);
+      const ccwNx = c0!.nx + tAlong * idu + tPerp * (-idv);
+      const ccwNy = c0!.ny + tAlong * idv + tPerp * idu;
+
+      const cwDist = Math.hypot(cwNx - testDefault.nx, cwNy - testDefault.ny);
+      const ccwDist = Math.hypot(ccwNx - testDefault.nx, ccwNy - testDefault.ny);
+      const useCW = cwDist < ccwDist;
+      const ipu = useCW ? idv : -idv;
+      const ipv = useCW ? -idu : idu;
 
       const result: Record<string, { nx: number; ny: number }> = {};
       for (const lm of LANDMARKS) {
         const fx = lm.field.x - f0.x, fy = lm.field.y - f0.y;
-        // Project onto the f0→f1 line and perpendicular
         const along = (fx * fdx + fy * fdy) / fLen2;
         const perp = (fx * fpx + fy * fpy) / fLen2;
-        // Reconstruct in image space
         result[lm.id] = {
           nx: c0!.nx + along * idu + perp * ipu,
           ny: c0!.ny + along * idv + perp * ipv,
@@ -407,25 +434,19 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const curImg = screenToImage(lx, ly);
           const newPos = { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny };
 
-          // During drag: just move this one handle. Don't recompute others.
-          setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
+          recomputeFreePositions(drag.id, newPos);
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
           if (drag) {
             if (!didMoveRef.current && anchoredRef.current[drag.id]) {
-              // Tap on anchored → unanchor.
               setAnchored((prev) => { const n = { ...prev }; delete n[drag.id]; return n; });
             } else if (didMoveRef.current) {
-              // Dragged → anchor (max 4).
               setAnchored((prev) => {
                 const count = Object.values(prev).filter(Boolean).length;
                 if (count >= 4 && !prev[drag.id]) return prev;
                 return { ...prev, [drag.id]: true };
               });
-              // NOW recompute all free handles based on the new set of anchors.
-              const newPos = posRef.current[drag.id]!;
-              recomputeFreePositions(drag.id, newPos);
             }
           }
           setActiveId(null);
