@@ -248,7 +248,7 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
               {projected.bs.map((b, i) => (
                 <Polygon key={i} points={poly(b)} fill="rgba(255,220,0,0.35)" stroke={BASE_COLOR} strokeWidth={2} />
               ))}
-              {/* Focus guide lines: origin→Y, Y→XY (the focus point) */}
+              {/* Focus guide lines from origin to ground-shadow of focus */}
               {projected.guidePtOrigin && projected.guidePtY && (
                 <Line x1={projected.guidePtOrigin.x} y1={projected.guidePtOrigin.y}
                       x2={projected.guidePtY.x} y2={projected.guidePtY.y}
@@ -259,19 +259,31 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
                       x2={projected.guidePtXY.x} y2={projected.guidePtXY.y}
                       stroke="rgba(255,0,0,0.5)" strokeWidth={1.5} strokeDasharray="6,4" />
               )}
-              {/* Focus target dot */}
-              {projected.focusScreen && (
-                <>
-                  <Circle cx={projected.focusScreen.x} cy={projected.focusScreen.y} r={6} fill="none" stroke="rgba(255,255,0,0.9)" strokeWidth={2} />
-                  <Circle cx={projected.focusScreen.x} cy={projected.focusScreen.y} r={2} fill="rgba(255,255,0,0.9)" />
-                  {/* Z indicator: vertical dashed line up from the ground focus point */}
-                  {projected.focusZLabel !== 0 && (
-                    <Line x1={projected.focusScreen.x} y1={projected.focusScreen.y}
-                          x2={projected.focusScreen.x} y2={projected.focusScreen.y - 20}
-                          stroke="rgba(100,100,255,0.7)" strokeWidth={1.5} strokeDasharray="4,3" />
-                  )}
-                </>
+              {/* Ground shadow of focus (where it projects on the ground) */}
+              {projected.guidePtXY && (
+                <Circle cx={projected.guidePtXY.x} cy={projected.guidePtXY.y} r={4} fill="none" stroke="rgba(255,255,0,0.5)" strokeWidth={1} strokeDasharray="3,2" />
               )}
+              {/* Z indicator: blue dashed line from ground shadow up toward viewport center */}
+              {projected.guidePtXY && projected.focusZLabel !== 0 && (() => {
+                const cx = canvas.width / 2, cy = canvas.height / 2;
+                const screenCx = (cx - canvas.width/2) * vp.scale + canvas.width/2 + vp.tx;
+                const screenCy = (cy - canvas.height/2) * vp.scale + canvas.height/2 + vp.ty;
+                return <Line x1={projected.guidePtXY.x} y1={projected.guidePtXY.y}
+                             x2={screenCx} y2={screenCy}
+                             stroke="rgba(100,100,255,0.6)" strokeWidth={1.5} strokeDasharray="4,3" />;
+              })()}
+              {/* Focus crosshair at viewport center */}
+              {(() => {
+                const screenCx = canvas.width / 2 + vp.tx;
+                const screenCy = canvas.height / 2 + vp.ty;
+                return <>
+                  <Circle cx={screenCx} cy={screenCy} r={8} fill="none" stroke="rgba(255,255,0,0.8)" strokeWidth={1.5} />
+                  <Line x1={screenCx - 12} y1={screenCy} x2={screenCx - 4} y2={screenCy} stroke="rgba(255,255,0,0.8)" strokeWidth={1.5} />
+                  <Line x1={screenCx + 4} y1={screenCy} x2={screenCx + 12} y2={screenCy} stroke="rgba(255,255,0,0.8)" strokeWidth={1.5} />
+                  <Line x1={screenCx} y1={screenCy - 12} x2={screenCx} y2={screenCy - 4} stroke="rgba(255,255,0,0.8)" strokeWidth={1.5} />
+                  <Line x1={screenCx} y1={screenCy + 4} x2={screenCx} y2={screenCy + 12} stroke="rgba(255,255,0,0.8)" strokeWidth={1.5} />
+                </>;
+              })()}
             </>
           )}
         </Svg>
