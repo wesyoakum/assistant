@@ -91,27 +91,40 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
       const foul1 = [{ x: 0, z: 0 }, { x: foulEnd, z: 0 }].map(proj);
       const foul3 = [{ x: 0, z: 0 }, { x: 0, z: foulEnd }].map(proj);
 
-      // Project focus target onto the ground plane (z=0 in user = y=0 in field)
-      // Focus is in user coords; convert to field for projection
+      // Project focus target with axis guide lines.
+      // Focus is in user coords (x,y,z meters). Convert to internal field (x,z feet).
       const DIAG = Math.SQRT1_2;
       const M_FT = 1 / 0.3048;
       const fSum = focusPos.y * M_FT / DIAG;
       const fDiff = focusPos.x * M_FT / DIAG;
-      const focusField = { x: (fSum + fDiff) / 2, z: (fSum - fDiff) / 2 };
+      const focusFieldX = (fSum + fDiff) / 2;
+      const focusFieldZ = (fSum - fDiff) / 2;
+      const focusField = { x: focusFieldX, z: focusFieldZ };
       const focusScreen = proj(focusField);
-      // Crosshair arms
-      const crossSize = 1.5; // feet
-      const focusCross = [
-        [proj({ x: focusField.x - crossSize, z: focusField.z }), proj({ x: focusField.x + crossSize, z: focusField.z })],
-        [proj({ x: focusField.x, z: focusField.z - crossSize }), proj({ x: focusField.x, z: focusField.z + crossSize })],
-      ];
+
+      // Axis guide lines: trace from origin along Y, then X, then Z to the focus point.
+      // Step 1: Origin (0,0,0) → (0, focusY, 0) along Y axis on the ground
+      const focusGuideY = [proj({ x: 0, z: 0 }), proj(focusField)]; // apex to focus on ground
+      // Step 2: (0,0,0) → (focusX, 0, 0) along the user X direction on the ground
+      // User X in field = (1,-1)/√2, so field point at user X=focusPos.x is:
+      const xOnlyField = { x: focusPos.x * M_FT / DIAG / 2, z: -focusPos.x * M_FT / DIAG / 2 };
+      // Guide: origin → along Y to (0, focusY) → along X to (focusX, focusY)
+      const yEndField = { x: focusPos.y * M_FT * DIAG, z: focusPos.y * M_FT * DIAG }; // point at (0, focusY, 0) in user
+      const guidePtOrigin = proj({ x: 0, z: 0 });
+      const guidePtY = proj(yEndField);
+      const guidePtXY = proj(focusField); // (focusX, focusY, 0) on ground
+
+      // For Z axis: vertical line from ground focus to elevated focus
+      // We can't project 3D height with ground homography, so show a marker
+      const focusZLabel = focusPos.z;
 
       const allPts = [...lb, ...rb, ...pl, ...bs.flat(), ...bp, ...foul1, ...foul3];
       if (allPts.some((p) => !p)) return null;
 
       return {
         H: result.H, Hinv: result.Hinv,
-        focusScreen, focusCross,
+        focusScreen,
+        guidePtOrigin, guidePtY, guidePtXY, focusZLabel,
         lb: lb as { x: number; y: number }[],
         rb: rb as { x: number; y: number }[],
         pl: pl as { x: number; y: number }[],
@@ -235,13 +248,30 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
               {projected.bs.map((b, i) => (
                 <Polygon key={i} points={poly(b)} fill="rgba(255,220,0,0.35)" stroke={BASE_COLOR} strokeWidth={2} />
               ))}
-              {/* Focus target crosshair */}
-              {projected.focusScreen && (
-                <Circle cx={projected.focusScreen.x} cy={projected.focusScreen.y} r={6} fill="none" stroke="rgba(255,255,0,0.9)" strokeWidth={2} />
+              {/* Focus guide lines: origin→Y, Y→XY (the focus point) */}
+              {projected.guidePtOrigin && projected.guidePtY && (
+                <Line x1={projected.guidePtOrigin.x} y1={projected.guidePtOrigin.y}
+                      x2={projected.guidePtY.x} y2={projected.guidePtY.y}
+                      stroke="rgba(0,255,0,0.5)" strokeWidth={1.5} strokeDasharray="6,4" />
               )}
-              {projected.focusCross?.map((pair, i) => pair[0] && pair[1] && (
-                <Line key={`fc-${i}`} x1={pair[0].x} y1={pair[0].y} x2={pair[1].x} y2={pair[1].y} stroke="rgba(255,255,0,0.7)" strokeWidth={1.5} />
-              ))}
+              {projected.guidePtY && projected.guidePtXY && (
+                <Line x1={projected.guidePtY.x} y1={projected.guidePtY.y}
+                      x2={projected.guidePtXY.x} y2={projected.guidePtXY.y}
+                      stroke="rgba(255,0,0,0.5)" strokeWidth={1.5} strokeDasharray="6,4" />
+              )}
+              {/* Focus target dot */}
+              {projected.focusScreen && (
+                <>
+                  <Circle cx={projected.focusScreen.x} cy={projected.focusScreen.y} r={6} fill="none" stroke="rgba(255,255,0,0.9)" strokeWidth={2} />
+                  <Circle cx={projected.focusScreen.x} cy={projected.focusScreen.y} r={2} fill="rgba(255,255,0,0.9)" />
+                  {/* Z indicator: vertical dashed line up from the ground focus point */}
+                  {projected.focusZLabel !== 0 && (
+                    <Line x1={projected.focusScreen.x} y1={projected.focusScreen.y}
+                          x2={projected.focusScreen.x} y2={projected.focusScreen.y - 20}
+                          stroke="rgba(100,100,255,0.7)" strokeWidth={1.5} strokeDasharray="4,3" />
+                  )}
+                </>
+              )}
             </>
           )}
         </Svg>
