@@ -407,7 +407,8 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const curImg = screenToImage(lx, ly);
           const newPos = { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny };
 
-          recomputeFreePositions(drag.id, newPos);
+          // During drag: just move this one handle. Don't recompute others.
+          setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
@@ -419,9 +420,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
               // Dragged → anchor (max 4).
               setAnchored((prev) => {
                 const count = Object.values(prev).filter(Boolean).length;
-                if (count >= 4 && !prev[drag.id]) return prev; // already at max
+                if (count >= 4 && !prev[drag.id]) return prev;
                 return { ...prev, [drag.id]: true };
               });
+              // NOW recompute all free handles based on the new set of anchors.
+              const newPos = posRef.current[drag.id]!;
+              recomputeFreePositions(drag.id, newPos);
             }
           }
           setActiveId(null);
