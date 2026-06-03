@@ -347,38 +347,31 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
     const dragRef = useRef<Drag | null>(null);
     const didMoveRef = useRef(false);
 
-    /** Recompute all free handle positions given the current anchored set + the dragged point. */
+    /** Recompute all free handle positions given the current anchored set + the dragged point.
+     *  Apex is always implicitly anchored at its current position. */
     function recomputeFreePositions(draggedId: string, draggedPos: { nx: number; ny: number }) {
       const corr: { id: string; nx: number; ny: number }[] = [];
-      // Add all anchored (except the dragged one, use its new position).
+
+      // Always include apex as an implicit anchor (unless it's the one being dragged).
+      if (draggedId !== "apex" && !anchoredRef.current["apex"]) {
+        const apexPos = posRef.current["apex"];
+        if (apexPos) corr.push({ id: "apex", ...apexPos });
+      }
+
+      // Add all explicitly anchored (except the dragged one).
       for (const id of anchoredIds) {
-        if (id === draggedId) continue;
+        if (id === draggedId || id === "apex") continue; // apex already added above
         const pos = posRef.current[id];
         if (pos) corr.push({ id, ...pos });
       }
+      // Add anchored apex if it was explicitly anchored.
+      if (anchoredRef.current["apex"] && draggedId !== "apex") {
+        const pos = posRef.current["apex"];
+        if (pos && !corr.some((c) => c.id === "apex")) corr.push({ id: "apex", ...pos });
+      }
+
       // Add the dragged point.
       corr.push({ id: draggedId, ...draggedPos });
-
-      if (corr.length < 2) {
-        // 1 point: translate all free handles.
-        const origPos = defaultPositions()[draggedId]!;
-        const dx = draggedPos.nx - origPos.nx;
-        const dy = draggedPos.ny - origPos.ny;
-        const defaults = defaultPositions();
-        setPositions((prev) => {
-          const next = { ...prev, [draggedId]: draggedPos };
-          for (const lm of LANDMARKS) {
-            if (anchoredRef.current[lm.id] || lm.id === draggedId) continue;
-            const def = defaults[lm.id] ?? { nx: 0.5, ny: 0.5 };
-            // Apply same translation from defaults.
-            const prevDx = (prev[lm.id]?.nx ?? def.nx) - def.nx;
-            const prevDy = (prev[lm.id]?.ny ?? def.ny) - def.ny;
-            next[lm.id] = { nx: def.nx + dx, ny: def.ny + dy };
-          }
-          return next;
-        });
-        return;
-      }
 
       const projected = projectAll(corr, imageWidth, imageHeight);
       if (!projected) {
