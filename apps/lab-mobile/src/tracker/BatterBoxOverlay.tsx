@@ -425,12 +425,45 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const curImg = screenToImage(lx, ly);
           const newPos = { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny };
 
-          // Just move the dragged handle. Other handles stay where they are.
-          // The rigid-body approach fails because perspective makes scale
-          // distance-dependent — nearby handles need different scale than far ones.
-          // The user places each handle individually; once 4+ are anchored,
-          // the homography solver takes over and handles perspective correctly.
-          setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
+          // Rigid-body transform around anchor with position clamping.
+          const anchorId = drag.id === "apex" ? (anchoredIds[0] || "2b") : "apex";
+          const anchorField = FIELD_BY_ID[anchorId];
+          const dragField = FIELD_BY_ID[drag.id];
+
+          setPositions((prev) => {
+            const anchorImg = prev[anchorId];
+            if (!anchorImg || !anchorField || !dragField) return { ...prev, [drag.id]: newPos };
+
+            const ffx = dragField.x - anchorField.x, ffy = dragField.y - anchorField.y;
+            const fDist = Math.hypot(ffx, ffy);
+            if (fDist < 1e-6) return { ...prev, [drag.id]: newPos };
+
+            const iix = newPos.nx - anchorImg.nx, iiy = newPos.ny - anchorImg.ny;
+            const iDist = Math.hypot(iix, iiy);
+            if (iDist < 1e-6) return { ...prev, [drag.id]: newPos };
+
+            const scale = iDist / fDist;
+            const rot = Math.atan2(iiy, iix) - Math.atan2(ffy, ffx);
+            const cosR = Math.cos(rot) * scale, sinR = Math.sin(rot) * scale;
+
+            const clamp = (v: number) => Math.max(-0.5, Math.min(1.5, v));
+
+            const next: Record<string, { nx: number; ny: number }> = {};
+            for (const lm of LANDMARKS) {
+              if (lm.id === anchorId) {
+                next[lm.id] = anchorImg;
+              } else if (anchoredRef.current[lm.id] && lm.id !== drag.id) {
+                next[lm.id] = prev[lm.id]!;
+              } else {
+                const fx = lm.field.x - anchorField.x, fy = lm.field.y - anchorField.y;
+                next[lm.id] = {
+                  nx: clamp(anchorImg.nx + cosR * fx - sinR * fy),
+                  ny: clamp(anchorImg.ny + sinR * fx + cosR * fy),
+                };
+              }
+            }
+            return next;
+          });
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
