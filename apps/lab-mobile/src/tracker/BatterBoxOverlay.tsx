@@ -184,66 +184,27 @@ function projectAll(
     // Affine:     u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns)
 
     if (n === 2) {
-      // Solve a full 2×2 + translation affine from 2 point pairs (4 equations, 4 unknowns).
-      // [nx] = [a  b] [field_x] + [tx]
-      // [ny]   [c  d] [field_y]   [ty]
-      // With 2 points we have 4 equations and 4 unknowns (a,b,tx for nx; c,d,ty for ny)
-      // but that's 6 unknowns. So use a similarity: a=d, b=-c (4 unknowns, 4 equations).
-      // BUT allow reflection by solving a general 2×2 per axis pair.
-      //
-      // Actually simplest: solve each output dimension independently as linear in (field_x, field_y).
-      // nx = a1 * field_x + b1 * field_y + tx1  — 3 unknowns but only 2 equations.
-      // Underdetermined. So use the direct mapping:
-      //
-      // Express each landmark as: field_pt = f0 + alpha * (f1 - f0) + beta * perp(f1 - f0)
-      // Map to: image_pt = c0 + alpha * (c1 - c0) + beta * perp_image(c1 - c0)
-      //
-      // The key question: which direction is perp_image?
-      // We don't know from 2 points alone. But we know the camera looks DOWN at the field,
-      // so the image is a top-down-ish view. The handedness depends on camera orientation.
-      // Use a heuristic: check if the default positions are closer to CW or CCW perpendicular.
-
+      // Anti-conformal similarity: allows reflection (image Y is flipped).
+      //   nx = a * field_x + b * field_y + tx
+      //   ny = b * field_x - a * field_y + ty
+      // 4 unknowns (a, b, tx, ty), 4 equations from 2 point pairs.
       const [c0, c1] = correspondences;
       const f0 = FIELD_BY_ID[c0!.id]!, f1 = FIELD_BY_ID[c1!.id]!;
+      const dx = f1.x - f0.x, dy = f1.y - f0.y;
+      const du = c1!.nx - c0!.nx, dv = c1!.ny - c0!.ny;
+      const denom = dx * dx + dy * dy;
+      if (denom < 1e-10) return null;
 
-      const fdx = f1.x - f0.x, fdy = f1.y - f0.y;
-      const fLen2 = fdx * fdx + fdy * fdy;
-      if (fLen2 < 1e-6) return null;
-
-      // Field perpendicular (CCW)
-      const fpx = -fdy, fpy = fdx;
-
-      const idu = c1!.nx - c0!.nx, idv = c1!.ny - c0!.ny;
-
-      // Try both CW and CCW image perpendicular, pick the one that keeps
-      // a known third point (apex or 2B) closer to its default position.
-      const testId = c0!.id === "apex" || c1!.id === "apex" ? "2b" : "apex";
-      const testField = FIELD_BY_ID[testId]!;
-      const testDefault = defaultPositions()[testId]!;
-      const tfx = testField.x - f0.x, tfy = testField.y - f0.y;
-      const tAlong = (tfx * fdx + tfy * fdy) / fLen2;
-      const tPerp = (tfx * fpx + tfy * fpy) / fLen2;
-
-      // CW: ipu = idv, ipv = -idu.  CCW: ipu = -idv, ipv = idu.
-      const cwNx = c0!.nx + tAlong * idu + tPerp * idv;
-      const cwNy = c0!.ny + tAlong * idv + tPerp * (-idu);
-      const ccwNx = c0!.nx + tAlong * idu + tPerp * (-idv);
-      const ccwNy = c0!.ny + tAlong * idv + tPerp * idu;
-
-      const cwDist = Math.hypot(cwNx - testDefault.nx, cwNy - testDefault.ny);
-      const ccwDist = Math.hypot(ccwNx - testDefault.nx, ccwNy - testDefault.ny);
-      const useCW = cwDist < ccwDist;
-      const ipu = useCW ? idv : -idv;
-      const ipv = useCW ? -idu : idu;
+      const a = (du * dx - dv * dy) / denom;
+      const b = (du * dy + dv * dx) / denom;
+      const tx = c0!.nx - a * f0.x - b * f0.y;
+      const ty = c0!.ny - b * f0.x + a * f0.y;
 
       const result: Record<string, { nx: number; ny: number }> = {};
       for (const lm of LANDMARKS) {
-        const fx = lm.field.x - f0.x, fy = lm.field.y - f0.y;
-        const along = (fx * fdx + fy * fdy) / fLen2;
-        const perp = (fx * fpx + fy * fpy) / fLen2;
         result[lm.id] = {
-          nx: c0!.nx + along * idu + perp * ipu,
-          ny: c0!.ny + along * idv + perp * ipv,
+          nx: a * lm.field.x + b * lm.field.y + tx,
+          ny: b * lm.field.x - a * lm.field.y + ty,
         };
       }
       return result;
