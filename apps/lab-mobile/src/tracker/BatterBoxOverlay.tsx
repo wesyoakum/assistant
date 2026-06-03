@@ -459,6 +459,8 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
                 next[lm.id] = anchorImg;
               } else if (anchoredRef.current[lm.id] && lm.id !== drag.id) {
                 next[lm.id] = prev[lm.id]!;
+              } else if (lm.id === drag.id) {
+                next[lm.id] = newPos; // dragged handle follows finger directly
               } else {
                 const fx = lm.field.x - anchorField.x, fy = lm.field.y - anchorField.y;
                 const targetNx = anchorImg.nx + cosR * fx - sinR * fy;
