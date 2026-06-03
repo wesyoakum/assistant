@@ -326,10 +326,6 @@ function makeLabel(text, pos, color) {
   spr.scale.set(2, 0.8, 1);
   scene.add(spr);
 }
-const b1b = bases['1b']; makeLabel('1B', u2t(b1b[0], b1b[1], 0), '#ffdc00');
-const b3b = bases['3b']; makeLabel('3B', u2t(b3b[0], b3b[1], 0), '#ffdc00');
-const b2b = bases['2b']; makeLabel('2B', u2t(b2b[0], b2b[1], 0), '#ffdc00');
-
 // Field geometry
 const bases = {
   apex: iu(0, 0),
@@ -337,7 +333,12 @@ const bases = {
   '2b': iu(bp, bp),
   '3b': iu(0, bp),
 };
-const foulEnd = bp + 2.5 * bp; // foul line extends past bases
+const foulEnd = bp + 2.5 * bp;
+
+// Base labels
+const b1b = bases['1b']; makeLabel('1B', u2t(b1b[0], b1b[1], 0), '#ffdc00');
+const b3b = bases['3b']; makeLabel('3B', u2t(b3b[0], b3b[1], 0), '#ffdc00');
+const b2b = bases['2b']; makeLabel('2B', u2t(b2b[0], b2b[1], 0), '#ffdc00');
 
 // Ground grid (sized to fit foul lines)
 const gridSize = Math.max(40, foulEnd * FT * 2.5);
