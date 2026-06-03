@@ -9,7 +9,7 @@
 
 import React, { useCallback, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { View, Text, Pressable, StyleSheet, PanResponder } from "react-native";
-import Svg, { Polygon, Line, Circle } from "react-native-svg";
+import Svg, { Polygon, Line, Circle, G } from "react-native-svg";
 import { type CameraPose } from "../field/batterBox";
 import { buildHomographyFromCamera, projectGroundPoint } from "../field/cameraToHomography";
 import { allEightCorners } from "../field/batterBox";
@@ -91,11 +91,27 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
       const foul1 = [{ x: 0, z: 0 }, { x: foulEnd, z: 0 }].map(proj);
       const foul3 = [{ x: 0, z: 0 }, { x: 0, z: foulEnd }].map(proj);
 
+      // Project focus target onto the ground plane (z=0 in user = y=0 in field)
+      // Focus is in user coords; convert to field for projection
+      const DIAG = Math.SQRT1_2;
+      const M_FT = 1 / 0.3048;
+      const fSum = focusPos.y * M_FT / DIAG;
+      const fDiff = focusPos.x * M_FT / DIAG;
+      const focusField = { x: (fSum + fDiff) / 2, z: (fSum - fDiff) / 2 };
+      const focusScreen = proj(focusField);
+      // Crosshair arms
+      const crossSize = 1.5; // feet
+      const focusCross = [
+        [proj({ x: focusField.x - crossSize, z: focusField.z }), proj({ x: focusField.x + crossSize, z: focusField.z })],
+        [proj({ x: focusField.x, z: focusField.z - crossSize }), proj({ x: focusField.x, z: focusField.z + crossSize })],
+      ];
+
       const allPts = [...lb, ...rb, ...pl, ...bs.flat(), ...bp, ...foul1, ...foul3];
       if (allPts.some((p) => !p)) return null;
 
       return {
         H: result.H, Hinv: result.Hinv,
+        focusScreen, focusCross,
         lb: lb as { x: number; y: number }[],
         rb: rb as { x: number; y: number }[],
         pl: pl as { x: number; y: number }[],
@@ -115,7 +131,9 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponder: () => true,
-        onPanResponderTerminationRequest: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: (e, gs) => {
           const touches = e.nativeEvent.touches;
           const start: any = { cam: { ...camRef.current }, focus: { ...focusRef.current }, pageX: gs.x0, pageY: gs.y0 };
@@ -217,6 +235,13 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
               {projected.bs.map((b, i) => (
                 <Polygon key={i} points={poly(b)} fill="rgba(255,220,0,0.35)" stroke={BASE_COLOR} strokeWidth={2} />
               ))}
+              {/* Focus target crosshair */}
+              {projected.focusScreen && (
+                <Circle cx={projected.focusScreen.x} cy={projected.focusScreen.y} r={6} fill="none" stroke="rgba(255,255,0,0.9)" strokeWidth={2} />
+              )}
+              {projected.focusCross?.map((pair, i) => pair[0] && pair[1] && (
+                <Line key={`fc-${i}`} x1={pair[0].x} y1={pair[0].y} x2={pair[1].x} y2={pair[1].y} stroke="rgba(255,255,0,0.7)" strokeWidth={1.5} />
+              ))}
             </>
           )}
         </Svg>
@@ -238,6 +263,18 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
           >
             <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Focus</Text>
           </Pressable>
+          <View style={{ flexDirection: "row", gap: 2, alignItems: "center" }}>
+            <Text style={{ color: "rgba(255,255,0,0.8)", fontSize: 9 }}>Z</Text>
+            <Pressable onPress={() => setFocusPos((p) => ({ ...p, z: p.z - 0.25 }))}
+              style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(0,0,0,0.5)" }}>
+              <Text style={{ color: "#fff", fontSize: 11 }}>−</Text>
+            </Pressable>
+            <Text style={{ color: "rgba(255,255,0,0.8)", fontSize: 9, minWidth: 28, textAlign: "center" }}>{focusPos.z.toFixed(1)}</Text>
+            <Pressable onPress={() => setFocusPos((p) => ({ ...p, z: p.z + 0.25 }))}
+              style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(0,0,0,0.5)" }}>
+              <Text style={{ color: "#fff", fontSize: 11 }}>+</Text>
+            </Pressable>
+          </View>
           <View style={{ flex: 1 }} />
           <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
             <Text style={{ color: "#fff", fontSize: 9 }}>
