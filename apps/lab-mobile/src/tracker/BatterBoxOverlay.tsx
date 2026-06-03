@@ -446,7 +446,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
             const rot = Math.atan2(iiy, iix) - Math.atan2(ffy, ffx);
             const cosR = Math.cos(rot) * scale, sinR = Math.sin(rot) * scale;
 
-            const clamp = (v: number) => Math.max(-0.5, Math.min(1.5, v));
+            const MAX_STEP = 0.03; // max movement per frame in normalized coords
+            function limit(target: number, current: number): number {
+              const delta = target - current;
+              if (Math.abs(delta) <= MAX_STEP) return target;
+              return current + Math.sign(delta) * MAX_STEP;
+            }
 
             const next: Record<string, { nx: number; ny: number }> = {};
             for (const lm of LANDMARKS) {
@@ -456,9 +461,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
                 next[lm.id] = prev[lm.id]!;
               } else {
                 const fx = lm.field.x - anchorField.x, fy = lm.field.y - anchorField.y;
+                const targetNx = anchorImg.nx + cosR * fx - sinR * fy;
+                const targetNy = anchorImg.ny + sinR * fx + cosR * fy;
+                const cur = prev[lm.id] ?? { nx: 0.5, ny: 0.5 };
                 next[lm.id] = {
-                  nx: clamp(anchorImg.nx + cosR * fx - sinR * fy),
-                  ny: clamp(anchorImg.ny + sinR * fx + cosR * fy),
+                  nx: limit(targetNx, cur.nx),
+                  ny: limit(targetNy, cur.ny),
                 };
               }
             }
