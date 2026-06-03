@@ -1,45 +1,51 @@
-// Home plate pentagon geometry in internal field coordinates.
-// Origin = apex, +X → 1B foul line, +Z → 3B foul line, feet.
+// Home plate pentagon in user coordinates (meters).
 //
-// MLB Rule 2.02: Home base is a 17-inch square with two corners filled in
-// so that one edge is 17 inches long, two adjacent sides are 8.5 inches,
-// and the remaining two sides are 12 inches and set at an angle to make a point.
+// Coordinate system: X→1B, Y→2B, Z→up. Origin = plate apex.
 
+// @ts-ignore
 import { type GroundPoint } from "./fieldTemplate.ts";
 
+const FT_TO_M = 0.3048;
 const DIAG = Math.SQRT1_2;
-const PLATE_FRONT_IN = 17 / 12;  // 17 inches in feet (front edge width AND depth)
-const HALF_FRONT_FT = 8.5 / 12;  // half of 17" front edge
-const SIDE_FT = 8.5 / 12;        // perpendicular side length
 
-// Forward unit (toward 2B along diagonal)
-const FWD = { x: DIAG, z: DIAG };
-// Right unit (toward 1B side, perpendicular to forward)
-const RGT = { x: DIAG, z: -DIAG };
+const PLATE_DEPTH_FT = 17 / 12;
+const HALF_FRONT_FT = 8.5 / 12;
+const SIDE_FT = 8.5 / 12;
+
+// In user coords:
+//   "forward" (toward pitcher) = +Y direction
+//   "right" (toward 1B) = +X direction
+const FWD_X = 0;
+const FWD_Y = 1;
+const RGT_X = 1;
+const RGT_Y = 0;
+
+function toUser(fx: number, fz: number): GroundPoint {
+  return { x: (fx - fz) * DIAG * FT_TO_M, y: (fx + fz) * DIAG * FT_TO_M };
+}
 
 /**
- * Returns the 5 corners of home plate in ground field coordinates,
- * ordered clockwise from the apex (as seen from above / catcher's view):
- *   apex → right-bevel → right-front → left-front → left-bevel
+ * Returns the 5 corners of home plate in user coordinates (meters),
+ * ordered clockwise from apex (as seen from above):
+ *   apex → right bevel → front right → front left → left bevel
  */
 export function homePlateCorners(): GroundPoint[] {
-  // Front edge midpoint: PLATE_FRONT_IN along the diagonal from apex
-  const fcx = PLATE_FRONT_IN * FWD.x;
-  const fcz = PLATE_FRONT_IN * FWD.z;
+  // Internal field forward = (DIAG, DIAG), right = (DIAG, -DIAG)
+  const fwd = { x: DIAG, z: DIAG };
+  const rgt = { x: DIAG, z: -DIAG };
 
-  // Front-right and front-left corners: ± half front width laterally
-  const frontRight: GroundPoint = { x: fcx + HALF_FRONT_FT * RGT.x, z: fcz + HALF_FRONT_FT * RGT.z };
-  const frontLeft:  GroundPoint = { x: fcx - HALF_FRONT_FT * RGT.x, z: fcz - HALF_FRONT_FT * RGT.z };
+  const fc = { x: PLATE_DEPTH_FT * fwd.x, z: PLATE_DEPTH_FT * fwd.z };
 
-  // Bevel corners: front corners moved backward by SIDE_FT along the diagonal
-  const rightBevel: GroundPoint = { x: frontRight.x - SIDE_FT * FWD.x, z: frontRight.z - SIDE_FT * FWD.z };
-  const leftBevel:  GroundPoint = { x: frontLeft.x  - SIDE_FT * FWD.x, z: frontLeft.z  - SIDE_FT * FWD.z };
+  const frontRight = { x: fc.x + HALF_FRONT_FT * rgt.x, z: fc.z + HALF_FRONT_FT * rgt.z };
+  const frontLeft = { x: fc.x - HALF_FRONT_FT * rgt.x, z: fc.z - HALF_FRONT_FT * rgt.z };
+  const rightBevel = { x: frontRight.x - SIDE_FT * fwd.x, z: frontRight.z - SIDE_FT * fwd.z };
+  const leftBevel = { x: frontLeft.x - SIDE_FT * fwd.x, z: frontLeft.z - SIDE_FT * fwd.z };
 
   return [
-    { x: 0, z: 0 },   // apex
-    rightBevel,
-    frontRight,
-    frontLeft,
-    leftBevel,
+    { x: 0, y: 0 },         // apex
+    toUser(rightBevel.x, rightBevel.z),
+    toUser(frontRight.x, frontRight.z),
+    toUser(frontLeft.x, frontLeft.z),
+    toUser(leftBevel.x, leftBevel.z),
   ];
 }

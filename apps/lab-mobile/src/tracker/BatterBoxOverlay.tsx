@@ -53,7 +53,7 @@ interface Landmark { id: string; label: string; field: GroundPoint; }
 function buildLandmarks(): Landmark[] {
   const oc = outerCorners();
   const boxes = allEightCorners();
-  const lm = fieldLandmarks("littleLeague");
+  const lm = fieldLandmarks(60);
   return [
     { id: "apex", label: "Apex", field: { x: 0, z: 0 } },
     { id: "lfo", label: "LF-Out", field: oc.leftFrontOut },
@@ -88,11 +88,11 @@ const BASEPATH_EDGES: [string, string][] = [
 const geo = (() => {
   const boxes = allEightCorners();
   const plate = homePlateCorners();
-  const lm = fieldLandmarks("littleLeague");
-  const BH = (15 / 12) / 2;
+  const lm = fieldLandmarks(60);
+  const BH = (15 / 12) / 2 * 0.3048; // half base size in meters
   const bases = (["first_base", "second_base", "third_base"] as const).map((id) => {
     const c = lm[id];
-    return [{ x: c.x + BH, z: c.z }, { x: c.x, z: c.z + BH }, { x: c.x - BH, z: c.z }, { x: c.x, z: c.z - BH }];
+    return [{ x: c.x + BH, y: c.y }, { x: c.x, y: c.y + BH }, { x: c.x - BH, y: c.y }, { x: c.x, y: c.y - BH }];
   });
   return { leftBox: boxes.left, rightBox: boxes.right, plate, bases };
 })();
@@ -173,12 +173,12 @@ function projectAll(
       // Map field coords to image coords using the two known points.
       // For any field point, compute its position relative to the line f0→f1,
       // then place it at the corresponding position relative to c0→c1.
-      const fdx = f1.x - f0.x, fdz = f1.z - f0.z;
-      const fLen2 = fdx * fdx + fdz * fdz;
+      const fdx = f1.x - f0.x, fdy = f1.y - f0.y;
+      const fLen2 = fdx * fdx + fdy * fdy;
       if (fLen2 < 1e-10) return null;
 
       // Perpendicular direction in field
-      const fpx = -fdz, fpz = fdx; // rotated 90°
+      const fpx = -fdy, fpy = fdx; // rotated 90°
 
       // Image vectors
       const idu = c1!.nx - c0!.nx, idv = c1!.ny - c0!.ny;
@@ -187,10 +187,10 @@ function projectAll(
 
       const result: Record<string, { nx: number; ny: number }> = {};
       for (const lm of LANDMARKS) {
-        const fx = lm.field.x - f0.x, fz = lm.field.z - f0.z;
+        const fx = lm.field.x - f0.x, fy = lm.field.y - f0.y;
         // Project onto the f0→f1 line and perpendicular
-        const along = (fx * fdx + fz * fdz) / fLen2;
-        const perp = (fx * fpx + fz * fpz) / fLen2;
+        const along = (fx * fdx + fy * fdy) / fLen2;
+        const perp = (fx * fpx + fy * fpy) / fLen2;
         // Reconstruct in image space
         result[lm.id] = {
           nx: c0!.nx + along * idu + perp * ipu,
@@ -207,9 +207,9 @@ function projectAll(
     const pts = correspondences.map((c) => ({ f: FIELD_BY_ID[c.id]!, u: c.nx, v: c.ny }));
     // Solve two 3x3 systems.
     const A = [
-      [pts[0]!.f.x, pts[0]!.f.z, 1],
-      [pts[1]!.f.x, pts[1]!.f.z, 1],
-      [pts[2]!.f.x, pts[2]!.f.z, 1],
+      [pts[0]!.f.x, pts[0]!.f.y, 1],
+      [pts[1]!.f.x, pts[1]!.f.y, 1],
+      [pts[2]!.f.x, pts[2]!.f.y, 1],
     ];
     const bu = [pts[0]!.u, pts[1]!.u, pts[2]!.u];
     const bv = [pts[0]!.v, pts[1]!.v, pts[2]!.v];
@@ -222,10 +222,10 @@ function projectAll(
 
     const result: Record<string, { nx: number; ny: number }> = {};
     for (const lm of LANDMARKS) {
-      const fx = lm.field.x, fz = lm.field.z;
+      const fx = lm.field.x, fy = lm.field.y;
       result[lm.id] = {
-        nx: solU[0] * fx + solU[1] * fz + solU[2],
-        ny: solV[0] * fx + solV[1] * fz + solV[2],
+        nx: solU[0] * fx + solU[1] * fy + solU[2],
+        ny: solV[0] * fx + solV[1] * fy + solV[2],
       };
     }
     return result;
@@ -307,8 +307,8 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       const lb = geo.leftBox.map(proj), rb = geo.rightBox.map(proj);
       const pl = geo.plate.map(proj), bs = geo.bases.map((b) => b.map(proj));
       // Basepath square: apex → 1B → 2B → 3B → apex
-      const lm = fieldLandmarks("littleLeague");
-      const bpPts = [{ x: 0, z: 0 }, lm.first_base, lm.second_base, lm.third_base].map(proj);
+      const lm = fieldLandmarks(60);
+      const bpPts = [{ x: 0, y: 0 }, lm.first_base, lm.second_base, lm.third_base].map(proj);
       if ([...lb, ...rb, ...pl, ...bs.flat(), ...bpPts].some((p) => !p)) return null;
       return { lb: lb as {x:number;y:number}[], rb: rb as {x:number;y:number}[], pl: pl as {x:number;y:number}[], bs: bs as {x:number;y:number}[][], bp: bpPts as {x:number;y:number}[] };
     }, [homography, imageWidth, imageHeight, imageToScreen]);

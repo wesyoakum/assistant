@@ -37,11 +37,11 @@ type SubMode = "camera" | "focus";
 const geo = (() => {
   const boxes = allEightCorners();
   const plate = homePlateCorners();
-  const lm = fieldLandmarks("littleLeague"); // basepath from settings applied dynamically
-  const BH = (15 / 12) / 2;
+  const lm = fieldLandmarks(60); // basepath from settings applied dynamically
+  const BH = (15 / 12) / 2 * 0.3048; // meters
   const bases = (["first_base", "second_base", "third_base"] as const).map((id) => {
     const c = lm[id];
-    return [{ x: c.x + BH, z: c.z }, { x: c.x, z: c.z + BH }, { x: c.x - BH, z: c.z }, { x: c.x, z: c.z - BH }];
+    return [{ x: c.x + BH, y: c.y }, { x: c.x, y: c.y + BH }, { x: c.x - BH, y: c.y }, { x: c.x, y: c.y - BH }];
   });
   return { leftBox: boxes.left, rightBox: boxes.right, plate, bases };
 })();
@@ -75,21 +75,20 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
       if (!result) return null;
 
       const proj = (pt: GroundPoint) => {
-        const img = projectGroundPoint(result.H, pt.x, pt.z);
+        const img = projectGroundPoint(result.H, pt.x, pt.y);
         if (!img) return null;
         return imageToScreen(img.u / imageWidth, img.v / imageHeight);
       };
 
-      const lm = fieldLandmarks("littleLeague"); // TODO: use basepathFt dynamically
-      const foulEnd = basepathFt + 2.5 * basepathFt;
-
+      const lm = fieldLandmarks(60); // TODO: use basepathFt dynamically
       const lb = geo.leftBox.map(proj);
       const rb = geo.rightBox.map(proj);
       const pl = geo.plate.map(proj);
       const bs = geo.bases.map((b) => b.map(proj));
-      const bp = [{ x: 0, z: 0 }, lm.first_base, lm.second_base, lm.third_base, { x: 0, z: 0 }].map(proj);
-      const foul1 = [{ x: 0, z: 0 }, { x: foulEnd, z: 0 }].map(proj);
-      const foul3 = [{ x: 0, z: 0 }, { x: 0, z: foulEnd }].map(proj);
+      const apex: GroundPoint = { x: 0, y: 0 };
+      const bp = [apex, lm.first_base, lm.second_base, lm.third_base, apex].map(proj);
+      const foul1 = [apex, lm.foul_pole_first].map(proj);
+      const foul3 = [apex, lm.foul_pole_third].map(proj);
 
       // Project focus target with axis guide lines.
       // Focus is in user coords (x,y,z meters). Convert to internal field (x,z feet).

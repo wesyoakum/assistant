@@ -14,9 +14,9 @@
 // unit-tested in videoHomography.test.ts against synthetic homographies.
 
 export interface Pt2 { x: number; y: number }
-/** field (x,z) ground point ↔ image (u,v) pixel. */
+/** Ground point (user coords x,y meters) ↔ image pixel (u,v). */
 export interface Correspondence {
-  field: { x: number; z: number };
+  field: { x: number; y: number };
   image: { u: number; v: number };
 }
 
@@ -30,7 +30,7 @@ export interface Correspondence {
  */
 export interface LineCorrespondence {
   /** Two distinct field points (x,z) lying on the field line. */
-  field: [{ x: number; z: number }, { x: number; z: number }];
+  field: [{ x: number; y: number }, { x: number; y: number }];
   /** Two distinct image points (u,v) lying on the observed image line (the taps). */
   image: [{ u: number; v: number }, { u: number; v: number }];
 }
@@ -58,14 +58,14 @@ export function applyHomography(H: Homography, x: number, y: number): Pt2 | null
 }
 
 /** Project a field ground point (x,z) onto the image. */
-export function fieldToImage(H: Homography, p: { x: number; z: number }): Pt2 | null {
-  return applyHomography(H, p.x, p.z);
+export function fieldToImage(H: Homography, p: { x: number; y: number }): Pt2 | null {
+  return applyHomography(H, p.x, p.y);
 }
 
 /** Back-project an on-ground image pixel (u,v) to field coords (x,z). */
-export function imageToField(Hinv: Homography, q: { u: number; v: number }): { x: number; z: number } | null {
+export function imageToField(Hinv: Homography, q: { u: number; v: number }): { x: number; y: number } | null {
   const r = applyHomography(Hinv, q.u, q.v);
-  return r ? { x: r.x, z: r.y } : null;
+  return r ? { x: r.x, y: r.y } : null;
 }
 
 /**
@@ -95,7 +95,7 @@ export function fitHomography(
   }
   if (pointPairs.length < 4) return null;
 
-  const src = pointPairs.map((c) => ({ x: c.field.x, y: c.field.z }));
+  const src = pointPairs.map((c) => ({ x: c.field.x, y: c.field.y }));
   const dst = pointPairs.map((c) => ({ x: c.image.u, y: c.image.v }));
 
   // Normalize both point sets (Hartley): translate to centroid, scale so mean

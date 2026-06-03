@@ -1,95 +1,79 @@
-// Known field geometry — landmark positions on the ground plane, in field
-// coordinates, for video reconciliation (see VIDEO_ANALYSIS.md).
+// Field geometry — landmark positions in USER coordinates (meters).
 //
-// Convention matches src/field/coordinateFrame.ts and foulLine.ts:
-//   origin = home-plate APEX, +x → first base, +z → third base, units = feet.
-// Everything here is on the ground (y = 0), so we work in 2D (x, z).
+// Coordinate system:
+//   Origin = home plate apex
+//   +X = toward 1B (parallel to front edge of plate)
+//   +Y = toward 2B (along home→2B diagonal)
+//   +Z = up
 //
-// These are the KNOWN 3D points whose pixels you label in a video frame; the
-// homography solver (videoHomography.ts) fits the field↔image mapping to them.
-// Dimensions vary by level of play, so the template is parameterized — PnP/
-// homography with enough points absorbs small real-field deviations (a 61-ft
-// basepath fits as 61 ft); the spec only needs correct proportions.
-//
-// Pure data + geometry. No native/React deps → unit-tested in fieldTemplate.test.ts.
+// All positions are on the ground plane (z = 0), so we use { x, y }.
+
+const FT_TO_M = 0.3048;
+const DIAG = Math.SQRT1_2; // 1/√2
 
 export interface GroundPoint {
-  /** Feet toward first base from the apex. */
+  /** Meters toward 1B (parallel to front edge). */
   x: number;
-  /** Feet toward third base from the apex. */
-  z: number;
+  /** Meters toward 2B (along diagonal). */
+  y: number;
 }
 
-/** A named, known landmark location on the field (ground plane, feet). */
 export type LandmarkId =
-  | "apex"            // home-plate rear point = origin
-  | "plate_front"     // front edge midpoint of home plate (toward pitcher)
+  | "apex"
+  | "plate_front"
   | "first_base"
   | "second_base"
   | "third_base"
-  | "rubber"          // pitching rubber center
-  | "mound_center"    // center of the pitching mound (≈ rubber, kept distinct)
-  | "foul_pole_first" // right-field foul pole base (down the 1B line)
-  | "foul_pole_third";// left-field foul pole base (down the 3B line)
+  | "rubber"
+  | "mound_center"
+  | "foul_pole_first"
+  | "foul_pole_third";
 
-export interface FieldSpec {
-  /** Human label, e.g. "Little League (60/46)". */
-  name: string;
-  /** Base-path length, feet (apex→1B, etc.). */
-  basePath: number;
-  /** Pitching distance: apex → front edge of rubber, feet. */
-  pitchingDistance: number;
-  /** Foul-line length from apex to the foul pole, feet (outfield distance). */
-  foulLineLength: number;
-}
-
-// Common levels of play. foulLineLength is the down-the-line fence distance.
-export const FIELD_SPECS: Record<string, FieldSpec> = {
-  littleLeague: { name: "Little League (60/46)", basePath: 60, pitchingDistance: 46, foulLineLength: 200 },
-  intermediate46_60: { name: "Intermediate (70/50)", basePath: 70, pitchingDistance: 50, foulLineLength: 250 },
-  highSchool: { name: "High School / MLB (90/60.5)", basePath: 90, pitchingDistance: 60.5, foulLineLength: 320 },
-};
-
-// Home plate is a 17" front edge; the apex→front-edge depth is ~8.5+12-derived.
-// In feet, the front-edge midpoint sits ~1.41 ft toward the pitcher from the apex
-// (8.5in back rectangle + the apex triangle ≈ 17in total depth → 17in = 1.417ft).
+/** Home plate depth (apex to front edge) = 17 inches. */
 const PLATE_DEPTH_FT = 17 / 12;
 
 /**
- * Build the known ground-plane landmark coordinates for a field spec.
+ * Build landmark positions in user coordinates (meters) for a given basepath.
  *
- * Geometry: the foul lines run from the apex at ±45° to the +x (1B) / +z (3B)
- * axes... actually by our convention +x IS toward first base and +z toward third,
- * and the bases sit on those lines. The infield is a square rotated so home→2B is
- * the diagonal. Standard layout:
- *   - 1B at (basePath, 0)              [straight down +x]
- *   - 3B at (0, basePath)              [straight down +z]
- *   - 2B at (basePath, basePath)       [far corner of the square]
- *   - rubber/mound along the home→2B diagonal at pitchingDistance from apex
- *   - foul poles at (foulLineLength, 0) and (0, foulLineLength)
+ * The diamond is a square rotated 45° — in the internal field frame,
+ * 1B is along one foul line and 3B along the other. In user coords:
+ *   1B: x = basepath * DIAG * FT_TO_M,  y = basepath * DIAG * FT_TO_M
+ *   3B: x = -basepath * DIAG * FT_TO_M, y = basepath * DIAG * FT_TO_M
+ *   2B: x = 0,                           y = basepath * 2 * DIAG * FT_TO_M
  *
- * (This places the two foul lines exactly on the +x and +z axes, matching
- * coordinateFrame.ts where X→1B and Z→3B are the field axes.)
+ * @param basepathFt Base distance in feet (e.g. 60 for Little League, 90 for MLB).
+ * @param pitchingDistanceFt Pitching distance in feet (default: derived from basepath).
  */
-export function buildFieldLandmarks(spec: FieldSpec): Record<LandmarkId, GroundPoint> {
-  const bp = spec.basePath;
-  // Home→2B diagonal bisects the 1B/3B axes (unit vector (1,1)/√2).
-  const diag = Math.SQRT1_2;
-  const pd = spec.pitchingDistance;
+export function buildFieldLandmarks(
+  basepathFt: number,
+  pitchingDistanceFt?: number,
+): Record<LandmarkId, GroundPoint> {
+  const bp = basepathFt;
+  const pd = pitchingDistanceFt ?? (bp <= 50 ? 35 : bp <= 60 ? 46 : bp <= 70 ? 50 : 60.5);
+  const foulLineFt = bp + 2.5 * bp; // foul line extends past bases
+
+  // Conversion: internal field (fx, fz) in feet → user (x, y) in meters:
+  //   user_x = (fx - fz) * DIAG * FT_TO_M
+  //   user_y = (fx + fz) * DIAG * FT_TO_M
+  const toUser = (fx: number, fz: number): GroundPoint => ({
+    x: (fx - fz) * DIAG * FT_TO_M,
+    y: (fx + fz) * DIAG * FT_TO_M,
+  });
+
   return {
-    apex: { x: 0, z: 0 },
-    plate_front: { x: PLATE_DEPTH_FT * diag, z: PLATE_DEPTH_FT * diag },
-    first_base: { x: bp, z: 0 },
-    third_base: { x: 0, z: bp },
-    second_base: { x: bp, z: bp },
-    rubber: { x: pd * diag, z: pd * diag },
-    mound_center: { x: pd * diag, z: pd * diag },
-    foul_pole_first: { x: spec.foulLineLength, z: 0 },
-    foul_pole_third: { x: 0, z: spec.foulLineLength },
+    apex: { x: 0, y: 0 },
+    plate_front: toUser(PLATE_DEPTH_FT * DIAG, PLATE_DEPTH_FT * DIAG),
+    first_base: toUser(bp, 0),
+    third_base: toUser(0, bp),
+    second_base: toUser(bp, bp),
+    rubber: toUser(pd * DIAG, pd * DIAG),
+    mound_center: toUser(pd * DIAG, pd * DIAG),
+    foul_pole_first: toUser(foulLineFt, 0),
+    foul_pole_third: toUser(0, foulLineFt),
   };
 }
 
-/** Convenience: landmark coords for a named spec key (defaults to high school). */
-export function fieldLandmarks(specKey: keyof typeof FIELD_SPECS = "highSchool"): Record<LandmarkId, GroundPoint> {
-  return buildFieldLandmarks(FIELD_SPECS[specKey]!);
+/** Convenience: landmark coords for a given basepath (default 60ft). */
+export function fieldLandmarks(basepathFt: number = 60): Record<LandmarkId, GroundPoint> {
+  return buildFieldLandmarks(basepathFt);
 }

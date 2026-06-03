@@ -25,7 +25,7 @@ import { ThreeDPoseOverlay } from "./ThreeDPoseOverlay";
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
-import { fieldToUser, formatXYZ } from "../field/userCoords";
+import { formatXYZ } from "../field/userCoords";
 import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { apiFetch } from "../api/client";
 import type { TrackerSession } from "./session";
@@ -172,7 +172,7 @@ export function TrackerTab() {
         const { fieldLandmarks } = require("../field/fieldTemplate");
         const oc = outerCorners();
         const boxes = allEightCorners();
-        const lm = fieldLandmarks("littleLeague");
+        const lm = fieldLandmarks(60);
         const fieldPts: Record<string, { x: number; z: number }> = {
           apex: { x: 0, z: 0 }, lfo: oc.leftFrontOut, rfo: oc.rightFrontOut,
           rbo: oc.rightBackOut, lbo: oc.leftBackOut,
@@ -925,7 +925,7 @@ export function TrackerTab() {
                   const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
                   const decomp = decomposeCameraPose(pose.fit.H, K);
                   if (decomp) {
-                    setCameraXYZ(fieldToUser(decomp.position));
+                    setCameraXYZ(decomp.position);
                     setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
                   }
                 }
