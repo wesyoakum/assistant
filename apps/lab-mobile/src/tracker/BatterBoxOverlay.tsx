@@ -425,65 +425,12 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
           const curImg = screenToImage(lx, ly);
           const newPos = { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny };
 
-          // Get anchor (apex unless dragging apex)
-          const anchorId = drag.id === "apex" ? anchoredIds[0] || "2b" : "apex";
-          const anchorImg = posRef.current[anchorId];
-          const anchorField = FIELD_BY_ID[anchorId];
-          const dragField = FIELD_BY_ID[drag.id];
-
-          if (!anchorImg || !anchorField || !dragField) {
-            setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
-            return;
-          }
-
-          // Field vector: anchor → dragged landmark
-          const ffx = dragField.x - anchorField.x;
-          const ffy = dragField.y - anchorField.y;
-          const fDist = Math.hypot(ffx, ffy);
-          if (fDist < 1e-6) {
-            setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
-            return;
-          }
-          const fAngle = Math.atan2(ffy, ffx);
-
-          // Image vector: anchor → dragged position
-          const iix = newPos.nx - anchorImg.nx;
-          const iiy = newPos.ny - anchorImg.ny;
-          const iDist = Math.hypot(iix, iiy);
-          if (iDist < 1e-6) {
-            setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
-            return;
-          }
-          const iAngle = Math.atan2(iiy, iix);
-
-          // Rotation + scale
-          const scale = iDist / fDist;
-          const rot = iAngle - fAngle;
-          const cos = Math.cos(rot) * scale;
-          const sin = Math.sin(rot) * scale;
-
-          // Apply to all free handles as a rigid body around the anchor
-          setPositions((prev) => {
-            const next: Record<string, { nx: number; ny: number }> = {};
-            for (const lm of LANDMARKS) {
-              if (lm.id === anchorId) {
-                next[lm.id] = anchorImg; // anchor stays
-              } else if (anchoredRef.current[lm.id] && lm.id !== drag.id) {
-                next[lm.id] = prev[lm.id]!; // explicitly anchored stays
-              } else if (lm.id === drag.id) {
-                next[lm.id] = newPos; // dragged follows finger
-              } else {
-                // Rotate+scale around anchor
-                const fx = lm.field.x - anchorField.x;
-                const fy = lm.field.y - anchorField.y;
-                next[lm.id] = {
-                  nx: anchorImg.nx + cos * fx - sin * fy,
-                  ny: anchorImg.ny + sin * fx + cos * fy,
-                };
-              }
-            }
-            return next;
-          });
+          // Just move the dragged handle. Other handles stay where they are.
+          // The rigid-body approach fails because perspective makes scale
+          // distance-dependent — nearby handles need different scale than far ones.
+          // The user places each handle individually; once 4+ are anchored,
+          // the homography solver takes over and handles perspective correctly.
+          setPositions((prev) => ({ ...prev, [drag.id]: newPos }));
         },
         onPanResponderRelease: () => {
           const drag = dragRef.current;
