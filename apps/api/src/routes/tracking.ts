@@ -270,12 +270,13 @@ const FT = 0.3048;
 const D = Math.SQRT1_2;
 const DEG = Math.PI / 180;
 
-// User coords: X→1B, Y→2B, Z→up
-// Three.js:    X→right, Y→up, Z→toward viewer (right-handed)
-// Mapping: threeX = userX, threeY = userZ (up), threeZ = -userY (2B into screen)
+// User coords: X→1B, Y→2B, Z→up (meters)
+// Three.js:    X→right, Y→up, Z→toward viewer
+// Mapping: threeX = userX, threeY = userZ (up), threeZ = -userY
 function u2t(ux, uy, uz) { return new THREE.Vector3(ux, uz, -uy); }
-// Internal field (x→1B foul, z→3B foul) → user coords (meters)
-function f2u(fx, fz) { return [(fx - fz) * D * FT, (fx + fz) * D * FT]; }
+// Compute user coords from basepath (all in meters now)
+// Convert internal field (feet) to user coords (meters) for the 3D viewer geometry.
+function iu(fx, fz) { return [(fx - fz) * D * FT, (fx + fz) * D * FT]; }
 
 const container = document.getElementById('scene3d-container');
 const W = container.clientWidth, H = container.clientHeight;
@@ -331,10 +332,10 @@ const b2b = bases['2b']; makeLabel('2B', u2t(b2b[0], b2b[1], 0), '#ffdc00');
 
 // Field geometry
 const bases = {
-  apex: f2u(0, 0),
-  '1b': f2u(bp, 0),
-  '2b': f2u(bp, bp),
-  '3b': f2u(0, bp),
+  apex: iu(0, 0),
+  '1b': iu(bp, 0),
+  '2b': iu(bp, bp),
+  '3b': iu(0, bp),
 };
 const foulEnd = bp + 2.5 * bp; // foul line extends past bases
 
@@ -344,8 +345,8 @@ scene.add(new THREE.GridHelper(gridSize, Math.floor(gridSize / 2), 0x333333, 0x2
 
 // Foul lines (pink, from apex past bases)
 const foulMat = new THREE.LineBasicMaterial({ color: 0xff78b4 });
-const foul1b = f2u(foulEnd, 0);
-const foul3b = f2u(0, foulEnd);
+const foul1b = iu(foulEnd, 0);
+const foul3b = iu(0, foulEnd);
 scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([u2t(0,0,0), u2t(foul1b[0],foul1b[1],0)]), foulMat));
 scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([u2t(0,0,0), u2t(foul3b[0],foul3b[1],0)]), foulMat));
 
@@ -382,7 +383,7 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   ];
   // Build plate as line loop + filled shape using u2t directly.
   const platePts3D = plateCorners.map(c => {
-    const u = f2u(c[0], c[1]);
+    const u = iu(c[0], c[1]);
     return u2t(u[0], u[1], 0.01);
   });
   // Filled shape via ShapeGeometry in XZ plane.
@@ -421,7 +422,7 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
       [pcx + backDist*fwd.x + sign*insideOff*rgt.x, pcz + backDist*fwd.z + sign*insideOff*rgt.z],
     ];
     const pts = [...corners, corners[0]].map(c => {
-      const u = f2u(c[0], c[1]);
+      const u = iu(c[0], c[1]);
       return u2t(u[0], u[1], 0.02);
     });
     scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x00c8ff })));
