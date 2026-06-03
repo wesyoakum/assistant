@@ -7,12 +7,14 @@ export interface TrackerSettings {
   outlierThreshold: number;
   roiSize: number;
   basepathFt: number;
+  calibrationMode: "landmarks" | "camera3d";
   setPreprocessBW: (v: boolean) => void;
   setContrastLevel: (v: number) => void;
   setOutlierRejection: (v: boolean) => void;
   setOutlierThreshold: (v: number) => void;
   setRoiSize: (v: number) => void;
   setBasepathFt: (v: number) => void;
+  setCalibrationMode: (v: "landmarks" | "camera3d") => void;
 }
 
 export const useTrackerSettings = create<TrackerSettings>((set) => ({
@@ -22,10 +24,12 @@ export const useTrackerSettings = create<TrackerSettings>((set) => ({
   outlierThreshold: 0.03,
   roiSize: 640,
   basepathFt: 60,
+  calibrationMode: "camera3d",
   setPreprocessBW: (v) => set({ preprocessBW: v }),
   setContrastLevel: (v) => set({ contrastLevel: v }),
   setOutlierRejection: (v) => set({ outlierRejection: v }),
   setOutlierThreshold: (v) => set({ outlierThreshold: v }),
   setRoiSize: (v) => set({ roiSize: v }),
   setBasepathFt: (v) => set({ basepathFt: v }),
+  setCalibrationMode: (v) => set({ calibrationMode: v }),
 }));

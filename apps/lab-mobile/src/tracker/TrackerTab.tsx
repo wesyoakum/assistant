@@ -21,6 +21,7 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
+import { ThreeDPoseOverlay } from "./ThreeDPoseOverlay";
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
@@ -131,7 +132,7 @@ export function TrackerTab() {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt, calibrationMode } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -1133,8 +1134,18 @@ export function TrackerTab() {
           canvasPageOffset={canvasPageOffsetRef.current}
         />
       )}
-      {showPoseOverlay && (
+      {showPoseOverlay && calibrationMode === "landmarks" && (
         <BatterBoxOverlay
+          ref={poseOverlayRef}
+          imageWidth={frame.imageWidth}
+          imageHeight={frame.imageHeight}
+          vp={vp}
+          canvas={canvas}
+          canvasPageOffset={canvasPageOffsetRef.current}
+        />
+      )}
+      {showPoseOverlay && calibrationMode === "camera3d" && (
+        <ThreeDPoseOverlay
           ref={poseOverlayRef}
           imageWidth={frame.imageWidth}
           imageHeight={frame.imageHeight}
