@@ -31,7 +31,7 @@ const PLATE_COLOR = "rgba(255,120,180,0.9)";
 const BASEPATH_COLOR = "rgba(255,120,180,0.7)";
 const BASE_COLOR = "rgba(255,220,0,0.95)";
 
-type SubMode = "camera" | "focus";
+type SubMode = "rotate" | "drag";
 
 // Field geometry (precomputed once)
 const geo = (() => {
@@ -53,7 +53,7 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
   function ThreeDPoseOverlay({ imageWidth, imageHeight, vp, canvas, canvasPageOffset }, ref) {
     const [camPos, setCamPos] = useState({ x: 5, y: -5, z: 2 });
     const [focusPos, setFocusPos] = useState({ x: 0, y: 4, z: 0 });
-    const [subMode, setSubMode] = useState<SubMode>("camera");
+    const [subMode, setSubMode] = useState<SubMode>("rotate");
     const { basepathFt } = useTrackerSettings();
 
     const camRef = useRef(camPos);
@@ -160,46 +160,60 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
           if (!drag) return;
           const touches = e.nativeEvent.touches;
 
-          // 2-finger pinch → zoom (change camera distance from focus)
+          // 2-finger pinch → zoom (change camera distance from pivot)
           if (touches && touches.length >= 2 && drag.pinchDist) {
             const t0 = touches[0]!, t1 = touches[1]!;
             const curDist = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
-            const ratio = drag.pinchDist / Math.max(1, curDist); // closer fingers = zoom in
-            const dx = drag.cam.x - drag.focus.x;
-            const dy = drag.cam.y - drag.focus.y;
-            const dz = drag.cam.z - drag.focus.z;
+            const ratio = drag.pinchDist / Math.max(1, curDist);
+            // Scale distance from pivot while keeping both cam and focus in sync
+            const pivotY = basepathFt * 0.3048 / 3; // 1/3 basepath in meters
+            const pivot = { x: 0, y: pivotY, z: 0 };
             setCamPos({
-              x: drag.focus.x + dx * ratio,
-              y: drag.focus.y + dy * ratio,
-              z: Math.max(0.5, drag.focus.z + dz * ratio),
+              x: pivot.x + (drag.cam.x - pivot.x) * ratio,
+              y: pivot.y + (drag.cam.y - pivot.y) * ratio,
+              z: Math.max(0.5, pivot.z + (drag.cam.z - pivot.z) * ratio),
+            });
+            setFocusPos({
+              x: pivot.x + (drag.focus.x - pivot.x) * ratio,
+              y: pivot.y + (drag.focus.y - pivot.y) * ratio,
+              z: drag.focus.z,
             });
             return;
           }
 
-          // Sensitivity
           const sensitivity = 0.01;
           const deltaX = (gs.moveX - drag.pageX) * sensitivity;
           const deltaY = (gs.moveY - drag.pageY) * sensitivity;
 
-          if (subMode === "focus") {
-            // Move focus point: left/right → X, up/down → Y
-            setFocusPos({
-              x: drag.focus.x - deltaX * 2,
-              y: drag.focus.y + deltaY * 2,
-              z: drag.focus.z,
-            });
+          // Pivot point: 1/3 basepath distance toward 2B from apex
+          const pivotY = basepathFt * 0.3048 / 3;
+
+          if (subMode === "drag") {
+            // Drag mode: left/right → move field horizontally (cam+focus X),
+            //            up/down → move field vertically (cam+focus Z)
+            const moveX = -deltaX * 3;
+            const moveZ = deltaY * 3;
+            setCamPos({ x: drag.cam.x + moveX, y: drag.cam.y, z: Math.max(0.5, drag.cam.z + moveZ) });
+            setFocusPos({ x: drag.focus.x + moveX, y: drag.focus.y, z: drag.focus.z + moveZ });
           } else {
-            // Orbit camera around focus point
-            const dx = drag.cam.x - drag.focus.x;
-            const dy = drag.cam.y - drag.focus.y;
-            const dist = Math.hypot(dx, dy);
-            const angle = Math.atan2(dy, dx);
+            // Rotate mode: orbit camera around the pivot point
+            // Horizontal swipe → orbit left/right (change angle in XY plane around pivot)
+            // Vertical swipe → orbit up/down (change elevation)
+            const camDx = drag.cam.x - 0; // pivot X = 0
+            const camDy = drag.cam.y - pivotY;
+            const dist = Math.hypot(camDx, camDy);
+            const angle = Math.atan2(camDy, camDx);
             const newAngle = angle - deltaX;
-            const elevDelta = deltaY;
             setCamPos({
-              x: drag.focus.x + Math.cos(newAngle) * dist,
-              y: drag.focus.y + Math.sin(newAngle) * dist,
-              z: Math.max(0.5, drag.cam.z + elevDelta * 2),
+              x: Math.cos(newAngle) * dist,
+              y: pivotY + Math.sin(newAngle) * dist,
+              z: Math.max(0.5, drag.cam.z + deltaY * 3),
+            });
+            // Keep focus tracking the pivot roughly
+            setFocusPos({
+              x: drag.focus.x,
+              y: drag.focus.y,
+              z: drag.focus.z,
             });
           }
         },
@@ -293,16 +307,16 @@ export const ThreeDPoseOverlay = forwardRef<BatterBoxOverlayHandle, ThreeDPoseOv
         {/* Controls */}
         <View style={{ position: "absolute", top: 8, left: 8, right: 8, flexDirection: "row", gap: 6 }}>
           <Pressable
-            onPress={() => setSubMode("camera")}
-            style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: subMode === "camera" ? "rgba(0,200,255,0.8)" : "rgba(0,0,0,0.5)" }}
+            onPress={() => setSubMode("rotate")}
+            style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: subMode === "rotate" ? "rgba(0,200,255,0.8)" : "rgba(0,0,0,0.5)" }}
           >
-            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Camera</Text>
+            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Rotate</Text>
           </Pressable>
           <Pressable
-            onPress={() => setSubMode("focus")}
-            style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: subMode === "focus" ? "rgba(0,200,255,0.8)" : "rgba(0,0,0,0.5)" }}
+            onPress={() => setSubMode("drag")}
+            style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: subMode === "drag" ? "rgba(0,200,255,0.8)" : "rgba(0,0,0,0.5)" }}
           >
-            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Focus</Text>
+            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Drag</Text>
           </Pressable>
           <View style={{ flexDirection: "row", gap: 2, alignItems: "center" }}>
             <Text style={{ color: "rgba(255,255,0,0.8)", fontSize: 9 }}>Z</Text>
