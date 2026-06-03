@@ -118,8 +118,8 @@ function defaultPositions(): Record<string, { nx: number; ny: number }> {
     const dx = pt.x - cam.x, dy = pt.y - cam.y, dz = 0 - cam.z;
     const cx = right[0]! * dx + right[1]! * dy + right[2]! * dz;
     const cy = camUp[0]! * dx + camUp[1]! * dy + camUp[2]! * dz;
-    const cz = -(fwd[0]! * dx + fwd[1]! * dy + fwd[2]! * dz); // -fwd = camera Z
-    if (cz < 0.01) return { nx: 0.5, ny: 0.5 }; // behind camera
+    const cz = fwd[0]! * dx + fwd[1]! * dy + fwd[2]! * dz; // depth along forward
+    if (cz < 0.01) return { nx: 0.5, ny: 0.5 };
     return { nx: 0.5 + fx * (cx / cz), ny: 0.5 - fx * (cy / cz) };
   }
 
