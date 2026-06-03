@@ -366,7 +366,8 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       setPositions((prev) => {
         const next = { ...prev, [draggedId]: draggedPos };
         for (const lm of LANDMARKS) {
-          if (anchoredRef.current[lm.id] || lm.id === draggedId) continue;
+          // Skip: explicitly anchored, the dragged handle, and the implicitly-anchored apex.
+          if (anchoredRef.current[lm.id] || lm.id === draggedId || lm.id === "apex") continue;
           const p = projected[lm.id];
           if (p) next[lm.id] = p;
         }
