@@ -97,15 +97,37 @@ const geo = (() => {
   return { leftBox: boxes.left, rightBox: boxes.right, plate, bases };
 })();
 
+/** Compute default handle positions by projecting from a virtual camera at (4,-4,2)m. */
 function defaultPositions(): Record<string, { nx: number; ny: number }> {
-  return {
-    apex: { nx: 0.50, ny: 0.70 },
-    lfo: { nx: 0.30, ny: 0.50 }, rfo: { nx: 0.70, ny: 0.50 },
-    rbo: { nx: 0.72, ny: 0.75 }, lbo: { nx: 0.28, ny: 0.75 },
-    lfi: { nx: 0.42, ny: 0.50 }, lbi: { nx: 0.40, ny: 0.75 },
-    rfi: { nx: 0.58, ny: 0.50 }, rbi: { nx: 0.60, ny: 0.75 },
-    "1b": { nx: 0.85, ny: 0.35 }, "2b": { nx: 0.50, ny: 0.15 }, "3b": { nx: 0.15, ny: 0.35 },
-  };
+  // Virtual camera in user coords (meters): on 1B side, behind plate, elevated.
+  const cam = { x: 4, y: -4, z: 2 };
+  const focus = { x: 0, y: 6, z: 0 };
+  const hFov = 69;
+  // Simplified projection: build view matrix and project each landmark.
+  const fwd = [focus.x - cam.x, focus.y - cam.y, focus.z - cam.z];
+  const fLen = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
+  fwd[0]! /= fLen; fwd[1]! /= fLen; fwd[2]! /= fLen;
+  const up = [0, 0, 1];
+  const right = [fwd[1]!*up[2]!-fwd[2]!*up[1]!, fwd[2]!*up[0]!-fwd[0]!*up[2]!, fwd[0]!*up[1]!-fwd[1]!*up[0]!];
+  const rLen = Math.hypot(right[0]!, right[1]!, right[2]!);
+  right[0]! /= rLen; right[1]! /= rLen; right[2]! /= rLen;
+  const camUp = [right[1]!*fwd[2]!-right[2]!*fwd[1]!, right[2]!*fwd[0]!-right[0]!*fwd[2]!, right[0]!*fwd[1]!-right[1]!*fwd[0]!];
+  const fx = (1 / 2) / Math.tan((hFov * Math.PI / 180) / 2); // normalized focal length
+
+  function projectPt(pt: GroundPoint): { nx: number; ny: number } {
+    const dx = pt.x - cam.x, dy = pt.y - cam.y, dz = 0 - cam.z;
+    const cx = right[0]! * dx + right[1]! * dy + right[2]! * dz;
+    const cy = camUp[0]! * dx + camUp[1]! * dy + camUp[2]! * dz;
+    const cz = -(fwd[0]! * dx + fwd[1]! * dy + fwd[2]! * dz); // -fwd = camera Z
+    if (cz < 0.01) return { nx: 0.5, ny: 0.5 }; // behind camera
+    return { nx: 0.5 + fx * (cx / cz), ny: 0.5 - fx * (cy / cz) };
+  }
+
+  const result: Record<string, { nx: number; ny: number }> = {};
+  for (const lm of LANDMARKS) {
+    result[lm.id] = projectPt(lm.field);
+  }
+  return result;
 }
 
 function screenDist(a: { x: number; y: number }, b: { x: number; y: number }) {
