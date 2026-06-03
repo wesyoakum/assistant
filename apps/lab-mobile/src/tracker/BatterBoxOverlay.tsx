@@ -100,8 +100,8 @@ const geo = (() => {
 /** Compute default handle positions by projecting from a virtual camera at (4,-4,2)m. */
 function defaultPositions(): Record<string, { nx: number; ny: number }> {
   // Virtual camera in user coords (meters): on 1B side, behind plate, elevated.
-  const cam = { x: 4, y: -4, z: 2 };
-  const focus = { x: 0, y: 6, z: 0 };
+  const cam = { x: 2, y: -10, z: 3 };
+  const focus = { x: 0, y: 8, z: 0 };
   const hFov = 69;
   // Simplified projection: build view matrix and project each landmark.
   const fwd = [focus.x - cam.x, focus.y - cam.y, focus.z - cam.z];
