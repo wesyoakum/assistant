@@ -177,13 +177,13 @@ function projectAll(
       const fLen2 = fdx * fdx + fdy * fdy;
       if (fLen2 < 1e-10) return null;
 
-      // Perpendicular direction in field
-      const fpx = -fdy, fpy = fdx; // rotated 90°
+      // Perpendicular direction in field (90° CCW in right-handed field)
+      const fpx = -fdy, fpy = fdx;
 
       // Image vectors
       const idu = c1!.nx - c0!.nx, idv = c1!.ny - c0!.ny;
-      // Perpendicular in image (rotated 90°)
-      const ipu = -idv, ipv = idu;
+      // Perpendicular in image: 90° CW because image Y is inverted (v increases down)
+      const ipu = idv, ipv = -idu;
 
       const result: Record<string, { nx: number; ny: number }> = {};
       for (const lm of LANDMARKS) {
