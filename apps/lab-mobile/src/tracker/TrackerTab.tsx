@@ -21,7 +21,6 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
 import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
-import { ThreeDPoseOverlay } from "./ThreeDPoseOverlay";
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
@@ -132,7 +131,7 @@ export function TrackerTab() {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt, calibrationMode } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -141,70 +140,12 @@ export function TrackerTab() {
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
   const poseOverlayRef = useRef<BatterBoxOverlayHandle>(null);
-  const landmarkRef = useRef<BatterBoxOverlayHandle>(null);
-  const camera3dRef = useRef<BatterBoxOverlayHandle>(null);
-  const prevCalibMode = useRef(calibrationMode);
   const roiOverlayRef = useRef<RoiOverlayHandle>(null);
   // Refs so the PanResponder (memoized) can read overlay state without re-creating.
   const showPoseOverlayRef = useRef(false);
   const showRoiOverlayRef = useRef(false);
   useEffect(() => { showPoseOverlayRef.current = showPoseOverlay; }, [showPoseOverlay]);
 
-  // Transfer calibration state when switching modes.
-  useEffect(() => {
-    if (prevCalibMode.current === calibrationMode) return;
-    const from = prevCalibMode.current;
-    prevCalibMode.current = calibrationMode;
-
-    if (!cameraPose || !frame) return;
-
-    // Give the new overlay time to mount before transferring state.
-    setTimeout(() => {
-      if (from === "camera3d" && calibrationMode === "landmarks") {
-        // 3D Camera → Landmarks: project all landmarks through H to set handle positions.
-        const { fieldToImage } = require("../field/videoHomography");
-        const LANDMARKS = require("./BatterBoxOverlay").default?.LANDMARKS;
-        // Use fieldToImage to project each landmark
-        const positions: Record<string, { nx: number; ny: number }> = {};
-        const anchored: Record<string, boolean> = {};
-        const allIds = ["apex", "lfo", "rfo", "rbo", "lbo", "lfi", "lbi", "rfi", "rbi", "1b", "2b", "3b"];
-        const { allEightCorners, outerCorners } = require("../field/batterBox");
-        const { fieldLandmarks } = require("../field/fieldTemplate");
-        const oc = outerCorners();
-        const boxes = allEightCorners();
-        const lm = fieldLandmarks(60);
-        const fieldPts: Record<string, { x: number; z: number }> = {
-          apex: { x: 0, z: 0 }, lfo: oc.leftFrontOut, rfo: oc.rightFrontOut,
-          rbo: oc.rightBackOut, lbo: oc.leftBackOut,
-          lfi: boxes.left[0], lbi: boxes.left[3], rfi: boxes.right[0], rbi: boxes.right[3],
-          "1b": lm.first_base, "2b": lm.second_base, "3b": lm.third_base,
-        };
-        for (const id of allIds) {
-          const fp = fieldPts[id];
-          if (!fp) continue;
-          const img = fieldToImage(cameraPose.fit.H, fp);
-          if (img) {
-            positions[id] = { nx: img.x / frame.imageWidth, ny: img.y / frame.imageHeight };
-          }
-        }
-        // Anchor the 4 outer corners
-        anchored["lfo"] = true; anchored["rfo"] = true; anchored["rbo"] = true; anchored["lbo"] = true;
-        landmarkRef.current?.setState?.({ positions, anchored });
-      } else if (from === "landmarks" && calibrationMode === "camera3d") {
-        // Landmarks → 3D Camera: decompose H to get camera position.
-        if (cameraXYZ) {
-          const focusY = Math.abs(cameraXYZ.y) * 0.4; // focus partway toward 2B
-          camera3dRef.current?.setState?.({
-            positions: {
-              camPos: { x: cameraXYZ.x, y: cameraXYZ.y, z: cameraXYZ.z },
-              focusPos: { x: 0, y: Math.max(2, focusY), z: 0 },
-            } as any,
-            anchored: {},
-          });
-        }
-      }
-    }, 150);
-  }, [calibrationMode, cameraPose, cameraXYZ, frame]);
   useEffect(() => { showRoiOverlayRef.current = showRoiOverlay; }, [showRoiOverlay]);
 
   // Load saved videos on mount.
@@ -908,12 +849,6 @@ export function TrackerTab() {
       {showPoseOverlay && (
         <View style={{ gap: 6 }}>
           <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable
-              onPress={() => useTrackerSettings.getState().setCalibrationMode(calibrationMode === "landmarks" ? "camera3d" : "landmarks")}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text, fontSize: 10 }]}>{calibrationMode === "landmarks" ? "→ 3D" : "→ Pts"}</Text>
-            </Pressable>
             <Pressable onPress={() => poseOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
               <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
             </Pressable>
@@ -1199,19 +1134,9 @@ export function TrackerTab() {
           canvasPageOffset={canvasPageOffsetRef.current}
         />
       )}
-      {showPoseOverlay && calibrationMode === "landmarks" && (
+      {showPoseOverlay && (
         <BatterBoxOverlay
-          ref={(r) => { landmarkRef.current = r; poseOverlayRef.current = r; }}
-          imageWidth={frame.imageWidth}
-          imageHeight={frame.imageHeight}
-          vp={vp}
-          canvas={canvas}
-          canvasPageOffset={canvasPageOffsetRef.current}
-        />
-      )}
-      {showPoseOverlay && calibrationMode === "camera3d" && (
-        <ThreeDPoseOverlay
-          ref={(r) => { camera3dRef.current = r; poseOverlayRef.current = r; }}
+          ref={poseOverlayRef}
           imageWidth={frame.imageWidth}
           imageHeight={frame.imageHeight}
           vp={vp}

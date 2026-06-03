@@ -48,22 +48,9 @@ const CONTRAST_LEVELS = [1.0, 1.2, 1.4, 1.6, 1.8, 2.0, 2.5, 3.0];
 const THRESHOLD_LEVELS = [0.01, 0.02, 0.03, 0.05, 0.07, 0.10];
 
 function TrackerSettingsSection({ styles }: { styles: ReturnType<typeof makeStyles> }) {
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize, basepathFt, calibrationMode, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold, setRoiSize, setBasepathFt, setCalibrationMode } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize, basepathFt, setPreprocessBW, setContrastLevel, setOutlierRejection, setOutlierThreshold, setRoiSize, setBasepathFt } = useTrackerSettings();
   return (
     <>
-      <Text style={styles.sectionTitle}>Calibration</Text>
-      <View style={styles.row}>
-        {([["landmarks", "Landmarks"], ["camera3d", "3D Camera"]] as const).map(([v, label]) => (
-          <Pressable
-            key={v}
-            onPress={() => setCalibrationMode(v)}
-            style={[styles.chip, calibrationMode === v && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, calibrationMode === v && styles.chipTextActive]}>{label}</Text>
-          </Pressable>
-        ))}
-      </View>
-
       <Text style={styles.sectionTitle}>Tracker Preprocessing</Text>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <Text style={styles.chipText}>Black & White</Text>

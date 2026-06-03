@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Iterative RANSAC Quadratic Outlier Rejection</title>
+<style>
+body { font-family: system-ui; background: #111; color: #eee; max-width: 1200px; margin: 40px auto; padding: 0 20px; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.1rem; margin-top: 32px; color: #0cf; }
+h3 { font-size: 0.95rem; color: #888; margin: 16px 0 4px; }
+canvas { background: #1a1a1a; border-radius: 8px; margin: 4px 0 8px; }
+.stats { font-size: 0.82rem; color: #aaa; margin-bottom: 4px; }
+.legend { font-size: 0.8rem; margin-bottom: 8px; }
+.legend span { display: inline-block; width: 12px; height: 12px; border-radius: 6px; vertical-align: middle; margin-right: 4px; }
+button { padding: 8px 16px; border-radius: 6px; border: none; background: #0cf; color: #111; font-weight: 600; cursor: pointer; margin-right: 8px; }
+button:hover { background: #0ae; }
+.controls { margin: 12px 0; }
+label { font-size: 0.85rem; margin-right: 16px; }
+.pass-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+.pass-col { flex: 1; min-width: 320px; }
+.r2 { font-size: 0.8rem; color: #0f0; }
+</style></head>
+<body>
+<h1>Iterative RANSAC — Multi-Pass Quadratic Outlier Rejection</h1>
+<p style="color:#aaa;font-size:0.85rem">Each pass: RANSAC fits a quadratic, rejects outliers, then re-runs on the survivors. Repeats until R² exceeds the target or no more outliers are found.</p>
+<div class="legend">
+  <span style="background:#3c6"></span> Inlier (kept)
+  <span style="background:transparent;border:2px solid #f44;width:10px;height:10px;display:inline-block;border-radius:5px"></span> Rejected this pass
+  <span style="background:transparent;border:2px solid #666;width:10px;height:10px;display:inline-block;border-radius:5px"></span> Previously rejected
+  <span style="background:#f66"></span> Quadratic fit
+</div>
+<div class="controls">
+  <label>Outlier rate: <input type="range" id="outlierRate" min="0" max="60" value="30" oninput="this.nextSibling.textContent=this.value+'%'"><span>30%</span></label>
+  <label>Threshold: <input type="range" id="threshold" min="1" max="10" value="3" step="0.5" oninput="this.nextSibling.textContent=this.value+'%'"><span>3%</span></label>
+  <label>Target R²: <input type="range" id="targetR2" min="0.90" max="0.999" value="0.98" step="0.005" oninput="this.nextSibling.textContent=this.value"><span>0.98</span></label>
+  <label>Max passes: <input type="range" id="maxPasses" min="1" max="8" value="5" oninput="this.nextSibling.textContent=this.value"><span>5</span></label>
+  <label>Frames: <input type="range" id="nFrames" min="20" max="200" value="80" oninput="this.nextSibling.textContent=this.value"><span>80</span></label>
+  <button onclick="runAll()">Re-run All</button>
+</div>
+
+<div id="tests"></div>
+
+<script>
+// ── RANSAC core ──
+
+function ransacSinglePass(points, threshold, maxIter) {
+  if (points.length < 3) return { labels: points.map(() => true), fitX: null, fitY: null, r2: 0 };
+
+  const tMin = Math.min(...points.map(p => p.t));
+  const pts = points.map(p => ({ ...p, tn: p.t - tMin }));
+  const tRange = Math.max(...pts.map(p => p.tn)) - Math.min(...pts.map(p => p.tn)) || 1;
+
+  let bestInlierIdx = [];
+  let bestCount = 0;
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    const idx = [];
+    while (idx.length < 3) { const r = Math.floor(Math.random() * pts.length); if (!idx.includes(r)) idx.push(r); }
+    const s = idx.map(i => pts[i]);
+    const ts = s.map(p => p.tn);
+    if (Math.max(...ts) - Math.min(...ts) < 0.1 * tRange) continue;
+
+    const fX = solve3(s[0].tn, s[1].tn, s[2].tn, s[0].cx, s[1].cx, s[2].cx);
+    const fY = solve3(s[0].tn, s[1].tn, s[2].tn, s[0].cy, s[1].cy, s[2].cy);
+    if (!fX || !fY) continue;
+
+    const inliers = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      const px = fX[0]*p.tn*p.tn + fX[1]*p.tn + fX[2];
+      const py = fY[0]*p.tn*p.tn + fY[1]*p.tn + fY[2];
+      if (Math.hypot(p.cx - px, p.cy - py) < threshold) inliers.push(i);
+    }
+    if (inliers.length > bestCount) { bestCount = inliers.length; bestInlierIdx = inliers; }
+  }
+
+  if (bestCount < Math.max(3, Math.floor(points.length * 0.3))) {
+    return { labels: points.map(() => true), fitX: null, fitY: null, r2: 0 };
+  }
+
+  const inlierPts = bestInlierIdx.map(i => pts[i]);
+  const fitX = lsqQuadratic(inlierPts.map(p => p.tn), inlierPts.map(p => p.cx));
+  const fitY = lsqQuadratic(inlierPts.map(p => p.tn), inlierPts.map(p => p.cy));
+
+  const labels = pts.map(p => {
+    const px = fitX[0]*p.tn*p.tn + fitX[1]*p.tn + fitX[2];
+    const py = fitY[0]*p.tn*p.tn + fitY[1]*p.tn + fitY[2];
+    return Math.hypot(p.cx - px, p.cy - py) < threshold;
+  });
+
+  const r2 = computeR2(pts.filter((_, i) => labels[i]), fitX, fitY);
+  return { labels, fitX, fitY, r2, tMin };
+}
+
+function computeR2(pts, fitX, fitY) {
+  if (pts.length < 2) return 0;
+  const meanX = pts.reduce((s, p) => s + p.cx, 0) / pts.length;
+  const meanY = pts.reduce((s, p) => s + p.cy, 0) / pts.length;
+  let ssRes = 0, ssTotX = 0, ssTotY = 0;
+  for (const p of pts) {
+    const px = fitX[0]*p.tn*p.tn + fitX[1]*p.tn + fitX[2];
+    const py = fitY[0]*p.tn*p.tn + fitY[1]*p.tn + fitY[2];
+    ssRes += (p.cx-px)**2 + (p.cy-py)**2;
+    ssTotX += (p.cx-meanX)**2;
+    ssTotY += (p.cy-meanY)**2;
+  }
+  const ssTot = ssTotX + ssTotY;
+  return ssTot > 0 ? 1 - ssRes/ssTot : 0;
+}
+
+// ── Iterative RANSAC ──
+
+function iterativeRansac(allPoints, threshold, targetR2, maxPasses) {
+  const passes = [];
+  let currentPoints = allPoints.map((p, i) => ({ ...p, origIdx: i }));
+  let cumulativeRejected = new Set();
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    if (currentPoints.length < 3) break;
+
+    const result = ransacSinglePass(currentPoints, threshold, 100);
+    const rejectedThisPass = [];
+    const survivors = [];
+
+    for (let i = 0; i < currentPoints.length; i++) {
+      if (!result.labels[i]) {
+        rejectedThisPass.push(currentPoints[i]);
+        cumulativeRejected.add(currentPoints[i].origIdx);
+      } else {
+        survivors.push(currentPoints[i]);
+      }
+    }
+
+    passes.push({
+      points: currentPoints,
+      fitX: result.fitX,
+      fitY: result.fitY,
+      tMin: result.tMin,
+      r2: result.r2,
+      rejectedThisPass: rejectedThisPass.map(p => p.origIdx),
+      previouslyRejected: [...cumulativeRejected].filter(idx => !rejectedThisPass.some(rp => rp.origIdx === idx)),
+      inlierCount: survivors.length,
+      outlierCount: rejectedThisPass.length,
+    });
+
+    if (result.r2 >= targetR2) break;
+    if (rejectedThisPass.length === 0) break;
+
+    currentPoints = survivors;
+  }
+
+  // Final labels for all original points
+  const finalLabels = allPoints.map((_, i) => !cumulativeRejected.has(i));
+  return { passes, finalLabels, totalRejected: cumulativeRejected.size };
+}
+
+// ── Math helpers ──
+
+function solve3(t1, t2, t3, v1, v2, v3) {
+  return gaussSolve([[t1*t1,t1,1],[t2*t2,t2,1],[t3*t3,t3,1]], [v1,v2,v3]);
+}
+
+function gaussSolve(A, b) {
+  const n=3, a=A.map(r=>[...r]), B=[...b];
+  for(let i=0;i<n;i++){
+    let mx=i;for(let j=i+1;j<n;j++)if(Math.abs(a[j][i])>Math.abs(a[mx][i]))mx=j;
+    [a[i],a[mx]]=[a[mx],a[i]];[B[i],B[mx]]=[B[mx],B[i]];
+    if(Math.abs(a[i][i])<1e-12)return null;
+    for(let j=i+1;j<n;j++){const f=a[j][i]/a[i][i];for(let k=i;k<n;k++)a[j][k]-=f*a[i][k];B[j]-=f*B[i];}
+  }
+  const x=[0,0,0];
+  for(let i=n-1;i>=0;i--){let s=B[i];for(let j=i+1;j<n;j++)s-=a[i][j]*x[j];x[i]=s/a[i][i];}
+  return x;
+}
+
+function lsqQuadratic(ts, vs) {
+  let n=ts.length,sx=0,sx2=0,sx3=0,sx4=0,sy=0,sxy=0,sx2y=0;
+  for(let i=0;i<n;i++){const x=ts[i],y=vs[i];sx+=x;sx2+=x*x;sx3+=x*x*x;sx4+=x*x*x*x;sy+=y;sxy+=x*y;sx2y+=x*x*y;}
+  return gaussSolve([[sx4,sx3,sx2],[sx3,sx2,sx],[sx2,sx,n]],[sx2y,sxy,sy])||[0,0,0];
+}
+
+// ── Data generators ──
+
+function generatePitch(n, rate) {
+  return Array.from({length:n}, (_,i) => {
+    const t = i/30, u = i/n;
+    if (Math.random() < rate/100) return { t, cx: Math.random(), cy: Math.random(), isTrue: false };
+    return { t, cx: 0.3+u*0.4+(Math.random()-.5)*.008, cy: 0.4-0.1*u+0.15*u*u+(Math.random()-.5)*.008, isTrue: true };
+  });
+}
+
+function generateFlyBall(n, rate) {
+  return Array.from({length:n}, (_,i) => {
+    const t = i/30, u = i/n;
+    if (Math.random() < rate/100) return { t, cx: 0.2+u*0.6+(Math.random()-.5)*.15, cy: 0.7-0.8*u*(1-u)+(Math.random()-.5)*.15, isTrue: false };
+    return { t, cx: 0.2+u*0.6+(Math.random()-.5)*.006, cy: 0.7-0.8*u*(1-u)+(Math.random()-.5)*.006, isTrue: true };
+  });
+}
+
+function generateLowConf(n, rate) {
+  const pts = [];
+  for (let i=0;i<n;i++) {
+    const t=i/30, u=i/n;
+    if (Math.random()<0.3) continue;
+    if (Math.random()<rate/100) pts.push({t,cx:Math.random()*.8+.1,cy:Math.random()*.8+.1,isTrue:false});
+    else pts.push({t,cx:0.6-u*0.3+(Math.random()-.5)*.012,cy:0.3+0.05*u+0.2*u*u+(Math.random()-.5)*.012,isTrue:true});
+  }
+  return pts;
+}
+
+function generateOutliersAbove(n, rate) {
+  // Real detections in the lower portion (cy ~ 0.6–0.8), outliers all above (cy ~ 0.1–0.45)
+  return Array.from({length:n}, (_,i) => {
+    const t=i/30, u=i/n;
+    if (Math.random()<rate/100) {
+      // Outlier: same horizontal spread but ABOVE the real trajectory
+      const cx = 0.2+u*0.5+(Math.random()-.5)*.1;
+      const cy = 0.05+Math.random()*0.35; // y 0.05–0.40 (above the real arc)
+      return {t, cx, cy, isTrue:false};
+    }
+    // Real: pitch-like arc in the lower half
+    const cx = 0.25+u*0.5+(Math.random()-.5)*.008;
+    const cy = 0.65-0.1*u+0.12*u*u+(Math.random()-.5)*.008;
+    return {t, cx, cy, isTrue:true};
+  });
+}
+
+// ── Plotting ──
+
+function plotPass(canvas, points, allPoints, pass) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const pad = 25;
+  const tx = v => pad + v*(W-2*pad);
+  const ty = v => pad + v*(H-2*pad);
+
+  // Grid
+  ctx.strokeStyle="#282828";ctx.lineWidth=0.5;
+  for(let i=0;i<=10;i++){
+    ctx.beginPath();ctx.moveTo(pad+i/10*(W-2*pad),pad);ctx.lineTo(pad+i/10*(W-2*pad),H-pad);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(pad,pad+i/10*(H-2*pad));ctx.lineTo(W-pad,pad+i/10*(H-2*pad));ctx.stroke();
+  }
+
+  // Fit curve
+  if (pass.fitX && pass.fitY) {
+    const tMin = pass.tMin || 0;
+    const ts = pass.points.map(p => p.t - tMin);
+    const tMinN = Math.min(...ts), tMaxN = Math.max(...ts);
+    ctx.strokeStyle = "rgba(255,100,100,0.8)"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i=0;i<=200;i++) {
+      const tn = tMinN+(tMaxN-tMinN)*i/200;
+      const px=pass.fitX[0]*tn*tn+pass.fitX[1]*tn+pass.fitX[2];
+      const py=pass.fitY[0]*tn*tn+pass.fitY[1]*tn+pass.fitY[2];
+      if(i===0)ctx.moveTo(tx(px),ty(py));else ctx.lineTo(tx(px),ty(py));
+    }
+    ctx.stroke();
+  }
+
+  // Previously rejected (grey)
+  const prevSet = new Set(pass.previouslyRejected || []);
+  for (const idx of prevSet) {
+    const p = allPoints[idx];
+    ctx.strokeStyle="rgba(100,100,100,0.5)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(tx(p.cx),ty(p.cy),4,0,Math.PI*2);ctx.stroke();
+  }
+
+  // Current pass points
+  const rejSet = new Set(pass.rejectedThisPass || []);
+  for (const p of pass.points) {
+    const sx=tx(p.cx), sy=ty(p.cy);
+    if (rejSet.has(p.origIdx)) {
+      // Rejected this pass: red X
+      ctx.strokeStyle="rgba(255,59,48,0.9)";ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.arc(sx,sy,5,0,Math.PI*2);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(sx-3,sy-3);ctx.lineTo(sx+3,sy+3);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(sx+3,sy-3);ctx.lineTo(sx-3,sy+3);ctx.stroke();
+    } else {
+      // Inlier: green
+      ctx.fillStyle = p.isTrue ? "rgba(52,199,89,0.8)" : "rgba(52,199,89,0.5)";
+      ctx.beginPath();ctx.arc(sx,sy,3,0,Math.PI*2);ctx.fill();
+    }
+  }
+}
+
+function runAll() {
+  const outlierRate = +document.getElementById("outlierRate").value;
+  const threshold = +document.getElementById("threshold").value / 100;
+  const targetR2 = +document.getElementById("targetR2").value;
+  const maxPasses = +document.getElementById("maxPasses").value;
+  const nFrames = +document.getElementById("nFrames").value;
+
+  const tests = [
+    { name: "Pitch (fast, horizontal + random outliers)", gen: generatePitch },
+    { name: "Fly ball (high arc + clustered outliers near arc)", gen: generateFlyBall },
+    { name: "Low confidence (sparse detections + scattered outliers)", gen: generateLowConf },
+    { name: "Outliers all above the real trajectory", gen: generateOutliersAbove },
+  ];
+
+  const container = document.getElementById("tests");
+  container.innerHTML = "";
+
+  for (const test of tests) {
+    const points = test.gen(nFrames, outlierRate);
+    const result = iterativeRansac(points, threshold, targetR2, maxPasses);
+
+    const section = document.createElement("div");
+    section.innerHTML = `<h2>${test.name}</h2>
+      <div class="stats">${points.length} points · ${result.totalRejected} total rejected in ${result.passes.length} pass${result.passes.length>1?"es":""}</div>`;
+
+    const row = document.createElement("div");
+    row.className = "pass-row";
+
+    for (let pi = 0; pi < result.passes.length; pi++) {
+      const pass = result.passes[pi];
+      const col = document.createElement("div");
+      col.className = "pass-col";
+
+      const r2Color = pass.r2 >= targetR2 ? "#0f0" : pass.r2 >= 0.95 ? "#ff0" : "#f66";
+      col.innerHTML = `<h3>Pass ${pi+1}</h3>
+        <div class="stats">${pass.inlierCount} inliers · ${pass.outlierCount} rejected · <span style="color:${r2Color}">R²=${pass.r2.toFixed(4)}</span></div>`;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 340; canvas.height = 220;
+      col.appendChild(canvas);
+      row.appendChild(col);
+
+      plotPass(canvas, points, points, pass);
+    }
+
+    // Final result summary
+    const truePos = result.finalLabels.filter((l,i) => l && points[i].isTrue).length;
+    const falsePos = result.finalLabels.filter((l,i) => l && !points[i].isTrue).length;
+    const falseNeg = result.finalLabels.filter((l,i) => !l && points[i].isTrue).length;
+    const trueNeg = result.finalLabels.filter((l,i) => !l && !points[i].isTrue).length;
+    const prec = truePos/(truePos+falsePos)||0;
+    const rec = truePos/(truePos+falseNeg)||0;
+
+    const summary = document.createElement("div");
+    summary.className = "stats";
+    summary.innerHTML = `<strong>Final:</strong> <span style="color:#3c6">TP=${truePos}</span> <span style="color:#f44">FP=${falsePos}</span> <span style="color:#f90">FN=${falseNeg}</span> TN=${trueNeg} · Precision=${(prec*100).toFixed(1)}% · Recall=${(rec*100).toFixed(1)}%`;
+
+    section.appendChild(row);
+    section.appendChild(summary);
+    container.appendChild(section);
+  }
+}
+
+runAll();
+</script>
+</body></html>
