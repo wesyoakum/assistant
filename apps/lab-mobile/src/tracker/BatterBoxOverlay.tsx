@@ -184,27 +184,41 @@ function projectAll(
     // Affine:     u = a*x + b*z + tx, v = c*x + d*z + ty  (6 unknowns)
 
     if (n === 2) {
-      // Anti-conformal similarity: allows reflection (image Y is flipped).
-      //   nx = a * field_x + b * field_y + tx
-      //   ny = b * field_x - a * field_y + ty
-      // 4 unknowns (a, b, tx, ty), 4 equations from 2 point pairs.
+      // Simple geometric approach: compute how the dragged point moved
+      // relative to the anchor, then apply the same rotation+scale to
+      // all other points around the anchor.
       const [c0, c1] = correspondences;
       const f0 = FIELD_BY_ID[c0!.id]!, f1 = FIELD_BY_ID[c1!.id]!;
-      const dx = f1.x - f0.x, dy = f1.y - f0.y;
-      const du = c1!.nx - c0!.nx, dv = c1!.ny - c0!.ny;
-      const denom = dx * dx + dy * dy;
-      if (denom < 1e-10) return null;
 
-      const a = (du * dx - dv * dy) / denom;
-      const b = (du * dy + dv * dx) / denom;
-      const tx = c0!.nx - a * f0.x - b * f0.y;
-      const ty = c0!.ny - b * f0.x + a * f0.y;
+      // Vectors in field space: anchor → dragged landmark
+      const ffx = f1.x - f0.x, ffy = f1.y - f0.y;
+      const fieldDist = Math.hypot(ffx, ffy);
+      if (fieldDist < 1e-6) return null;
+      const fieldAngle = Math.atan2(ffy, ffx);
+
+      // Vectors in image space: anchor → dragged position
+      const iix = c1!.nx - c0!.nx, iiy = c1!.ny - c0!.ny;
+      const imgDist = Math.hypot(iix, iiy);
+      if (imgDist < 1e-6) return null;
+      const imgAngle = Math.atan2(iiy, iix);
+
+      // Scale = image distance / field distance
+      const scale = imgDist / fieldDist;
+      // Rotation = difference in angles
+      const rotation = imgAngle - fieldAngle;
+
+      const cos = Math.cos(rotation) * scale;
+      const sin = Math.sin(rotation) * scale;
 
       const result: Record<string, { nx: number; ny: number }> = {};
       for (const lm of LANDMARKS) {
+        // Vector from anchor in field space
+        const fx = lm.field.x - f0.x;
+        const fy = lm.field.y - f0.y;
+        // Rotate and scale, then add anchor image position
         result[lm.id] = {
-          nx: a * lm.field.x + b * lm.field.y + tx,
-          ny: b * lm.field.x - a * lm.field.y + ty,
+          nx: c0!.nx + cos * fx - sin * fy,
+          ny: c0!.ny + sin * fx + cos * fy,
         };
       }
       return result;
