@@ -87,6 +87,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     const [anchored, setAnchored] = useState<Record<string, boolean>>({});
     const [activeId, setActiveId] = useState<string | null>(null);
     const [handles, setHandles] = useState<HandlePoint[]>([]);
+    const [loadStatus, setLoadStatus] = useState<string>("loading…");
 
     const posRef = useRef(positions);
     posRef.current = positions;
@@ -429,20 +430,15 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         dirLight.position.set(5, -5, 10);
         scene.add(dirLight);
 
+        let loadedHandles: HandlePoint[] = [];
         try {
           const model = await loadFieldModel(
             require("../../assets/models/field.glb"),
           );
           modelRef.current = model;
           scene.add(model.scene);
-
-          // Initialize handle state from model empties.
-          setHandles(model.handles);
-          const fById: Record<string, { x: number; y: number }> = {};
-          for (const h of model.handles)
-            fById[h.id] = { x: h.position.x, y: h.position.y };
-          initDefaultPositions(model.handles, fById);
-
+          loadedHandles = model.handles;
+          setLoadStatus(`${model.handles.length} handles`);
           console.log(
             "[FieldModelOverlay] loaded",
             model.handles.length,
@@ -450,8 +446,22 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             model.handles.map((h) => h.id).join(", "),
           );
         } catch (e) {
-          console.warn("[FieldModelOverlay] GLB load failed:", e);
+          const msg = e instanceof Error ? e.message : String(e);
+          console.warn("[FieldModelOverlay] GLB load failed:", msg);
+          setLoadStatus(`GLB failed: ${msg.slice(0, 60)}`);
         }
+
+        // Fallback: if no handles from GLB, create them from known geometry.
+        if (loadedHandles.length === 0) {
+          loadedHandles = buildFallbackHandles();
+          setLoadStatus(`fallback (${loadedHandles.length} handles)`);
+        }
+
+        setHandles(loadedHandles);
+        const fById: Record<string, { x: number; y: number }> = {};
+        for (const h of loadedHandles)
+          fById[h.id] = { x: h.position.x, y: h.position.y };
+        initDefaultPositions(loadedHandles, fById);
 
         const render = () => {
           rafRef.current = requestAnimationFrame(render);
@@ -566,7 +576,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         >
           {anchorCount >= 4 && homography
             ? `${anchorCount} anchored · RMS ${homography.rmsPx.toFixed(1)}px`
-            : `${anchorCount}/4 anchored`}
+            : `${anchorCount}/4 anchored · ${loadStatus}`}
         </Text>
 
         {/* Touch surface */}
@@ -575,3 +585,27 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     );
   },
 );
+
+// ── Fallback handles from known field geometry ──────────────────────
+// Used when the GLB fails to load. Positions match the handle empties
+// in the Blender model (60ft field, Z-up, meters).
+function buildFallbackHandles(): HandlePoint[] {
+  const h = (id: string, x: number, y: number, z: number = 0) => ({
+    id,
+    position: new THREE.Vector3(x, y, z),
+  });
+  return [
+    h("plate_apex", 0, 0),
+    h("1B", 18.288, 0),
+    h("2B", 18.288, -18.288),
+    h("3B", 0, -18.288),
+    h("right_BB_front_right", 1.922, 0.323),
+    h("right_BB_front_left", 1.060, -0.539),
+    h("right_BB_back_right", 0.629, 1.616),
+    h("right_BB_back_left", -0.233, 0.754),
+    h("left_BB_front_right", 0.539, -1.060),
+    h("left_BB_front_left", -0.323, -1.922),
+    h("left_BB_back_right", -0.754, 0.234),
+    h("left_BB_back_left", -1.616, -0.628),
+  ];
+}
