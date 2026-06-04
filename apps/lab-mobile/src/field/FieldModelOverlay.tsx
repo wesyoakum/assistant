@@ -123,101 +123,47 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight, fieldById]);
 
     // ── Sync Three.js camera to handle positions ───────────────────────
-    // With 4+ anchored handles: full homography → precise camera pose.
-    // With 2+ positioned handles: similarity transform → approximate camera.
-    // This makes the 3D model visually follow the handles as you drag them.
+    // Fit a homography from ALL current handle positions (not just anchored)
+    // and decompose it to a camera pose. Since the rigid-body transform keeps
+    // all handles consistent, this gives exact alignment: the model's landmark
+    // points project to exactly the same screen positions as the 2D handle dots.
     useEffect(() => {
       const cam = cameraRef.current;
-      if (!cam || handles.length < 2) return;
+      if (!cam || handles.length < 4) return;
 
-      // If we have a solved homography, use the precise decomposition.
-      if (homography) {
-        const hFovDeg = 69;
-        const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
-        const pose = decomposeCameraPose(homography.H, K);
-        if (pose) {
-          cam.position.set(pose.position.x, pose.position.y, pose.position.z);
-          cam.rotation.order = "ZXY";
-          const d2r = Math.PI / 180;
-          cam.rotation.z = -pose.panDeg * d2r;
-          cam.rotation.x = (90 + pose.tiltDeg) * d2r;
-          cam.rotation.y = pose.rollDeg * d2r;
-          const aspect = imageWidth / imageHeight;
-          cam.fov = 2 * Math.atan(Math.tan((hFovDeg * d2r) / 2) / aspect) * (180 / Math.PI);
-          cam.aspect = canvas.width / canvas.height;
-          cam.updateProjectionMatrix();
-          return;
-        }
-      }
-
-      // Approximate: compute camera from 2 handles using similarity.
-      // Pick apex + the handle furthest from it for the best baseline.
-      const apexPos = positions["plate_apex"];
-      if (!apexPos) return;
-      const apexField = fieldById["plate_apex"];
-      if (!apexField) return;
-
-      let bestId = "";
-      let bestDist = 0;
+      // Build correspondences from all handles that have positions.
+      const corr: Correspondence[] = [];
       for (const h of handles) {
-        if (h.id === "plate_apex") continue;
         const p = positions[h.id];
-        if (!p) continue;
-        const d = Math.hypot(p.nx - apexPos.nx, p.ny - apexPos.ny);
-        if (d > bestDist) { bestDist = d; bestId = h.id; }
+        const f = fieldById[h.id];
+        if (!p || !f) continue;
+        corr.push({
+          field: f,
+          image: { u: p.nx * imageWidth, v: p.ny * imageHeight },
+        });
       }
-      if (!bestId || bestDist < 0.01) return;
+      if (corr.length < 4) return;
 
-      const otherPos = positions[bestId]!;
-      const otherField = fieldById[bestId]!;
+      const fit = fitHomography(corr);
+      if (!fit) return;
 
-      // Image-space vector between the two handles.
-      const idx = otherPos.nx - apexPos.nx;
-      const idy = otherPos.ny - apexPos.ny;
-      const iDist = Math.hypot(idx, idy);
-
-      // Field-space vector.
-      const fdx = otherField.x - apexField.x;
-      const fdy = otherField.y - apexField.y;
-      const fDist = Math.hypot(fdx, fdy);
-      if (fDist < 0.01 || iDist < 0.01) return;
-
-      // Scale = how many normalized-image-units per meter of field.
-      const scale = iDist / fDist;
-      // Rotation in the image plane.
-      const imgAngle = Math.atan2(idy, idx);
-      const fieldAngle = Math.atan2(fdy, fdx);
-      const rotation = imgAngle - fieldAngle;
-
-      // Approximate camera: place it looking at the field center,
-      // at a distance derived from the scale (smaller scale = further away).
       const hFovDeg = 69;
       const d2r = Math.PI / 180;
-      const focalNorm = 0.5 / Math.tan((hFovDeg * d2r) / 2);
-      const approxDist = focalNorm / scale;
+      const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
+      const pose = decomposeCameraPose(fit.H, K);
+      if (!pose) return;
 
-      // Camera looks at the midpoint of the two handles in field coords.
-      const lookX = (apexField.x + otherField.x) / 2;
-      const lookY = (apexField.y + otherField.y) / 2;
+      cam.position.set(pose.position.x, pose.position.y, pose.position.z);
+      cam.rotation.order = "ZXY";
+      cam.rotation.z = -pose.panDeg * d2r;
+      cam.rotation.x = (90 + pose.tiltDeg) * d2r;
+      cam.rotation.y = pose.rollDeg * d2r;
 
-      // Image center offset from apex handle → camera pan.
-      const centerNx = 0.5;
-      const centerNy = 0.5;
-      const panFromCenter = Math.atan2(
-        apexPos.nx - centerNx,
-        -(apexPos.ny - centerNy),
-      );
-
-      cam.position.set(
-        lookX - Math.sin(rotation + panFromCenter) * approxDist,
-        lookY - Math.cos(rotation + panFromCenter) * approxDist,
-        approxDist * 0.4,
-      );
-      cam.lookAt(lookX, lookY, 0);
+      const aspect = imageWidth / imageHeight;
+      cam.fov = 2 * Math.atan(Math.tan((hFovDeg * d2r) / 2) / aspect) * (180 / Math.PI);
       cam.aspect = canvas.width / canvas.height;
-      cam.fov = 2 * Math.atan(Math.tan((hFovDeg * d2r) / 2) / (imageWidth / imageHeight)) * (180 / Math.PI);
       cam.updateProjectionMatrix();
-    }, [homography, positions, handles, fieldById, imageWidth, imageHeight, canvas]);
+    }, [positions, handles, fieldById, imageWidth, imageHeight, canvas]);
 
     // ── Coordinate transforms ─────────────────────────────────────────
     const imageToScreen = useCallback(
