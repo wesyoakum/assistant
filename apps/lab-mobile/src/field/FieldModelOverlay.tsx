@@ -318,27 +318,23 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               const cosR = Math.cos(rot) * scale;
               const sinR = Math.sin(rot) * scale;
 
-              const MAX_STEP = 0.03;
-              const limit = (target: number, current: number) => {
-                const delta = target - current;
-                return Math.abs(delta) <= MAX_STEP ? target : current + Math.sign(delta) * MAX_STEP;
-              };
-
+              // All free handles get their exact rigid-body positions
+              // instantly — no rate limiting, so geometric relationships
+              // (collinearity, angles, distances) are always preserved.
               const next: Record<string, { nx: number; ny: number }> = {};
               for (const h of handlesRef.current) {
                 if (h.id === anchorId) {
                   next[h.id] = anchorImg;
-                } else if (anchoredRef.current[h.id] && h.id !== drag.id) {
-                  next[h.id] = prev[h.id]!;
                 } else if (h.id === drag.id) {
                   next[h.id] = newPos;
                 } else {
+                  // Apply the similarity transform from anchor + dragged point.
                   const fx = fieldById[h.id]!.x - anchorField.x;
                   const fy = fieldById[h.id]!.y - anchorField.y;
-                  const targetNx = anchorImg.nx + cosR * fx - sinR * fy;
-                  const targetNy = anchorImg.ny + sinR * fx + cosR * fy;
-                  const cur = prev[h.id] ?? { nx: 0.5, ny: 0.5 };
-                  next[h.id] = { nx: limit(targetNx, cur.nx), ny: limit(targetNy, cur.ny) };
+                  next[h.id] = {
+                    nx: anchorImg.nx + cosR * fx - sinR * fy,
+                    ny: anchorImg.ny + sinR * fx + cosR * fy,
+                  };
                 }
               }
               return next;
