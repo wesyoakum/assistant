@@ -244,17 +244,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                     elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
                   }));
                 } else if (sel.length === 1) {
-                  // 1 selected: orbit around that handle's field position
-                  const f = fieldById[sel[0]!];
-                  if (f) {
-                    setOrbit((prev) => ({
-                      ...prev,
-                      azimuth: prev.azimuth - dx * 0.005,
-                      elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
-                      targetX: f.x,
-                      targetY: f.y,
-                    }));
-                  }
+                  // 1 selected: orbit keeping current pan/zoom locked
+                  setOrbit((prev) => ({
+                    ...prev,
+                    azimuth: prev.azimuth - dx * 0.005,
+                    elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
+                  }));
                 } else if (sel.length === 2) {
                   // 2 selected: rotate around the axis between them
                   const f0 = fieldById[sel[0]!];
@@ -277,14 +272,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                         const fAxisX = f1.x - f0.x;
                         const fAxisY = f1.y - f0.y;
                         const fAxisAngle = Math.atan2(fAxisY, fAxisX);
-                        // Rotate azimuth perpendicular to the field axis
+                        // Rotate perpendicular to the field axis, keep pan/zoom locked
                         setOrbit((prev) => ({
                           ...prev,
                           azimuth: prev.azimuth + Math.cos(fAxisAngle - prev.azimuth) * perpComponent * 0.003,
                           elevation: Math.max(0.05, Math.min(1.4,
                             prev.elevation + Math.sin(fAxisAngle - prev.azimuth) * perpComponent * 0.003)),
-                          targetX: midX,
-                          targetY: midY,
                         }));
                       }
                     }
