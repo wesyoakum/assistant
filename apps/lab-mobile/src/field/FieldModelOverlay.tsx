@@ -4,11 +4,11 @@
 // rendered field geometry AND the calibration handle positions (empties).
 // Touch-draggable handle dots are positioned absolutely over the GLView.
 //
-// Workflow:
-//   1. GLB loads → handles extracted → projected to screen via default camera
-//   2. User drags handles to match video landmarks → anchor on release
-//   3. With 4+ anchored handles, homography auto-solves → camera syncs →
-//      3D model aligns with the video frame
+// Handle states:
+//   Free (white)     — not anchored, moves with rigid-body transform
+//   Dragging (yellow) — actively being moved by finger
+//   Anchored (green) — locked in place, used for homography solve
+//   Selected (purple) — anchored handle tapped; shows nudge controls
 
 import React, {
   useCallback,
@@ -19,19 +19,18 @@ import React, {
   useState,
   forwardRef,
 } from "react";
-import { StyleSheet, View, PanResponder, Text } from "react-native";
+import { StyleSheet, View, PanResponder, Text, Pressable } from "react-native";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
 import { Renderer } from "expo-three";
 import * as THREE from "three";
 import { loadFieldModel, type FieldModel, type HandlePoint } from "./loadFieldModel";
 import {
   fitHomography,
-  fieldToImage,
   type Correspondence,
   type HomographyFit,
 } from "./videoHomography";
 import { type CameraPose } from "./batterBox";
-import { decomposeCameraPose, intrinsicsFromFov } from "./cameraPoseDecompose";
+import { intrinsicsFromFov } from "./cameraPoseDecompose";
 
 // ── Public interface ────────────────────────────────────────────────────
 
@@ -43,8 +42,6 @@ export interface FieldModelOverlayProps {
   canvasPageOffset: { x: number; y: number };
 }
 
-/** Same imperative interface as the old BatterBoxOverlay so TrackerTab
- *  can swap in without changes. */
 export interface FieldModelOverlayHandle {
   solve: () => CameraPose | null;
   reset: () => void;
@@ -61,9 +58,10 @@ export interface FieldModelOverlayHandle {
 
 // ── Colors ──────────────────────────────────────────────────────────────
 
-const ANCHORED_COLOR = "rgba(0,255,100,0.95)";
-const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
 const FREE_COLOR = "rgba(255,255,255,0.6)";
+const DRAGGING_COLOR = "rgba(255,220,0,0.95)";
+const ANCHORED_COLOR = "rgba(0,255,100,0.95)";
+const SELECTED_COLOR = "rgba(180,100,255,0.95)";
 const HANDLE_R = 8;
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -82,10 +80,10 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
 
     // ── Calibration state ─────────────────────────────────────────────
-    // positions: normalized image coords (0-1) per handle id
     const [positions, setPositions] = useState<Record<string, { nx: number; ny: number }>>({});
     const [anchored, setAnchored] = useState<Record<string, boolean>>({});
-    const [activeId, setActiveId] = useState<string | null>(null);
+    const [draggingId, setDraggingId] = useState<string | null>(null);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
     const [handles, setHandles] = useState<HandlePoint[]>([]);
     const [loadStatus, setLoadStatus] = useState<string>("loading…");
 
@@ -95,8 +93,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     anchoredRef.current = anchored;
     const handlesRef = useRef(handles);
     handlesRef.current = handles;
+    const selectedRef = useRef(selectedId);
+    selectedRef.current = selectedId;
 
-    // Build field coord lookup from model handles.
     const fieldById = useMemo(() => {
       const m: Record<string, { x: number; y: number }> = {};
       for (const h of handles) m[h.id] = { x: h.position.x, y: h.position.y };
@@ -114,24 +113,18 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       if (anchorCount < 4) return null;
       const corr: Correspondence[] = anchoredIds.map((id) => ({
         field: fieldById[id]!,
-        image: {
-          u: positions[id]!.nx * imageWidth,
-          v: positions[id]!.ny * imageHeight,
-        },
+        image: { u: positions[id]!.nx * imageWidth, v: positions[id]!.ny * imageHeight },
       }));
       return fitHomography(corr);
     }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight, fieldById]);
 
-    // ── Sync Three.js camera to handle positions ───────────────────────
-    // Fit a homography from ALL current handle positions (not just anchored)
-    // and decompose it to a camera pose. Since the rigid-body transform keeps
-    // all handles consistent, this gives exact alignment: the model's landmark
-    // points project to exactly the same screen positions as the 2D handle dots.
+    // ── Sync Three.js camera from ALL handle positions ────────────────
+    // Build a homography from every handle (not just anchored) and set
+    // the Three.js camera matrix directly from the decomposed R, t.
     useEffect(() => {
       const cam = cameraRef.current;
       if (!cam || handles.length < 4) return;
 
-      // Build correspondences from all handles that have positions.
       const corr: Correspondence[] = [];
       for (const h of handles) {
         const p = positions[h.id];
@@ -147,18 +140,50 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       const fit = fitHomography(corr);
       if (!fit) return;
 
+      // Decompose H into R, t using intrinsics.
       const hFovDeg = 69;
-      const d2r = Math.PI / 180;
       const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
-      const pose = decomposeCameraPose(fit.H, K);
-      if (!pose) return;
+      const ifx = 1 / K.fx, ify = 1 / K.fy;
+      const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
+      const H = fit.H;
+      const M = mul3x3(Kinv, H);
+      const c0 = [M[0]!, M[3]!, M[6]!];
+      const c1 = [M[1]!, M[4]!, M[7]!];
+      const c2 = [M[2]!, M[5]!, M[8]!];
 
-      cam.position.set(pose.position.x, pose.position.y, pose.position.z);
-      cam.rotation.order = "ZXY";
-      cam.rotation.z = -pose.panDeg * d2r;
-      cam.rotation.x = (90 + pose.tiltDeg) * d2r;
-      cam.rotation.y = pose.rollDeg * d2r;
+      let lambda = Math.sqrt(c0[0] * c0[0] + c0[1] * c0[1] + c0[2] * c0[2]);
+      if (lambda < 1e-10) return;
+      if (c2[2] / lambda < 0) lambda = -lambda;
 
+      const r1 = c0.map((v) => v / lambda);
+      const r2 = c1.map((v) => v / lambda);
+      const t = c2.map((v) => v / lambda);
+      const r3 = [
+        r1[1]! * r2[2]! - r1[2]! * r2[1]!,
+        r1[2]! * r2[0]! - r1[0]! * r2[2]!,
+        r1[0]! * r2[1]! - r1[1]! * r2[0]!,
+      ];
+
+      // Camera position = -R^T * t
+      const posX = -(r1[0]! * t[0]! + r1[1]! * t[1]! + r1[2]! * t[2]!);
+      const posY = -(r2[0]! * t[0]! + r2[1]! * t[1]! + r2[2]! * t[2]!);
+      const posZ = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
+
+      // Build Three.js camera world matrix directly from R, t.
+      // CV convention: camera looks along +Z, Y down.
+      // Three.js: camera looks along -Z, Y up.
+      // Camera world matrix = (F * R)^-1 with position, where F = diag(1,-1,-1).
+      cam.matrixAutoUpdate = false;
+      cam.matrix.set(
+        r1[0]!,  -r1[1]!,  -r1[2]!,  posX,
+        r2[0]!,  -r2[1]!,  -r2[2]!,  posY,
+        r3[0]!,  -r3[1]!,  -r3[2]!,  posZ,
+        0,        0,         0,       1,
+      );
+      cam.matrixWorldNeedsUpdate = true;
+
+      // Set projection to match intrinsics.
+      const d2r = Math.PI / 180;
       const aspect = imageWidth / imageHeight;
       cam.fov = 2 * Math.atan(Math.tan((hFovDeg * d2r) / 2) / aspect) * (180 / Math.PI);
       cam.aspect = canvas.width / canvas.height;
@@ -168,8 +193,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     // ── Coordinate transforms ─────────────────────────────────────────
     const imageToScreen = useCallback(
       (nx: number, ny: number) => {
-        const cx = canvas.width / 2;
-        const cy = canvas.height / 2;
+        const cx = canvas.width / 2, cy = canvas.height / 2;
         return {
           x: (nx * canvas.width - cx) * vp.scale + cx + vp.tx,
           y: (ny * canvas.height - cy) * vp.scale + cy + vp.ty,
@@ -180,8 +204,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     const screenToImage = useCallback(
       (sx: number, sy: number) => {
-        const cx = canvas.width / 2;
-        const cy = canvas.height / 2;
+        const cx = canvas.width / 2, cy = canvas.height / 2;
         const ix = (sx - cx - vp.tx) / vp.scale + cx;
         const iy = (sy - cy - vp.ty) / vp.scale + cy;
         return {
@@ -192,7 +215,6 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       [canvas, vp],
     );
 
-    // Screen positions for rendering handle dots.
     const screenHandles = useMemo(() => {
       const result: Record<string, { x: number; y: number }> = {};
       for (const h of handles) {
@@ -204,6 +226,23 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     const screenHandlesRef = useRef(screenHandles);
     screenHandlesRef.current = screenHandles;
+
+    // ── Nudge a selected handle by pixel increments ───────────────────
+    const nudge = useCallback((dx: number, dy: number) => {
+      const id = selectedRef.current;
+      if (!id) return;
+      setPositions((prev) => {
+        const p = prev[id];
+        if (!p) return prev;
+        return {
+          ...prev,
+          [id]: {
+            nx: p.nx + dx / imageWidth,
+            ny: p.ny + dy / imageHeight,
+          },
+        };
+      });
+    }, [imageWidth, imageHeight]);
 
     // ── Touch handling ────────────────────────────────────────────────
     type Drag = { id: string; offset: { dnx: number; dny: number } };
@@ -224,28 +263,22 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             const sh = screenHandlesRef.current;
             const hs = handlesRef.current;
 
-            // Find nearest handle.
             let nearId = hs[0]?.id ?? "";
             let nearDist = Infinity;
             for (const h of hs) {
               const s = sh[h.id];
               if (!s) continue;
               const d = Math.hypot(lx - s.x, ly - s.y);
-              if (d < nearDist) {
-                nearDist = d;
-                nearId = h.id;
-              }
+              if (d < nearDist) { nearDist = d; nearId = h.id; }
             }
 
             const handlePos = posRef.current[nearId] ?? { nx: 0.5, ny: 0.5 };
             dragRef.current = {
               id: nearId,
-              offset: {
-                dnx: handlePos.nx - touchImg.nx,
-                dny: handlePos.ny - touchImg.ny,
-              },
+              offset: { dnx: handlePos.nx - touchImg.nx, dny: handlePos.ny - touchImg.ny },
             };
-            setActiveId(nearId);
+            setDraggingId(nearId);
+            setSelectedId(null); // clear selection when starting a drag
           },
           onPanResponderMove: (_, gs) => {
             const drag = dragRef.current;
@@ -259,11 +292,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               ny: curImg.ny + drag.offset.dny,
             };
 
-            // Rigid-body transform around an anchor point.
-            const anchorId =
-              drag.id === "plate_apex"
-                ? anchoredIds[0] || "2B"
-                : "plate_apex";
+            const anchorId = drag.id === "plate_apex"
+              ? anchoredIds[0] || "2B"
+              : "plate_apex";
             const anchorField = fieldById[anchorId];
             const dragField = fieldById[drag.id];
 
@@ -283,26 +314,21 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               if (iDist < 1e-6) return { ...prev, [drag.id]: newPos };
 
               const scale = iDist / fDist;
-              const rot =
-                Math.atan2(iiy, iix) - Math.atan2(ffy, ffx);
+              const rot = Math.atan2(iiy, iix) - Math.atan2(ffy, ffx);
               const cosR = Math.cos(rot) * scale;
               const sinR = Math.sin(rot) * scale;
 
               const MAX_STEP = 0.03;
-              function limit(target: number, current: number): number {
+              const limit = (target: number, current: number) => {
                 const delta = target - current;
-                if (Math.abs(delta) <= MAX_STEP) return target;
-                return current + Math.sign(delta) * MAX_STEP;
-              }
+                return Math.abs(delta) <= MAX_STEP ? target : current + Math.sign(delta) * MAX_STEP;
+              };
 
               const next: Record<string, { nx: number; ny: number }> = {};
               for (const h of handlesRef.current) {
                 if (h.id === anchorId) {
                   next[h.id] = anchorImg;
-                } else if (
-                  anchoredRef.current[h.id] &&
-                  h.id !== drag.id
-                ) {
+                } else if (anchoredRef.current[h.id] && h.id !== drag.id) {
                   next[h.id] = prev[h.id]!;
                 } else if (h.id === drag.id) {
                   next[h.id] = newPos;
@@ -312,10 +338,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                   const targetNx = anchorImg.nx + cosR * fx - sinR * fy;
                   const targetNy = anchorImg.ny + sinR * fx + cosR * fy;
                   const cur = prev[h.id] ?? { nx: 0.5, ny: 0.5 };
-                  next[h.id] = {
-                    nx: limit(targetNx, cur.nx),
-                    ny: limit(targetNy, cur.ny),
-                  };
+                  next[h.id] = { nx: limit(targetNx, cur.nx), ny: limit(targetNy, cur.ny) };
                 }
               }
               return next;
@@ -325,33 +348,25 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             const drag = dragRef.current;
             if (drag) {
               if (!didMoveRef.current && anchoredRef.current[drag.id]) {
-                // Tap anchored → unanchor.
-                setAnchored((prev) => {
-                  const n = { ...prev };
-                  delete n[drag.id];
-                  return n;
-                });
+                // Tap on anchored handle → select it (purple).
+                setSelectedId(drag.id);
               } else if (didMoveRef.current) {
-                // Dragged → anchor (cap at 4 unless already anchored).
-                setAnchored((prev) => {
-                  const count = Object.values(prev).filter(Boolean).length;
-                  if (count >= 4 && !prev[drag.id]) return prev;
-                  return { ...prev, [drag.id]: true };
-                });
+                // Dragged → anchor.
+                setAnchored((prev) => ({ ...prev, [drag.id]: true }));
               }
             }
-            setActiveId(null);
+            setDraggingId(null);
             dragRef.current = null;
           },
           onPanResponderTerminate: () => {
-            setActiveId(null);
+            setDraggingId(null);
             dragRef.current = null;
           },
         }),
       [canvasPageOffset, screenToImage, anchoredIds, fieldById],
     );
 
-    // ── Imperative handle (matches BatterBoxOverlayHandle) ────────────
+    // ── Imperative handle ─────────────────────────────────────────────
     useImperativeHandle(
       ref,
       () => ({
@@ -360,25 +375,23 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         reset: () => {
           initDefaultPositions(handlesRef.current, fieldById);
           setAnchored({});
-          setActiveId(null);
+          setDraggingId(null);
+          setSelectedId(null);
         },
         anchoredCount: () => anchorCount,
         getState: () => ({ positions, anchored }),
-        setState: (s) => {
-          setPositions(s.positions);
-          setAnchored(s.anchored);
-        },
+        setState: (s) => { setPositions(s.positions); setAnchored(s.anchored); },
       }),
       [homography, anchorCount, positions, anchored, fieldById],
     );
 
-    // Helper to set default handle screen positions from a virtual camera.
     function initDefaultPositions(
       hs: HandlePoint[],
       fById: Record<string, { x: number; y: number }>,
     ) {
+      // Virtual camera behind the plate, elevated, looking toward outfield.
       const cam = { x: 2, y: -10, z: 3 };
-      const focus = { x: 0, y: 8, z: 0 };
+      const focus = { x: 0, y: 15, z: 0 };
       const hFov = 69;
       const fwd = [focus.x - cam.x, focus.y - cam.y, focus.z - cam.z];
       const fLen = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
@@ -402,20 +415,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       for (const h of hs) {
         const f = fById[h.id];
         if (!f) continue;
-        const dx = f.x - cam.x;
-        const dy = f.y - cam.y;
-        const dz = 0 - cam.z;
+        const dx = f.x - cam.x, dy = f.y - cam.y, dz = 0 - cam.z;
         const cx2 = right[0]! * dx + right[1]! * dy + right[2]! * dz;
         const cy2 = camUp[0]! * dx + camUp[1]! * dy + camUp[2]! * dz;
         const cz2 = fwd[0]! * dx + fwd[1]! * dy + fwd[2]! * dz;
-        if (cz2 < 0.01) {
-          result[h.id] = { nx: 0.5, ny: 0.5 };
-        } else {
-          result[h.id] = {
-            nx: 0.5 + fx * (cx2 / cz2),
-            ny: 0.5 - fx * (cy2 / cz2),
-          };
-        }
+        if (cz2 < 0.01) { result[h.id] = { nx: 0.5, ny: 0.5 }; continue; }
+        result[h.id] = { nx: 0.5 + fx * (cx2 / cz2), ny: 0.5 - fx * (cy2 / cz2) };
       }
       setPositions(result);
     }
@@ -434,10 +439,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         sceneRef.current = scene;
 
         const camera = new THREE.PerspectiveCamera(
-          60,
-          gl.drawingBufferWidth / gl.drawingBufferHeight,
-          0.1,
-          500,
+          60, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, 500,
         );
         camera.up.set(0, 0, 1);
         camera.position.set(0, -15, 5);
@@ -451,12 +453,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
         let loadedHandles: HandlePoint[] = [];
         try {
-          const model = await loadFieldModel(
-            require("../../assets/models/field.glb"),
-          );
+          const model = await loadFieldModel(require("../../assets/models/field.glb"));
           modelRef.current = model;
-
-          // Make all meshes semi-transparent so the video is visible behind.
           model.scene.traverse((node: any) => {
             if (node.isMesh && node.material) {
               const mats = Array.isArray(node.material) ? node.material : [node.material];
@@ -467,23 +465,15 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               }
             }
           });
-
           scene.add(model.scene);
           loadedHandles = model.handles;
           setLoadStatus(`${model.handles.length} handles`);
-          console.log(
-            "[FieldModelOverlay] loaded",
-            model.handles.length,
-            "handles:",
-            model.handles.map((h) => h.id).join(", "),
-          );
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          console.warn("[FieldModelOverlay] GLB load failed:", msg);
+          console.warn("[FieldModelOverlay] GLB failed:", msg);
           setLoadStatus(`GLB failed: ${msg.slice(0, 60)}`);
         }
 
-        // Fallback: if no handles from GLB, create them from known geometry.
         if (loadedHandles.length === 0) {
           loadedHandles = buildFallbackHandles();
           setLoadStatus(`fallback (${loadedHandles.length} handles)`);
@@ -491,8 +481,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
         setHandles(loadedHandles);
         const fById: Record<string, { x: number; y: number }> = {};
-        for (const h of loadedHandles)
-          fById[h.id] = { x: h.position.x, y: h.position.y };
+        for (const h of loadedHandles) fById[h.id] = { x: h.position.x, y: h.position.y };
         initDefaultPositions(loadedHandles, fById);
 
         const render = () => {
@@ -507,58 +496,39 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       [],
     );
 
-    // Cleanup
-    useEffect(() => {
-      return () => {
-        cancelAnimationFrame(rafRef.current);
-        rendererRef.current?.dispose();
-      };
+    useEffect(() => () => {
+      cancelAnimationFrame(rafRef.current);
+      rendererRef.current?.dispose();
     }, []);
+
+    // ── Handle color helper ───────────────────────────────────────────
+    function handleColor(id: string): { border: string; bg: string } {
+      if (id === draggingId) return { border: DRAGGING_COLOR, bg: "rgba(255,220,0,0.35)" };
+      if (id === selectedId) return { border: SELECTED_COLOR, bg: "rgba(180,100,255,0.3)" };
+      if (anchored[id]) return { border: ANCHORED_COLOR, bg: "rgba(0,255,100,0.25)" };
+      return { border: FREE_COLOR, bg: "rgba(255,255,255,0.08)" };
+    }
 
     // ── Render ────────────────────────────────────────────────────────
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        {/* 3D scene */}
         <GLView
           style={{ width: canvas.width, height: canvas.height }}
           onContextCreate={onContextCreate}
           pointerEvents="none"
         />
 
-        {/* Handle dots (absolute-positioned Views) */}
+        {/* Handle dots */}
         {handles.map((h) => {
           const s = screenHandles[h.id];
           if (!s) return null;
-          const isA = !!anchored[h.id];
-          const isAct = activeId === h.id;
-          const color = isAct
-            ? ACTIVE_COLOR
-            : isA
-              ? ANCHORED_COLOR
-              : FREE_COLOR;
+          const { border, bg } = handleColor(h.id);
           return (
-            <View
-              key={h.id}
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: s.x - HANDLE_R,
-                top: s.y - HANDLE_R,
-                width: HANDLE_R * 2,
-                height: HANDLE_R * 2,
-                borderRadius: HANDLE_R,
-                borderWidth: isA || isAct ? 2 : 1,
-                borderColor: color,
-                backgroundColor:
-                  isAct
-                    ? "rgba(255,220,0,0.35)"
-                    : isA
-                      ? "rgba(0,255,100,0.25)"
-                      : "rgba(255,255,255,0.08)",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            />
+            <View key={h.id} pointerEvents="none" style={{
+              position: "absolute", left: s.x - HANDLE_R, top: s.y - HANDLE_R,
+              width: HANDLE_R * 2, height: HANDLE_R * 2, borderRadius: HANDLE_R,
+              borderWidth: 2, borderColor: border, backgroundColor: bg,
+            }} />
           );
         })}
 
@@ -566,50 +536,66 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         {handles.map((h) => {
           const s = screenHandles[h.id];
           if (!s) return null;
-          const isA = !!anchored[h.id];
-          const isAct = activeId === h.id;
-          const color = isAct
-            ? ACTIVE_COLOR
-            : isA
-              ? ANCHORED_COLOR
-              : FREE_COLOR;
+          const { border } = handleColor(h.id);
           return (
-            <Text
-              key={`lbl-${h.id}`}
-              pointerEvents="none"
-              style={{
-                position: "absolute",
-                left: s.x - 30,
-                top: s.y - HANDLE_R - 14,
-                width: 60,
-                textAlign: "center",
-                color,
-                fontSize: 7,
-                fontWeight: "600",
-              }}
-            >
-              {h.id}
-            </Text>
+            <Text key={`lbl-${h.id}`} pointerEvents="none" style={{
+              position: "absolute", left: s.x - 30, top: s.y - HANDLE_R - 14,
+              width: 60, textAlign: "center", color: border, fontSize: 7, fontWeight: "600",
+            }}>{h.id}</Text>
           );
         })}
 
         {/* Status text */}
-        <Text
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 10,
-            top: 8,
-            color:
-              anchorCount >= 4 ? ANCHORED_COLOR : "rgba(255,200,0,0.9)",
-            fontSize: 11,
-            fontWeight: "600",
-          }}
-        >
+        <Text pointerEvents="none" style={{
+          position: "absolute", left: 10, top: 8,
+          color: anchorCount >= 4 ? ANCHORED_COLOR : "rgba(255,200,0,0.9)",
+          fontSize: 11, fontWeight: "600",
+        }}>
           {anchorCount >= 4 && homography
             ? `${anchorCount} anchored · RMS ${homography.rmsPx.toFixed(1)}px`
             : `${anchorCount}/4 anchored · ${loadStatus}`}
         </Text>
+
+        {/* Nudge controls for selected (purple) handle */}
+        {selectedId && (() => {
+          const s = screenHandles[selectedId];
+          if (!s) return null;
+          const btnSize = 32;
+          const gap = 4;
+          return (
+            <View pointerEvents="box-none" style={{
+              position: "absolute", left: s.x - btnSize * 1.5 - gap, top: s.y + HANDLE_R + 8,
+              alignItems: "center",
+            }}>
+              {/* Up */}
+              <Pressable onPress={() => nudge(0, -1)} style={nudgeBtnStyle(btnSize)}>
+                <Text style={nudgeText}>▲</Text>
+              </Pressable>
+              {/* Left / Deactivate / Right */}
+              <View style={{ flexDirection: "row", gap }}>
+                <Pressable onPress={() => nudge(-1, 0)} style={nudgeBtnStyle(btnSize)}>
+                  <Text style={nudgeText}>◀</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setAnchored((prev) => { const n = { ...prev }; delete n[selectedId]; return n; });
+                    setSelectedId(null);
+                  }}
+                  style={[nudgeBtnStyle(btnSize), { backgroundColor: "rgba(255,60,60,0.7)" }]}
+                >
+                  <Text style={[nudgeText, { fontSize: 9 }]}>✕</Text>
+                </Pressable>
+                <Pressable onPress={() => nudge(1, 0)} style={nudgeBtnStyle(btnSize)}>
+                  <Text style={nudgeText}>▶</Text>
+                </Pressable>
+              </View>
+              {/* Down */}
+              <Pressable onPress={() => nudge(0, 1)} style={nudgeBtnStyle(btnSize)}>
+                <Text style={nudgeText}>▼</Text>
+              </Pressable>
+            </View>
+          );
+        })()}
 
         {/* Touch surface */}
         <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
@@ -618,26 +604,47 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
   },
 );
 
-// ── Fallback handles from known field geometry ──────────────────────
-// Used when the GLB fails to load. Positions match the handle empties
-// in the Blender model (60ft field, Z-up, meters).
+// ── Styles ──────────────────────────────────────────────────────────────
+
+const nudgeBtnStyle = (size: number) => ({
+  width: size, height: size, borderRadius: size / 2,
+  backgroundColor: "rgba(180,100,255,0.5)",
+  alignItems: "center" as const, justifyContent: "center" as const,
+  margin: 2,
+});
+
+const nudgeText = { color: "#fff", fontSize: 14, fontWeight: "600" as const };
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+function mul3x3(A: number[], B: number[]): number[] {
+  const C = new Array(9).fill(0);
+  for (let r = 0; r < 3; r++)
+    for (let c = 0; c < 3; c++)
+      for (let k = 0; k < 3; k++)
+        C[r * 3 + c] += A[r * 3 + k]! * B[k * 3 + c]!;
+  return C;
+}
+
+// ── Fallback handles ────────────────────────────────────────────────────
+// Positions match the Blender model after +90° X rotation (Z-up).
+// X = 1B foul line, Y = 3B foul line, Z = up. Origin = plate apex.
 function buildFallbackHandles(): HandlePoint[] {
   const h = (id: string, x: number, y: number, z: number = 0) => ({
-    id,
-    position: new THREE.Vector3(x, y, z),
+    id, position: new THREE.Vector3(x, y, z),
   });
   return [
     h("plate_apex", 0, 0),
     h("1B", 18.288, 0),
-    h("2B", 18.288, -18.288),
-    h("3B", 0, -18.288),
-    h("right_BB_front_right", 1.922, 0.323),
-    h("right_BB_front_left", 1.060, -0.539),
-    h("right_BB_back_right", 0.629, 1.616),
-    h("right_BB_back_left", -0.233, 0.754),
-    h("left_BB_front_right", 0.539, -1.060),
-    h("left_BB_front_left", -0.323, -1.922),
-    h("left_BB_back_right", -0.754, 0.234),
-    h("left_BB_back_left", -1.616, -0.628),
+    h("2B", 18.288, 18.288),
+    h("3B", 0, 18.288),
+    h("right_BB_front_right", 1.922, -0.323),
+    h("right_BB_front_left", 1.060, 0.539),
+    h("right_BB_back_right", 0.629, -1.616),
+    h("right_BB_back_left", -0.233, -0.754),
+    h("left_BB_front_right", 0.539, 1.060),
+    h("left_BB_front_left", -0.323, 1.922),
+    h("left_BB_back_right", -0.754, -0.234),
+    h("left_BB_back_left", -1.616, 0.628),
   ];
 }

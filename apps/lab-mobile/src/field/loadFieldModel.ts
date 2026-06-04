@@ -47,8 +47,10 @@ export async function loadFieldModel(assetModule: number): Promise<FieldModel> {
   });
 
   // Rotate from glTF Y-up to our Z-up convention.
+  // +90° around X: glTF (x, y, z) → scene (x, -z, y)
+  // This maps Blender's (X=1B, Y=3B, Z=up) correctly into Three.js.
   const root = new THREE.Group();
-  root.rotation.x = -Math.PI / 2;
+  root.rotation.x = Math.PI / 2;
   root.add(gltf.scene);
   root.updateMatrixWorld(true);
 
