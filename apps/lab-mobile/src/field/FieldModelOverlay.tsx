@@ -488,10 +488,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     // ── Render ────────────────────────────────────────────────────────
     return (
-      <View style={{ flex: 1 }} pointerEvents="box-none">
-        {/* Canvas area */}
-        <View style={{ width: canvas.width, height: canvas.height, position: "relative" }} pointerEvents="box-none">
-          <GLView style={{ width: canvas.width, height: canvas.height }} onContextCreate={onContextCreate} pointerEvents="none" />
+      <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        <GLView style={{ width: canvas.width, height: canvas.height }} onContextCreate={onContextCreate} pointerEvents="none" />
 
           {handles.map((h) => {
             const s = screenHandles[h.id]; if (!s) return null;
@@ -540,26 +538,19 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           {controlMode === "model" && (
             <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
           )}
-        </View>
 
-        {/* Zoom slider below video */}
-        <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, gap: 8 }}>
+        {/* Zoom controls at bottom of canvas */}
+        <View style={{
+          position: "absolute", bottom: 4, left: 10, right: 10,
+          flexDirection: "row", alignItems: "center", gap: 6,
+        }}>
           <Pressable onPress={() => handleZoom(3)} style={zoomBtn}>
             <Text style={zoomBtnText}>−</Text>
           </Pressable>
-          <View style={{ flex: 1, height: 28, justifyContent: "center" }}>
-            <View style={{ height: 3, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2 }} />
-            <View style={{
-              position: "absolute",
-              left: `${Math.max(0, Math.min(100, ((orbit.distance - 5) / 95) * 100))}%`,
-              width: 18, height: 18, borderRadius: 9, marginLeft: -9,
-              backgroundColor: "rgba(0,200,255,0.8)", borderWidth: 2, borderColor: "#fff",
-            }} />
-          </View>
           <Pressable onPress={() => handleZoom(-3)} style={zoomBtn}>
             <Text style={zoomBtnText}>+</Text>
           </Pressable>
-          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, width: 30, textAlign: "right" }}>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
             {orbit.distance.toFixed(0)}m
           </Text>
         </View>
