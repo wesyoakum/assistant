@@ -129,12 +129,16 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     // Then we convert to a 4x4 OpenGL clip-space matrix.
     useEffect(() => {
       const cam = cameraRef.current;
-      if (!cam || handles.length < 4) return;
+      // Only sync the 3D camera once we have 4+ ANCHORED handles.
+      // Before that, keep the default camera so the model doesn't flip.
+      if (!cam || anchorCount < 4) return;
 
+      // Use only anchored handles for the homography (they're the user's
+      // confirmed correspondences; free handles are just predictions).
       const corr: Correspondence[] = [];
-      for (const h of handles) {
-        const p = positions[h.id];
-        const f = fieldById[h.id];
+      for (const id of anchoredIds) {
+        const p = positions[id];
+        const f = fieldById[id];
         if (!p || !f) continue;
         corr.push({
           field: f,
@@ -201,7 +205,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         P20,              P21,              P22,              P23,
       );
       cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
-    }, [positions, handles, fieldById, imageWidth, imageHeight, canvas]);
+    }, [positions, anchorCount, anchoredIds, fieldById, imageWidth, imageHeight, canvas]);
 
     // ── Coordinate transforms ─────────────────────────────────────────
     const imageToScreen = useCallback(
