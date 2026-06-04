@@ -11,7 +11,6 @@
 import * as THREE from "three";
 import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { Asset } from "expo-asset";
-import * as FileSystem from "expo-file-system";
 
 export interface HandlePoint {
   id: string;
@@ -32,17 +31,19 @@ export interface FieldModel {
  * @param assetModule  `require("../../assets/models/field.glb")`
  */
 export async function loadFieldModel(assetModule: number): Promise<FieldModel> {
+  // Resolve the asset to a local file URI.
   const [asset] = await Asset.loadAsync(assetModule);
   if (!asset?.localUri) throw new Error("Failed to load field model asset");
 
-  const base64 = await (FileSystem as any).readAsStringAsync(asset.localUri, {
-    encoding: "base64",
-  });
-  const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  // Use fetch() to read the local file as an ArrayBuffer.
+  // This is more reliable than FileSystem + atob in Hermes.
+  const response = await fetch(asset.localUri);
+  const arrayBuffer = await response.arrayBuffer();
 
+  // Parse with GLTFLoader.
   const gltf = await new Promise<GLTF>((resolve, reject) => {
     const loader = new GLTFLoader();
-    loader.parse(binary.buffer, "", resolve, reject);
+    loader.parse(arrayBuffer, "", resolve, reject);
   });
 
   // Rotate from glTF Y-up to our Z-up convention.
