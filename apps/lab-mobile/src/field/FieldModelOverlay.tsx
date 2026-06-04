@@ -119,8 +119,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight, fieldById]);
 
     // ── Sync Three.js camera from ALL handle positions ────────────────
-    // Build a homography from every handle (not just anchored) and set
-    // the Three.js camera matrix directly from the decomposed R, t.
+    // Fit homography from all handles, decompose to R,t, build camera
+    // matrix + custom projection from intrinsics for pixel-exact alignment.
     useEffect(() => {
       const cam = cameraRef.current;
       if (!cam || handles.length < 4) return;
@@ -145,8 +145,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
       const ifx = 1 / K.fx, ify = 1 / K.fy;
       const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
-      const H = fit.H;
-      const M = mul3x3(Kinv, H);
+      const M = mul3x3(Kinv, fit.H);
       const c0 = [M[0]!, M[3]!, M[6]!];
       const c1 = [M[1]!, M[4]!, M[7]!];
       const c2 = [M[2]!, M[5]!, M[8]!];
@@ -164,30 +163,36 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         r1[0]! * r2[1]! - r1[1]! * r2[0]!,
       ];
 
-      // Camera position = -R^T * t
+      // Camera position in world = -R^T * t
       const posX = -(r1[0]! * t[0]! + r1[1]! * t[1]! + r1[2]! * t[2]!);
       const posY = -(r2[0]! * t[0]! + r2[1]! * t[1]! + r2[2]! * t[2]!);
       const posZ = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
 
-      // Build Three.js camera world matrix directly from R, t.
-      // CV convention: camera looks along +Z, Y down.
-      // Three.js: camera looks along -Z, Y up.
-      // Camera world matrix = (F * R)^-1 with position, where F = diag(1,-1,-1).
-      cam.matrixAutoUpdate = false;
-      cam.matrix.set(
-        r1[0]!,  -r1[1]!,  -r1[2]!,  posX,
-        r2[0]!,  -r2[1]!,  -r2[2]!,  posY,
-        r3[0]!,  -r3[1]!,  -r3[2]!,  posZ,
-        0,        0,         0,       1,
-      );
-      cam.matrixWorldNeedsUpdate = true;
+      // Use lookAt for robust orientation (avoids fragile matrix construction).
+      // Point camera at the centroid of the field handles.
+      cam.matrixAutoUpdate = true;
+      let cx = 0, cy = 0, n = 0;
+      for (const h of handles) {
+        const f = fieldById[h.id];
+        if (f) { cx += f.x; cy += f.y; n++; }
+      }
+      if (n > 0) { cx /= n; cy /= n; }
 
-      // Set projection to match intrinsics.
-      const d2r = Math.PI / 180;
-      const aspect = imageWidth / imageHeight;
-      cam.fov = 2 * Math.atan(Math.tan((hFovDeg * d2r) / 2) / aspect) * (180 / Math.PI);
-      cam.aspect = canvas.width / canvas.height;
-      cam.updateProjectionMatrix();
+      cam.position.set(posX, posY, posZ);
+      cam.up.set(0, 0, 1);
+      cam.lookAt(cx, cy, 0);
+
+      // Build projection matrix directly from intrinsics so it matches
+      // the homography's pixel mapping exactly.
+      const near = 0.1, far = 500;
+      const w = imageWidth, h = imageHeight;
+      cam.projectionMatrix.set(
+        2 * K.fx / w,  0,              1 - 2 * K.cx / w,   0,
+        0,             2 * K.fy / h,   2 * K.cy / h - 1,   0,
+        0,             0,              -(far + near) / (far - near),  -2 * far * near / (far - near),
+        0,             0,              -1,                  0,
+      );
+      cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
     }, [positions, handles, fieldById, imageWidth, imageHeight, canvas]);
 
     // ── Coordinate transforms ─────────────────────────────────────────
@@ -318,17 +323,19 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               const cosR = Math.cos(rot) * scale;
               const sinR = Math.sin(rot) * scale;
 
-              // All free handles get their exact rigid-body positions
-              // instantly — no rate limiting, so geometric relationships
-              // (collinearity, angles, distances) are always preserved.
+              // Anchored handles stay fixed. Free handles get their exact
+              // rigid-body positions so collinearity is preserved.
               const next: Record<string, { nx: number; ny: number }> = {};
               for (const h of handlesRef.current) {
                 if (h.id === anchorId) {
                   next[h.id] = anchorImg;
                 } else if (h.id === drag.id) {
                   next[h.id] = newPos;
+                } else if (anchoredRef.current[h.id]) {
+                  // Anchored handles stay put.
+                  next[h.id] = prev[h.id]!;
                 } else {
-                  // Apply the similarity transform from anchor + dragged point.
+                  // Free handles: apply similarity transform.
                   const fx = fieldById[h.id]!.x - anchorField.x;
                   const fy = fieldById[h.id]!.y - anchorField.y;
                   next[h.id] = {
