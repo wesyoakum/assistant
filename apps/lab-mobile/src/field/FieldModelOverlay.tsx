@@ -1,14 +1,10 @@
-// 3D field model overlay — progressive anchor calibration.
+// 3D field model overlay — place anchors individually.
 //
-// Workflow:
-//   0 anchors → free orbit (drag rotates)
-//   Tap handle → anchor it at its current screen position (green)
-//   1 anchor  → drag rotates, anchor stays pinned on screen
-//   2 anchors → drag rotates around anchor–anchor axis, both stay pinned
-//   3 anchors → fully constrained, done
-//
-// Zoom is controlled by a slider below the video, not touch.
-// Model/Video toggle switches which layer gestures control.
+// 1. Pick a handle from the dropdown
+// 2. Drag it to the matching spot on the video
+// 3. Repeat for 4+ handles
+// 4. 3D model overlays using the homography from placed anchors
+// 5. Tap any placed handle to select + nudge it
 
 import React, {
   useCallback,
@@ -19,7 +15,7 @@ import React, {
   useState,
   forwardRef,
 } from "react";
-import { StyleSheet, View, PanResponder, Text, Pressable } from "react-native";
+import { StyleSheet, View, PanResponder, Text, Pressable, ScrollView } from "react-native";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
 import { Renderer } from "expo-three";
 import * as THREE from "three";
@@ -30,6 +26,7 @@ import {
   type HomographyFit,
 } from "./videoHomography";
 import { type CameraPose } from "./batterBox";
+import { intrinsicsFromFov } from "./cameraPoseDecompose";
 
 // ── Public interface ────────────────────────────────────────────────────
 
@@ -57,13 +54,10 @@ export interface FieldModelOverlayHandle {
 
 // ── Colors ──────────────────────────────────────────────────────────────
 
-const FREE_COLOR = "rgba(0,200,255,0.9)";
-const ANCHOR_COLOR = "rgba(0,255,100,0.95)";
-const HANDLE_R = 6;
-
-// ── Types ───────────────────────────────────────────────────────────────
-
-interface Anchor { id: string; nx: number; ny: number; }
+const PLACED_COLOR = "rgba(0,255,100,0.95)";
+const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
+const FREE_COLOR = "rgba(0,200,255,0.7)";
+const HANDLE_R = 8;
 
 // ── Component ───────────────────────────────────────────────────────────
 
@@ -80,178 +74,96 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     const [handles, setHandles] = useState<HandlePoint[]>([]);
     const [loadStatus, setLoadStatus] = useState<string>("loading…");
-    const [anchors, setAnchors] = useState<Anchor[]>([]);
-    const anchorsRef = useRef(anchors);
-    anchorsRef.current = anchors;
+
+    // ── Placed anchors: handle id → normalized screen position ────────
+    const [placed, setPlaced] = useState<Record<string, { nx: number; ny: number }>>({});
+    const placedRef = useRef(placed);
+    placedRef.current = placed;
+
+    // ── Currently active handle (being placed or nudged) ──────────────
+    const [activeId, setActiveId] = useState<string | null>(null);
+    const activeIdRef = useRef(activeId);
+    activeIdRef.current = activeId;
+
+    // ── Dropdown open state ───────────────────────────────────────────
+    const [dropdownOpen, setDropdownOpen] = useState(false);
+
+    // ── Control mode ──────────────────────────────────────────────────
     const [controlMode, setControlMode] = useState<"model" | "video">("model");
 
-    const [orbit, setOrbit] = useState({
-      azimuth: 0, elevation: 0.25, distance: 25, targetX: 0, targetY: 8,
-    });
-    const orbitRef = useRef(orbit);
-    orbitRef.current = orbit;
-    const [projTick, setProjTick] = useState(0);
-
+    // ── Field coord lookup ────────────────────────────────────────────
     const fieldById = useMemo(() => {
       const m: Record<string, { x: number; y: number }> = {};
       for (const h of handles) m[h.id] = { x: h.position.x, y: h.position.y };
       return m;
     }, [handles]);
-    const fieldByIdRef = useRef(fieldById);
-    fieldByIdRef.current = fieldById;
 
-    // ── Camera helpers ────────────────────────────────────────────────
+    const placedCount = Object.keys(placed).length;
 
-    function applyCam(cam: THREE.PerspectiveCamera, o: typeof orbit) {
-      const cosE = Math.cos(o.elevation);
-      cam.position.set(
-        o.targetX + o.distance * cosE * Math.sin(o.azimuth),
-        o.targetY - o.distance * cosE * Math.cos(o.azimuth),
-        o.distance * Math.sin(o.elevation),
-      );
-      cam.up.set(0, 0, 1);
-      cam.lookAt(o.targetX, o.targetY, 0);
-      cam.updateMatrixWorld();
-      cam.updateProjectionMatrix();
-    }
-
-    function projPt(cam: THREE.PerspectiveCamera, fx: number, fy: number) {
-      const v = new THREE.Vector3(fx, fy, 0).project(cam);
-      return { nx: (v.x + 1) / 2, ny: (1 - v.y) / 2 };
-    }
-
-    /** Newton solve: find targetX/targetY so fieldPt projects to screenPt. */
-    function solveTarget(
-      az: number, el: number, dist: number,
-      fieldPt: { x: number; y: number },
-      screenPt: { nx: number; ny: number },
-      cam: THREE.PerspectiveCamera,
-    ): { targetX: number; targetY: number } {
-      let tx = fieldPt.x, ty = fieldPt.y;
-      const cosE = Math.cos(el);
-      const offX = dist * cosE * Math.sin(az);
-      const offY = -dist * cosE * Math.cos(az);
-      const offZ = dist * Math.sin(el);
-
-      function proj(ttx: number, tty: number) {
-        cam.position.set(ttx + offX, tty + offY, offZ);
-        cam.up.set(0, 0, 1);
-        cam.lookAt(ttx, tty, 0);
-        cam.updateMatrixWorld();
-        return projPt(cam, fieldPt.x, fieldPt.y);
-      }
-
-      for (let i = 0; i < 5; i++) {
-        const p = proj(tx, ty);
-        const ex = screenPt.nx - p.nx, ey = screenPt.ny - p.ny;
-        if (Math.abs(ex) < 0.0005 && Math.abs(ey) < 0.0005) break;
-        const eps = 0.01;
-        const px = proj(tx + eps, ty), py = proj(tx, ty + eps);
-        const j00 = (px.nx - p.nx) / eps, j01 = (py.nx - p.nx) / eps;
-        const j10 = (px.ny - p.ny) / eps, j11 = (py.ny - p.ny) / eps;
-        const det = j00 * j11 - j01 * j10;
-        if (Math.abs(det) < 1e-12) break;
-        tx += (j11 * ex - j01 * ey) / det;
-        ty += (-j10 * ex + j00 * ey) / det;
-      }
-      return { targetX: tx, targetY: ty };
-    }
-
-    /**
-     * Newton solve for 2 anchors: find (az, el, tx, ty) so both field
-     * points project to their saved screen positions, given fixed distance.
-     * The drag provides an initial delta to az/el; we refine all 4 params.
-     */
-    function solve2Anchors(
-      initAz: number, initEl: number, dist: number,
-      f0: { x: number; y: number }, s0: { nx: number; ny: number },
-      f1: { x: number; y: number }, s1: { nx: number; ny: number },
-      cam: THREE.PerspectiveCamera,
-    ): { azimuth: number; elevation: number; targetX: number; targetY: number } {
-      let az = initAz, el = initEl;
-      let tx = (f0.x + f1.x) / 2, ty = (f0.y + f1.y) / 2;
-
-      // Start with target from 1-anchor solve on f0
-      const s1a = solveTarget(az, el, dist, f0, s0, cam);
-      tx = s1a.targetX; ty = s1a.targetY;
-
-      // Refine: 4 unknowns (az, el, tx, ty), 4 equations (2 anchors × 2 coords)
-      for (let i = 0; i < 5; i++) {
-        applyCam(cam, { azimuth: az, elevation: el, distance: dist, targetX: tx, targetY: ty });
-        const p0 = projPt(cam, f0.x, f0.y);
-        const p1 = projPt(cam, f1.x, f1.y);
-        const err = [s0.nx - p0.nx, s0.ny - p0.ny, s1.nx - p1.nx, s1.ny - p1.ny];
-        if (err.every((e) => Math.abs(e) < 0.001)) break;
-
-        // Numerical Jacobian (4×4)
-        const eps = [0.001, 0.001, 0.01, 0.01]; // az, el, tx, ty
-        const params = [az, el, tx, ty];
-        const J: number[][] = [];
-        for (let j = 0; j < 4; j++) {
-          const p2 = [...params]; p2[j] += eps[j]!;
-          applyCam(cam, { azimuth: p2[0]!, elevation: p2[1]!, distance: dist, targetX: p2[2]!, targetY: p2[3]! });
-          const q0 = projPt(cam, f0.x, f0.y);
-          const q1 = projPt(cam, f1.x, f1.y);
-          J.push([
-            (q0.nx - p0.nx) / eps[j]!, (q0.ny - p0.ny) / eps[j]!,
-            (q1.nx - p1.nx) / eps[j]!, (q1.ny - p1.ny) / eps[j]!,
-          ]);
-        }
-
-        // Solve J^T * delta = err (use J^T since J is 4 cols × 4 rows packed weirdly)
-        // Actually J[j] = column j of the Jacobian. Transpose to get rows.
-        const JT = J.map((col, j) => col); // J[j][i] = d(err_i)/d(param_j)
-        // Solve 4x4: JT * dp = err
-        const dp = solve4x4(
-          JT.map((col) => [...col]),
-          [...err],
-        );
-        if (!dp) break;
-
-        az += dp[0]!;
-        el = Math.max(0.05, Math.min(1.4, el + dp[1]!));
-        tx += dp[2]!;
-        ty += dp[3]!;
-      }
-
-      return { azimuth: az, elevation: el, targetX: tx, targetY: ty };
-    }
-
-    // ── Update camera ─────────────────────────────────────────────────
-    const updateCamera = useCallback(() => {
-      const cam = cameraRef.current;
-      if (!cam) return;
-      applyCam(cam, orbit);
-    }, [orbit]);
-
-    useEffect(() => { updateCamera(); }, [updateCamera]);
-
-    // ── Project handles ───────────────────────────────────────────────
-    const projectedHandles = useMemo(() => {
-      const cam = cameraRef.current;
-      if (!cam || handles.length === 0) return {} as Record<string, { nx: number; ny: number }>;
-      cam.updateMatrixWorld();
-      cam.updateProjectionMatrix();
-      const result: Record<string, { nx: number; ny: number }> = {};
-      for (const h of handles) {
-        const v = new THREE.Vector3(h.position.x, h.position.y, h.position.z);
-        v.project(cam);
-        result[h.id] = { nx: (v.x + 1) / 2, ny: (1 - v.y) / 2 };
-      }
-      return result;
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [handles, orbit, projTick]);
-
+    // ── Homography from placed anchors ────────────────────────────────
     const homography = useMemo((): HomographyFit | null => {
-      const ids = Object.keys(projectedHandles);
-      if (ids.length < 4) return null;
-      const corr: Correspondence[] = ids.map((id) => ({
+      if (placedCount < 4) return null;
+      const corr: Correspondence[] = Object.entries(placed).map(([id, p]) => ({
         field: fieldById[id]!,
-        image: { u: projectedHandles[id]!.nx * imageWidth, v: projectedHandles[id]!.ny * imageHeight },
+        image: { u: p.nx * imageWidth, v: p.ny * imageHeight },
       }));
       return fitHomography(corr);
-    }, [projectedHandles, fieldById, imageWidth, imageHeight]);
+    }, [placed, fieldById, imageWidth, imageHeight, placedCount]);
 
+    // ── Sync 3D camera when homography is available ───────────────────
+    useEffect(() => {
+      const cam = cameraRef.current;
+      if (!cam || !homography) return;
+
+      const hFovDeg = 69;
+      const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
+      const ifx = 1 / K.fx, ify = 1 / K.fy;
+      const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
+      const M = mul3x3(Kinv, homography.H);
+      const c0 = [M[0]!, M[3]!, M[6]!];
+      const c1 = [M[1]!, M[4]!, M[7]!];
+      const c2 = [M[2]!, M[5]!, M[8]!];
+
+      let lambda = Math.sqrt(c0[0] * c0[0] + c0[1] * c0[1] + c0[2] * c0[2]);
+      if (lambda < 1e-10) return;
+      if (M[8]! / lambda < 0) lambda = -lambda;
+
+      const r1 = c0.map((v) => v / lambda);
+      const r2 = c1.map((v) => v / lambda);
+      const t = c2.map((v) => v / lambda);
+      const r3 = [
+        r1[1]! * r2[2]! - r1[2]! * r2[1]!,
+        r1[2]! * r2[0]! - r1[0]! * r2[2]!,
+        r1[0]! * r2[1]! - r1[1]! * r2[0]!,
+      ];
+
+      // Z column for height: lambda * K * r3
+      const Kz0 = lambda * (K.fx * r3[0]! + K.cx * r3[2]!);
+      const Kz1 = lambda * (K.fy * r3[1]! + K.cy * r3[2]!);
+      const Kz2 = lambda * r3[2]!;
+
+      const H = homography.H;
+      const P00 = H[0]!, P01 = H[1]!, P02 = Kz0, P03 = H[2]!;
+      const P10 = H[3]!, P11 = H[4]!, P12 = Kz1, P13 = H[5]!;
+      const P20 = H[6]!, P21 = H[7]!, P22 = Kz2, P23 = H[8]!;
+
+      const W = imageWidth, Hi = imageHeight;
+
+      cam.matrixAutoUpdate = false;
+      cam.matrix.identity();
+      cam.matrixWorld.identity();
+      cam.matrixWorldInverse.identity();
+
+      cam.projectionMatrix.set(
+        2*P00/W - P20,   2*P01/W - P21,   2*P02/W - P22,   2*P03/W - P23,
+        P20 - 2*P10/Hi,  P21 - 2*P11/Hi,  P22 - 2*P12/Hi,  P23 - 2*P13/Hi,
+        -P20 * 0.001,    -P21 * 0.001,     -P22 * 0.001,     -P23 * 0.001,
+        P20,              P21,              P22,              P23,
+      );
+      cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+    }, [homography, imageWidth, imageHeight]);
+
+    // ── Coordinate transforms ─────────────────────────────────────────
     const imageToScreen = useCallback(
       (nx: number, ny: number) => {
         const cx = canvas.width / 2, cy = canvas.height / 2;
@@ -263,172 +175,143 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       [canvas, vp],
     );
 
-    const screenHandles = useMemo(() => {
+    const screenToImage = useCallback(
+      (sx: number, sy: number) => {
+        const cx = canvas.width / 2, cy = canvas.height / 2;
+        const ix = (sx - cx - vp.tx) / vp.scale + cx;
+        const iy = (sy - cy - vp.ty) / vp.scale + cy;
+        return {
+          nx: Math.max(0, Math.min(1, ix / canvas.width)),
+          ny: Math.max(0, Math.min(1, iy / canvas.height)),
+        };
+      },
+      [canvas, vp],
+    );
+
+    // ── Touch handling ────────────────────────────────────────────────
+    const dragRef = useRef<{ id: string; offset: { dnx: number; dny: number } } | null>(null);
+    const didMoveRef = useRef(false);
+
+    const screenPlaced = useMemo(() => {
       const result: Record<string, { x: number; y: number }> = {};
-      for (const h of handles) {
-        const pos = projectedHandles[h.id];
-        if (!pos) continue;
-        result[h.id] = imageToScreen(pos.nx, pos.ny);
+      for (const [id, p] of Object.entries(placed)) {
+        result[id] = imageToScreen(p.nx, p.ny);
       }
       return result;
-    }, [handles, projectedHandles, imageToScreen]);
-
-    const screenHandlesRef = useRef(screenHandles);
-    screenHandlesRef.current = screenHandles;
-
-    // ── Touch: drag only (no pinch zoom) ──────────────────────────────
-    const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
-    const didMoveRef = useRef(false);
-    const grantPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    }, [placed, imageToScreen]);
+    const screenPlacedRef = useRef(screenPlaced);
+    screenPlacedRef.current = screenPlaced;
 
     const responder = useMemo(
       () =>
         PanResponder.create({
           onStartShouldSetPanResponder: () => true,
           onMoveShouldSetPanResponder: () => true,
-          onPanResponderTerminationRequest: () => false,
+          onPanResponderTerminationRequest: () => true,
           onPanResponderGrant: (_, gs) => {
-            lastTouchRef.current = null;
             didMoveRef.current = false;
-            grantPosRef.current = { x: gs.x0, y: gs.y0 };
-          },
-          onPanResponderMove: (e) => {
-            const touches = e.nativeEvent.touches;
-            if (touches.length !== 1) return; // only single-finger drag
-            const t = touches[0]!;
-            const cur = { x: t.pageX, y: t.pageY };
-            if (Math.hypot(cur.x - grantPosRef.current.x, cur.y - grantPosRef.current.y) > 5)
-              didMoveRef.current = true;
+            const lx = gs.x0 - canvasPageOffset.x;
+            const ly = gs.y0 - canvasPageOffset.y;
+            const touchImg = screenToImage(lx, ly);
+            const aid = activeIdRef.current;
 
-            const cam = cameraRef.current;
-            if (!cam || !lastTouchRef.current) { lastTouchRef.current = cur; return; }
+            if (aid && placedRef.current[aid]) {
+              // Already active: start dragging it
+              const pos = placedRef.current[aid]!;
+              dragRef.current = {
+                id: aid,
+                offset: { dnx: pos.nx - touchImg.nx, dny: pos.ny - touchImg.ny },
+              };
+              return;
+            }
 
-            const dx = cur.x - lastTouchRef.current.x;
-            const dy = cur.y - lastTouchRef.current.y;
-            lastTouchRef.current = cur;
+            if (aid && !placedRef.current[aid]) {
+              // New handle being placed: drop it at touch position
+              setPlaced((prev) => ({ ...prev, [aid]: touchImg }));
+              dragRef.current = { id: aid, offset: { dnx: 0, dny: 0 } };
+              return;
+            }
 
-            const anch = anchorsRef.current;
-            const fbi = fieldByIdRef.current;
-
-            if (anch.length === 0) {
-              // ── 0 anchors: free orbit ──
-              setOrbit((prev) => ({
-                ...prev,
-                azimuth: prev.azimuth - dx * 0.005,
-                elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
-              }));
-            } else if (anch.length === 1) {
-              // ── 1 anchor: rotate, pin anchor ──
-              const a = anch[0]!;
-              const f = fbi[a.id];
-              if (!f) return;
-              setOrbit((prev) => {
-                const newAz = prev.azimuth - dx * 0.005;
-                const newEl = Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005));
-                const solved = solveTarget(newAz, newEl, prev.distance, f, a, cam);
-                return { azimuth: newAz, elevation: newEl, distance: prev.distance, ...solved };
-              });
-            } else if (anch.length >= 2) {
-              // ── 2+ anchors: rotate around axis, pin both ──
-              const a0 = anch[0]!, a1 = anch[1]!;
-              const f0 = fbi[a0.id], f1 = fbi[a1.id];
-              if (!f0 || !f1) return;
-              const s0 = screenHandlesRef.current[a0.id];
-              const s1 = screenHandlesRef.current[a1.id];
-              if (!s0 || !s1) return;
-              const axisX = s1.x - s0.x, axisY = s1.y - s0.y;
-              const axisLen = Math.hypot(axisX, axisY);
-              if (axisLen < 1) return;
-              const perpComponent = (-dx * axisY + dy * axisX) / axisLen;
-              const fAxisAngle = Math.atan2(f1.y - f0.y, f1.x - f0.x);
-
-              setOrbit((prev) => {
-                const dAz = Math.cos(fAxisAngle - prev.azimuth) * perpComponent * 0.003;
-                const dEl = Math.sin(fAxisAngle - prev.azimuth) * perpComponent * 0.003;
-                const initAz = prev.azimuth + dAz;
-                const initEl = Math.max(0.05, Math.min(1.4, prev.elevation + dEl));
-                const solved = solve2Anchors(initAz, initEl, prev.distance, f0, a0, f1, a1, cam);
-                return { distance: prev.distance, ...solved };
-              });
+            // No active handle: check if tapping a placed one
+            const sp = screenPlacedRef.current;
+            let nearId = "";
+            let nearDist = 30;
+            for (const [id, s] of Object.entries(sp)) {
+              const d = Math.hypot(lx - s.x, ly - s.y);
+              if (d < nearDist) { nearDist = d; nearId = id; }
+            }
+            if (nearId) {
+              setActiveId(nearId);
+              const pos = placedRef.current[nearId]!;
+              dragRef.current = {
+                id: nearId,
+                offset: { dnx: pos.nx - touchImg.nx, dny: pos.ny - touchImg.ny },
+              };
             }
           },
-          onPanResponderRelease: (_, gs) => {
-            if (!didMoveRef.current) {
-              // Tap: toggle anchor
-              const lx = gs.x0 - canvasPageOffset.x;
-              const ly = gs.y0 - canvasPageOffset.y;
-              const sh = screenHandlesRef.current;
-              const proj = projectedHandles;
-
-              let nearId = "";
-              let nearDist = 30;
-              for (const h of handles) {
-                const s = sh[h.id];
-                if (!s) continue;
-                const d = Math.hypot(lx - s.x, ly - s.y);
-                if (d < nearDist) { nearDist = d; nearId = h.id; }
-              }
-
-              if (nearId) {
-                setAnchors((prev) => {
-                  if (prev.some((a) => a.id === nearId)) return prev.filter((a) => a.id !== nearId);
-                  if (prev.length >= 3) return prev;
-                  const p = proj[nearId];
-                  if (!p) return prev;
-                  return [...prev, { id: nearId, nx: p.nx, ny: p.ny }];
-                });
-              }
-            }
-            lastTouchRef.current = null;
-            setProjTick((t) => t + 1);
+          onPanResponderMove: (_, gs) => {
+            const drag = dragRef.current;
+            if (!drag) return;
+            if (Math.hypot(gs.dx, gs.dy) > 3) didMoveRef.current = true;
+            const lx = gs.moveX - canvasPageOffset.x;
+            const ly = gs.moveY - canvasPageOffset.y;
+            const curImg = screenToImage(lx, ly);
+            setPlaced((prev) => ({
+              ...prev,
+              [drag.id]: {
+                nx: curImg.nx + drag.offset.dnx,
+                ny: curImg.ny + drag.offset.dny,
+              },
+            }));
+          },
+          onPanResponderRelease: () => {
+            dragRef.current = null;
+          },
+          onPanResponderTerminate: () => {
+            dragRef.current = null;
           },
         }),
-      [canvasPageOffset, handles, projectedHandles],
+      [canvasPageOffset, screenToImage],
     );
 
-    // ── Zoom handler (from slider) ────────────────────────────────────
-    const handleZoom = useCallback((delta: number) => {
-      const cam = cameraRef.current;
-      if (!cam) return;
-      const anch = anchorsRef.current;
-      const fbi = fieldByIdRef.current;
-
-      setOrbit((prev) => {
-        const newDist = Math.max(5, Math.min(100, prev.distance + delta));
-        if (anch.length === 1) {
-          const a = anch[0]!;
-          const f = fbi[a.id];
-          if (f) {
-            const solved = solveTarget(prev.azimuth, prev.elevation, newDist, f, a, cam);
-            return { ...prev, distance: newDist, ...solved };
-          }
-        } else if (anch.length >= 2) {
-          const a0 = anch[0]!, a1 = anch[1]!;
-          const f0 = fbi[a0.id], f1 = fbi[a1.id];
-          if (f0 && f1) {
-            const solved = solve2Anchors(prev.azimuth, prev.elevation, newDist, f0, a0, f1, a1, cam);
-            return { distance: newDist, ...solved };
-          }
-        }
-        return { ...prev, distance: newDist };
-      });
+    // ── Select a handle from dropdown ─────────────────────────────────
+    const selectHandle = useCallback((id: string) => {
+      setActiveId(id);
+      setDropdownOpen(false);
+      // If not already placed, it'll be placed on first touch
     }, []);
 
-    const modeLabel = useMemo(() => {
-      if (anchors.length === 0) return "drag to orbit · tap to anchor";
-      if (anchors.length === 1) return `${anchors[0]!.id} pinned`;
-      if (anchors.length === 2) return "2 pinned · drag to tilt";
-      return "calibrated";
-    }, [anchors]);
+    // ── Remove a placed handle ────────────────────────────────────────
+    const removeHandle = useCallback((id: string) => {
+      setPlaced((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      if (activeId === id) setActiveId(null);
+    }, [activeId]);
+
+    // ── Nudge active handle ───────────────────────────────────────────
+    const nudge = useCallback((dx: number, dy: number) => {
+      if (!activeId || !placed[activeId]) return;
+      setPlaced((prev) => {
+        const p = prev[activeId];
+        if (!p) return prev;
+        return { ...prev, [activeId]: { nx: p.nx + dx / imageWidth, ny: p.ny + dy / imageHeight } };
+      });
+    }, [activeId, placed, imageWidth, imageHeight]);
 
     // ── Imperative handle ─────────────────────────────────────────────
     useImperativeHandle(ref, () => ({
       solve: (): CameraPose | null => homography ? { fit: homography, sides: ["left", "right"] } : null,
-      reset: () => { setOrbit({ azimuth: 0, elevation: 0.25, distance: 25, targetX: 0, targetY: 8 }); setAnchors([]); },
-      anchoredCount: () => anchors.length,
-      getState: () => ({ positions: projectedHandles, anchored: Object.fromEntries(anchors.map((a) => [a.id, true])) }),
-      setState: () => {},
-    }), [homography, projectedHandles, anchors]);
+      reset: () => { setPlaced({}); setActiveId(null); setDropdownOpen(false); },
+      anchoredCount: () => placedCount,
+      getState: () => ({
+        positions: placed,
+        anchored: Object.fromEntries(Object.keys(placed).map((id) => [id, true])),
+      }),
+      setState: (s) => { setPlaced(s.positions); },
+    }), [homography, placed, placedCount]);
 
     // ── GL setup ──────────────────────────────────────────────────────
     const onContextCreate = useCallback(async (gl: ExpoWebGLRenderingContext) => {
@@ -470,11 +353,15 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       }
       if (lh.length === 0) { lh = buildFallbackHandles(); setLoadStatus(`fallback (${lh.length})`); }
       setHandles(lh);
-      setProjTick(1);
+
+      // Don't render the 3D model until homography is solved — start hidden
+      if (modelRef.current) modelRef.current.scene.visible = false;
 
       const render = () => {
         rafRef.current = requestAnimationFrame(render);
         if (rendererRef.current && sceneRef.current && cameraRef.current) {
+          // Show model only when we have a homography
+          if (modelRef.current) modelRef.current.scene.visible = placedCount >= 4;
           rendererRef.current.render(sceneRef.current, cameraRef.current);
           gl.endFrameEXP();
         }
@@ -482,78 +369,152 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       render();
     }, []);
 
+    useEffect(() => {
+      // Update model visibility when placedCount changes
+      if (modelRef.current) modelRef.current.scene.visible = placedCount >= 4;
+    }, [placedCount]);
+
     useEffect(() => () => { cancelAnimationFrame(rafRef.current); rendererRef.current?.dispose(); }, []);
 
-    const anchorSet = useMemo(() => new Set(anchors.map((a) => a.id)), [anchors]);
+    // ── Available (not yet placed) handles for dropdown ───────────────
+    const availableHandles = useMemo(
+      () => handles.filter((h) => !placed[h.id]),
+      [handles, placed],
+    );
 
     // ── Render ────────────────────────────────────────────────────────
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-        <GLView style={{ width: canvas.width, height: canvas.height }} onContextCreate={onContextCreate} pointerEvents="none" />
+        <GLView
+          style={{ width: canvas.width, height: canvas.height }}
+          onContextCreate={onContextCreate}
+          pointerEvents="none"
+        />
 
-          {handles.map((h) => {
-            const s = screenHandles[h.id]; if (!s) return null;
-            const isA = anchorSet.has(h.id);
-            return (
-              <View key={h.id} pointerEvents="none" style={{
-                position: "absolute", left: s.x - HANDLE_R, top: s.y - HANDLE_R,
-                width: HANDLE_R * 2, height: HANDLE_R * 2, borderRadius: HANDLE_R,
-                borderWidth: isA ? 2.5 : 1.5,
-                borderColor: isA ? ANCHOR_COLOR : FREE_COLOR,
-                backgroundColor: isA ? "rgba(0,255,100,0.25)" : "rgba(0,200,255,0.15)",
-              }} />
-            );
-          })}
+        {/* Placed handle dots */}
+        {Object.entries(placed).map(([id]) => {
+          const s = screenPlaced[id];
+          if (!s) return null;
+          const isActive = activeId === id;
+          return (
+            <View key={id} pointerEvents="none" style={{
+              position: "absolute", left: s.x - HANDLE_R, top: s.y - HANDLE_R,
+              width: HANDLE_R * 2, height: HANDLE_R * 2, borderRadius: HANDLE_R,
+              borderWidth: 2,
+              borderColor: isActive ? ACTIVE_COLOR : PLACED_COLOR,
+              backgroundColor: isActive ? "rgba(255,220,0,0.3)" : "rgba(0,255,100,0.2)",
+            }} />
+          );
+        })}
 
-          {handles.map((h) => {
-            const s = screenHandles[h.id]; if (!s) return null;
-            const isA = anchorSet.has(h.id);
-            return (
-              <Text key={`l-${h.id}`} pointerEvents="none" style={{
-                position: "absolute", left: s.x - 30, top: s.y - HANDLE_R - 12,
-                width: 60, textAlign: "center", color: isA ? ANCHOR_COLOR : FREE_COLOR,
-                fontSize: 7, fontWeight: "600",
-              }}>{h.id}</Text>
-            );
-          })}
+        {/* Handle labels */}
+        {Object.entries(placed).map(([id]) => {
+          const s = screenPlaced[id];
+          if (!s) return null;
+          const isActive = activeId === id;
+          return (
+            <Text key={`l-${id}`} pointerEvents="none" style={{
+              position: "absolute", left: s.x - 30, top: s.y - HANDLE_R - 14,
+              width: 60, textAlign: "center",
+              color: isActive ? ACTIVE_COLOR : PLACED_COLOR,
+              fontSize: 7, fontWeight: "700",
+            }}>{id}</Text>
+          );
+        })}
 
+        {/* Status bar */}
+        <View style={{
+          position: "absolute", top: 6, left: 8, right: 8,
+          flexDirection: "row", alignItems: "center", gap: 6,
+        }}>
           <Text pointerEvents="none" style={{
-            position: "absolute", left: 10, top: 8,
-            color: "rgba(0,200,255,0.9)", fontSize: 11, fontWeight: "600",
-          }}>{anchors.length}/3 · {modeLabel}</Text>
+            color: placedCount >= 4 ? PLACED_COLOR : "rgba(255,200,0,0.9)",
+            fontSize: 11, fontWeight: "600",
+          }}>
+            {placedCount}/4{placedCount >= 4 ? " ✓" : ""}
+          </Text>
 
+          {/* Dropdown trigger */}
           <Pressable
-            onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
+            onPress={() => setDropdownOpen((v) => !v)}
             style={{
-              position: "absolute", right: 10, top: 6,
-              paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10,
-              backgroundColor: controlMode === "model" ? "rgba(0,200,255,0.7)" : "rgba(255,160,0,0.7)",
+              paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+              backgroundColor: "rgba(0,200,255,0.6)",
             }}
           >
-            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
-              {controlMode === "model" ? "Model" : "Video"}
+            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+              {activeId ? activeId : "Place handle ▾"}
             </Text>
           </Pressable>
 
-          {controlMode === "model" && (
-            <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
+          {/* Remove active */}
+          {activeId && placed[activeId] && (
+            <Pressable onPress={() => removeHandle(activeId)} style={{
+              paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
+              backgroundColor: "rgba(255,60,60,0.6)",
+            }}>
+              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>✕</Text>
+            </Pressable>
           )}
 
-        {/* Zoom controls — top left under status */}
-        <View style={{
-          position: "absolute", top: 24, left: 10,
-          flexDirection: "row", alignItems: "center", gap: 4,
-        }}>
-          <Pressable onPress={() => handleZoom(3)} style={zoomBtn}>
-            <Text style={zoomBtnText}>−</Text>
+          {/* Nudge buttons */}
+          {activeId && placed[activeId] && (
+            <View style={{ flexDirection: "row", gap: 2 }}>
+              <Pressable onPress={() => nudge(-1, 0)} style={nudgeBtn}><Text style={nudgeT}>◀</Text></Pressable>
+              <Pressable onPress={() => nudge(0, -1)} style={nudgeBtn}><Text style={nudgeT}>▲</Text></Pressable>
+              <Pressable onPress={() => nudge(0, 1)} style={nudgeBtn}><Text style={nudgeT}>▼</Text></Pressable>
+              <Pressable onPress={() => nudge(1, 0)} style={nudgeBtn}><Text style={nudgeT}>▶</Text></Pressable>
+            </View>
+          )}
+
+          {/* Model/Video toggle */}
+          <Pressable
+            onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
+            style={{
+              marginLeft: "auto",
+              paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+              backgroundColor: controlMode === "model" ? "rgba(0,200,255,0.6)" : "rgba(255,160,0,0.6)",
+            }}
+          >
+            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+              {controlMode === "model" ? "Model" : "Video"}
+            </Text>
           </Pressable>
-          <Pressable onPress={() => handleZoom(-3)} style={zoomBtn}>
-            <Text style={zoomBtnText}>+</Text>
-          </Pressable>
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginLeft: 4 }}>
-            {orbit.distance.toFixed(0)}m
-          </Text>
         </View>
+
+        {/* Dropdown list */}
+        {dropdownOpen && (
+          <View style={{
+            position: "absolute", top: 28, left: 8,
+            maxHeight: 200, backgroundColor: "rgba(0,0,0,0.85)",
+            borderRadius: 8, padding: 4, zIndex: 100,
+          }}>
+            <ScrollView>
+              {availableHandles.map((h) => (
+                <Pressable
+                  key={h.id}
+                  onPress={() => selectHandle(h.id)}
+                  style={{
+                    paddingHorizontal: 10, paddingVertical: 6,
+                    borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.1)",
+                  }}
+                >
+                  <Text style={{ color: FREE_COLOR, fontSize: 12 }}>{h.id}</Text>
+                </Pressable>
+              ))}
+              {availableHandles.length === 0 && (
+                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, padding: 8 }}>
+                  All handles placed
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* Touch surface — only in model mode */}
+        {controlMode === "model" && (
+          <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
+        )}
       </View>
     );
   },
@@ -561,35 +522,22 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
 // ── Styles ──────────────────────────────────────────────────────────────
 
-const zoomBtn = {
-  width: 32, height: 32, borderRadius: 16,
-  backgroundColor: "rgba(255,255,255,0.12)",
+const nudgeBtn = {
+  width: 22, height: 22, borderRadius: 11,
+  backgroundColor: "rgba(255,220,0,0.5)",
   alignItems: "center" as const, justifyContent: "center" as const,
 };
-const zoomBtnText = { color: "#fff", fontSize: 18, fontWeight: "600" as const };
+const nudgeT = { color: "#fff", fontSize: 10, fontWeight: "600" as const };
 
-// ── 4x4 linear solve (Gaussian elimination) ─────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────
 
-function solve4x4(A: number[][], b: number[]): number[] | null {
-  const n = 4;
-  const M = A.map((row, i) => [...row, b[i]!]);
-  for (let col = 0; col < n; col++) {
-    let maxRow = col, maxVal = Math.abs(M[col]![col]!);
-    for (let row = col + 1; row < n; row++) {
-      const v = Math.abs(M[row]![col]!);
-      if (v > maxVal) { maxVal = v; maxRow = row; }
-    }
-    if (maxVal < 1e-12) return null;
-    [M[col], M[maxRow]] = [M[maxRow]!, M[col]!];
-    const pivot = M[col]![col]!;
-    for (let j = col; j <= n; j++) M[col]![j]! /= pivot;
-    for (let row = 0; row < n; row++) {
-      if (row === col) continue;
-      const f = M[row]![col]!;
-      for (let j = col; j <= n; j++) M[row]![j]! -= f * M[col]![j]!;
-    }
-  }
-  return M.map((row) => row[n]!);
+function mul3x3(A: number[], B: number[]): number[] {
+  const C = new Array(9).fill(0);
+  for (let r = 0; r < 3; r++)
+    for (let c = 0; c < 3; c++)
+      for (let k = 0; k < 3; k++)
+        C[r * 3 + c] += A[r * 3 + k]! * B[k * 3 + c]!;
+  return C;
 }
 
 // ── Fallback handles ────────────────────────────────────────────────────
