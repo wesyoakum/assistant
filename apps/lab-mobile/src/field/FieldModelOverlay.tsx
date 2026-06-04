@@ -21,7 +21,7 @@ import React, {
   useState,
   forwardRef,
 } from "react";
-import { StyleSheet, View, PanResponder, Text } from "react-native";
+import { StyleSheet, View, PanResponder, Text, Pressable } from "react-native";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
 import { Renderer } from "expo-three";
 import * as THREE from "three";
@@ -84,6 +84,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     // ── Selected handles (up to 3) ────────────────────────────────────
     const [selected, setSelected] = useState<string[]>([]);
 
+    // ── Control mode: gestures move the model or the video ────────────
+    const [controlMode, setControlMode] = useState<"model" | "video">("model");
+
     // ── Orbit camera state ────────────────────────────────────────────
     const [orbit, setOrbit] = useState({
       azimuth: 0,
@@ -101,6 +104,28 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       for (const h of handles) m[h.id] = { x: h.position.x, y: h.position.y };
       return m;
     }, [handles]);
+
+    // ── Re-target orbit center without moving the camera ─────────────
+    // Computes new azimuth/elevation/distance so the camera stays in the
+    // same world position but orbits around (newX, newY, 0).
+    const retargetOrbit = useCallback((newX: number, newY: number) => {
+      setOrbit((prev) => {
+        const { azimuth, elevation, distance, targetX, targetY } = prev;
+        const cosE = Math.cos(elevation);
+        // Current camera world position
+        const camX = targetX + distance * cosE * Math.sin(azimuth);
+        const camY = targetY - distance * cosE * Math.cos(azimuth);
+        const camZ = distance * Math.sin(elevation);
+        // Recompute orbit params from same camera position, new target
+        const dx = camX - newX;
+        const dy = camY - newY;
+        const newDist = Math.sqrt(dx * dx + dy * dy + camZ * camZ);
+        const newElev = Math.asin(Math.max(-1, Math.min(1, camZ / newDist)));
+        const groundDist = Math.sqrt(dx * dx + dy * dy);
+        const newAz = groundDist > 0.001 ? Math.atan2(dx, -dy) : azimuth;
+        return { azimuth: newAz, elevation: newElev, distance: newDist, targetX: newX, targetY: newY };
+      });
+    }, []);
 
     // ── Compute camera position from orbit state ──────────────────────
     const updateCamera = useCallback(() => {
@@ -313,18 +338,26 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
               if (nearId) {
                 setSelected((prev) => {
+                  let next: string[];
                   if (prev.includes(nearId)) {
-                    // Deselect
-                    return prev.filter((id) => id !== nearId);
+                    next = prev.filter((id) => id !== nearId);
+                  } else if (prev.length >= 3) {
+                    next = [...prev.slice(1), nearId];
+                  } else {
+                    next = [...prev, nearId];
                   }
-                  if (prev.length >= 3) {
-                    // Replace oldest selection
-                    return [...prev.slice(1), nearId];
+                  // Re-target orbit to the selected handle(s) without jumping
+                  if (next.length === 1) {
+                    const f = fieldById[next[0]!];
+                    if (f) retargetOrbit(f.x, f.y);
+                  } else if (next.length === 2) {
+                    const f0 = fieldById[next[0]!];
+                    const f1 = fieldById[next[1]!];
+                    if (f0 && f1) retargetOrbit((f0.x + f1.x) / 2, (f0.y + f1.y) / 2);
                   }
-                  return [...prev, nearId];
+                  return next;
                 });
               } else {
-                // Tap on empty space: clear selection
                 setSelected([]);
               }
             }
@@ -482,11 +515,28 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           position: "absolute", left: 10, top: 8,
           color: "rgba(0,200,255,0.9)", fontSize: 11, fontWeight: "600",
         }}>
-          {loadStatus} · {modeLabel} · pinch to zoom
+          {loadStatus} · {modeLabel}
         </Text>
 
-        {/* Touch surface */}
-        <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
+        {/* Toggle: Model / Video */}
+        <Pressable
+          onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
+          style={{
+            position: "absolute", right: 10, top: 6,
+            paddingHorizontal: 10, paddingVertical: 4,
+            borderRadius: 10,
+            backgroundColor: controlMode === "model" ? "rgba(0,200,255,0.7)" : "rgba(255,160,0,0.7)",
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
+            {controlMode === "model" ? "Model" : "Video"}
+          </Text>
+        </Pressable>
+
+        {/* Touch surface — only active in model mode */}
+        {controlMode === "model" && (
+          <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
+        )}
       </View>
     );
   },
