@@ -2,7 +2,7 @@
   "expo": {
     "name": "WHY Lab",
     "slug": "whylab",
-    "version": "1.9.0",
+    "version": "1.10.0",
     "scheme": "whylab",
     "orientation": "default",
     "icon": "./assets/icon.png",
