@@ -20,7 +20,10 @@ import { TrackNet } from "expo-tracknet";
 import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
-import { FieldModelOverlay, type FieldModelOverlayHandle } from "../field/FieldModelOverlay";
+import type { FieldModelOverlayHandle } from "../field/FieldModelOverlay";
+const FieldModelOverlay = React.lazy(() =>
+  import("../field/FieldModelOverlay").then((m) => ({ default: m.FieldModelOverlay })),
+);
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
@@ -1135,14 +1138,16 @@ export function TrackerTab() {
         />
       )}
       {showPoseOverlay && (
-        <FieldModelOverlay
-          ref={poseOverlayRef}
-          imageWidth={frame.imageWidth}
-          imageHeight={frame.imageHeight}
-          vp={vp}
-          canvas={canvas}
-          canvasPageOffset={canvasPageOffsetRef.current}
-        />
+        <React.Suspense fallback={<View style={StyleSheet.absoluteFill}><Text style={{ color: "#fff", padding: 10 }}>Loading 3D overlay…</Text></View>}>
+          <FieldModelOverlay
+            ref={poseOverlayRef}
+            imageWidth={frame.imageWidth}
+            imageHeight={frame.imageHeight}
+            vp={vp}
+            canvas={canvas}
+            canvasPageOffset={canvasPageOffsetRef.current}
+          />
+        </React.Suspense>
       )}
     </View>
   ) : null;
