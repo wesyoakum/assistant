@@ -212,9 +212,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                   ...prev,
                   // Pinch: zoom
                   distance: Math.max(5, Math.min(100, prev.distance - pinchDelta * 0.1)),
-                  // Pan: shift target
-                  targetX: prev.targetX - panDx * 0.05,
-                  targetY: prev.targetY + panDy * 0.05,
+                  // Pan: move model in drag direction
+                  targetX: prev.targetX + panDx * 0.05,
+                  targetY: prev.targetY - panDy * 0.05,
                 }));
               }
               lastPinchRef.current = dist;
@@ -229,8 +229,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                 const dy = cur.y - lastTouchRef.current.y;
                 setOrbit((prev) => ({
                   ...prev,
-                  azimuth: prev.azimuth + dx * 0.005,
-                  elevation: Math.max(0.05, Math.min(1.4, prev.elevation - dy * 0.005)),
+                  azimuth: prev.azimuth - dx * 0.005,
+                  elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
                 }));
               }
               lastTouchRef.current = cur;
