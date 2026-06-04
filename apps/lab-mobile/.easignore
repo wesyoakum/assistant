@@ -1,3 +1,12 @@
+# ── Monorepo-level exclusions (EAS archives from git root) ──
+.git/
+.claude/
+apps/api/
+apps/web/
+apps/mobile/
+archive/
+
+# ── General ──
 node_modules/
 .pnpm-store/
 dist/
@@ -16,4 +25,15 @@ build/
 !modules/
 !modules/**
 
+# Dev artifacts
+*.blend
+*.blend1
+*.onnx
+*.pt
+runs/
+coverage/
+*.log
+
 .wrangler/
+.dev.vars
+.env*
