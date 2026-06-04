@@ -539,10 +539,10 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
           )}
 
-        {/* Zoom controls at bottom of canvas */}
+        {/* Zoom controls — top left under status */}
         <View style={{
-          position: "absolute", bottom: 4, left: 10, right: 10,
-          flexDirection: "row", alignItems: "center", gap: 6,
+          position: "absolute", top: 24, left: 10,
+          flexDirection: "row", alignItems: "center", gap: 4,
         }}>
           <Pressable onPress={() => handleZoom(3)} style={zoomBtn}>
             <Text style={zoomBtnText}>−</Text>
@@ -550,7 +550,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           <Pressable onPress={() => handleZoom(-3)} style={zoomBtn}>
             <Text style={zoomBtnText}>+</Text>
           </Pressable>
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginLeft: 4 }}>
             {orbit.distance.toFixed(0)}m
           </Text>
         </View>
