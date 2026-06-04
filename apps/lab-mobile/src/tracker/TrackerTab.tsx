@@ -20,7 +20,7 @@ import { TrackNet } from "expo-tracknet";
 import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
-import { BatterBoxOverlay, type BatterBoxOverlayHandle } from "./BatterBoxOverlay";
+import { FieldModelOverlay, type FieldModelOverlayHandle } from "../field/FieldModelOverlay";
 import { RoiOverlay, type RoiOverlayHandle } from "./RoiOverlay";
 import { type CameraPose } from "../field/batterBox";
 import { decomposeCameraPose, intrinsicsFromFov, type CameraIntrinsics } from "../field/cameraPoseDecompose";
@@ -139,7 +139,7 @@ export function TrackerTab() {
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
-  const poseOverlayRef = useRef<BatterBoxOverlayHandle>(null);
+  const poseOverlayRef = useRef<FieldModelOverlayHandle>(null);
   const roiOverlayRef = useRef<RoiOverlayHandle>(null);
   // Refs so the PanResponder (memoized) can read overlay state without re-creating.
   const showPoseOverlayRef = useRef(false);
@@ -1135,7 +1135,7 @@ export function TrackerTab() {
         />
       )}
       {showPoseOverlay && (
-        <BatterBoxOverlay
+        <FieldModelOverlay
           ref={poseOverlayRef}
           imageWidth={frame.imageWidth}
           imageHeight={frame.imageHeight}
