@@ -1,16 +1,13 @@
-// 3D field model overlay — move the model to match the video.
+// 3D field model overlay — progressive calibration.
 //
-// The user directly manipulates the 3D camera to align the model with
-// the video. Handle positions are projected from the model's empties.
+// Workflow:
+//   0 anchors → free orbit (rotate + zoom + pan)
+//   Tap handle → anchor it at its current screen position
+//   1 anchor  → drag rotates + zooms, anchor stays pinned on screen
+//   2 anchors → drag rotates around anchor–anchor axis, both stay pinned
+//   3 anchors → fully constrained, done
 //
-// Progressive constraint via selected handles:
-//   0 selected → free orbit around field center
-//   1 selected → orbit around that handle's field position
-//   2 selected → rotate around the axis between them (1 DOF)
-//   3 selected → locked orientation; drag to translate, pinch to scale
-//
-// Tap a handle to select/deselect it. Pinch always zooms.
-// "Direct manipulation" feel: drag moves the model, not the camera.
+// Model/Video toggle lets you switch which layer gestures control.
 
 import React, {
   useCallback,
@@ -60,8 +57,17 @@ export interface FieldModelOverlayHandle {
 // ── Colors ──────────────────────────────────────────────────────────────
 
 const FREE_COLOR = "rgba(0,200,255,0.9)";
-const SELECTED_COLOR = "rgba(255,120,255,0.95)";
+const ANCHOR_COLOR = "rgba(0,255,100,0.95)";
 const HANDLE_R = 6;
+
+// ── Types ───────────────────────────────────────────────────────────────
+
+interface Anchor {
+  id: string;
+  /** Screen position (normalized 0-1) where this handle was pinned. */
+  nx: number;
+  ny: number;
+}
 
 // ── Component ───────────────────────────────────────────────────────────
 
@@ -81,10 +87,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     const [handles, setHandles] = useState<HandlePoint[]>([]);
     const [loadStatus, setLoadStatus] = useState<string>("loading…");
 
-    // ── Selected handles (up to 3) ────────────────────────────────────
-    const [selected, setSelected] = useState<string[]>([]);
+    // ── Anchored handles ──────────────────────────────────────────────
+    const [anchors, setAnchors] = useState<Anchor[]>([]);
+    const anchorsRef = useRef(anchors);
+    anchorsRef.current = anchors;
 
-    // ── Control mode: gestures move the model or the video ────────────
+    // ── Control mode ──────────────────────────────────────────────────
     const [controlMode, setControlMode] = useState<"model" | "video">("model");
 
     // ── Orbit camera state ────────────────────────────────────────────
@@ -95,6 +103,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       targetX: 0,
       targetY: 8,
     });
+    const orbitRef = useRef(orbit);
+    orbitRef.current = orbit;
 
     const [projTick, setProjTick] = useState(0);
 
@@ -104,48 +114,94 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       for (const h of handles) m[h.id] = { x: h.position.x, y: h.position.y };
       return m;
     }, [handles]);
+    const fieldByIdRef = useRef(fieldById);
+    fieldByIdRef.current = fieldById;
 
-    // ── Re-target orbit center without moving the camera ─────────────
-    // Computes new azimuth/elevation/distance so the camera stays in the
-    // same world position but orbits around (newX, newY, 0).
-    const retargetOrbit = useCallback((newX: number, newY: number) => {
-      setOrbit((prev) => {
-        const { azimuth, elevation, distance, targetX, targetY } = prev;
-        const cosE = Math.cos(elevation);
-        // Current camera world position
-        const camX = targetX + distance * cosE * Math.sin(azimuth);
-        const camY = targetY - distance * cosE * Math.cos(azimuth);
-        const camZ = distance * Math.sin(elevation);
-        // Recompute orbit params from same camera position, new target
-        const dx = camX - newX;
-        const dy = camY - newY;
-        const newDist = Math.sqrt(dx * dx + dy * dy + camZ * camZ);
-        const newElev = Math.asin(Math.max(-1, Math.min(1, camZ / newDist)));
-        const groundDist = Math.sqrt(dx * dx + dy * dy);
-        const newAz = groundDist > 0.001 ? Math.atan2(dx, -dy) : azimuth;
-        return { azimuth: newAz, elevation: newElev, distance: newDist, targetX: newX, targetY: newY };
-      });
-    }, []);
+    // ── Camera helpers ────────────────────────────────────────────────
 
-    // ── Compute camera position from orbit state ──────────────────────
+    /** Compute camera world position from orbit params. */
+    function camPosFromOrbit(o: typeof orbit) {
+      const cosE = Math.cos(o.elevation);
+      return {
+        x: o.targetX + o.distance * cosE * Math.sin(o.azimuth),
+        y: o.targetY - o.distance * cosE * Math.cos(o.azimuth),
+        z: o.distance * Math.sin(o.elevation),
+      };
+    }
+
+    /** Project a field point through the camera. Returns normalized (0-1). */
+    function projectPoint(cam: THREE.PerspectiveCamera, fx: number, fy: number): { nx: number; ny: number } {
+      cam.updateMatrixWorld();
+      const v = new THREE.Vector3(fx, fy, 0).project(cam);
+      return { nx: (v.x + 1) / 2, ny: (1 - v.y) / 2 };
+    }
+
+    /** Apply orbit state to the Three.js camera. */
+    function applyCameraOrbit(cam: THREE.PerspectiveCamera, o: typeof orbit) {
+      const p = camPosFromOrbit(o);
+      cam.position.set(p.x, p.y, p.z);
+      cam.up.set(0, 0, 1);
+      cam.lookAt(o.targetX, o.targetY, 0);
+      cam.updateMatrixWorld();
+      cam.updateProjectionMatrix();
+    }
+
+    /**
+     * Solve for targetX/targetY so that a field point projects to a
+     * specific screen position, given fixed azimuth/elevation/distance.
+     * Uses Newton iteration (2-3 steps converge).
+     */
+    function solveTarget(
+      az: number, el: number, dist: number,
+      fieldPt: { x: number; y: number },
+      screenPt: { nx: number; ny: number },
+      cam: THREE.PerspectiveCamera,
+    ): { targetX: number; targetY: number } {
+      let tx = fieldPt.x, ty = fieldPt.y;
+      const cosE = Math.cos(el);
+      const offX = dist * cosE * Math.sin(az);
+      const offY = -dist * cosE * Math.cos(az);
+      const offZ = dist * Math.sin(el);
+
+      function proj(ttx: number, tty: number) {
+        cam.position.set(ttx + offX, tty + offY, offZ);
+        cam.up.set(0, 0, 1);
+        cam.lookAt(ttx, tty, 0);
+        cam.updateMatrixWorld();
+        const v = new THREE.Vector3(fieldPt.x, fieldPt.y, 0).project(cam);
+        return { nx: (v.x + 1) / 2, ny: (1 - v.y) / 2 };
+      }
+
+      for (let i = 0; i < 5; i++) {
+        const p = proj(tx, ty);
+        const ex = screenPt.nx - p.nx;
+        const ey = screenPt.ny - p.ny;
+        if (Math.abs(ex) < 0.0005 && Math.abs(ey) < 0.0005) break;
+
+        const eps = 0.01;
+        const px = proj(tx + eps, ty);
+        const py = proj(tx, ty + eps);
+        const j00 = (px.nx - p.nx) / eps, j01 = (py.nx - p.nx) / eps;
+        const j10 = (px.ny - p.ny) / eps, j11 = (py.ny - p.ny) / eps;
+        const det = j00 * j11 - j01 * j10;
+        if (Math.abs(det) < 1e-12) break;
+        tx += (j11 * ex - j01 * ey) / det;
+        ty += (-j10 * ex + j00 * ey) / det;
+      }
+
+      return { targetX: tx, targetY: ty };
+    }
+
+    // ── Update camera from orbit state ────────────────────────────────
     const updateCamera = useCallback(() => {
       const cam = cameraRef.current;
       if (!cam) return;
-      const { azimuth, elevation, distance, targetX, targetY } = orbit;
-      const cosE = Math.cos(elevation);
-      cam.position.set(
-        targetX + distance * cosE * Math.sin(azimuth),
-        targetY - distance * cosE * Math.cos(azimuth),
-        distance * Math.sin(elevation),
-      );
-      cam.up.set(0, 0, 1);
-      cam.lookAt(targetX, targetY, 0);
-      cam.updateProjectionMatrix();
+      applyCameraOrbit(cam, orbit);
     }, [orbit]);
 
     useEffect(() => { updateCamera(); }, [updateCamera]);
 
-    // ── Project model handles through Three.js camera → screen ────────
+    // ── Project handles ───────────────────────────────────────────────
     const projectedHandles = useMemo(() => {
       const cam = cameraRef.current;
       if (!cam || handles.length === 0) return {} as Record<string, { nx: number; ny: number }>;
@@ -161,21 +217,18 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [handles, orbit, projTick]);
 
-    // ── Homography from projected positions ───────────────────────────
+    // ── Homography ────────────────────────────────────────────────────
     const homography = useMemo((): HomographyFit | null => {
       const ids = Object.keys(projectedHandles);
       if (ids.length < 4) return null;
       const corr: Correspondence[] = ids.map((id) => ({
         field: fieldById[id]!,
-        image: {
-          u: projectedHandles[id]!.nx * imageWidth,
-          v: projectedHandles[id]!.ny * imageHeight,
-        },
+        image: { u: projectedHandles[id]!.nx * imageWidth, v: projectedHandles[id]!.ny * imageHeight },
       }));
       return fitHomography(corr);
     }, [projectedHandles, fieldById, imageWidth, imageHeight]);
 
-    // ── Coordinate transforms ─────────────────────────────────────────
+    // ── Screen positions ──────────────────────────────────────────────
     const imageToScreen = useCallback(
       (nx: number, ny: number) => {
         const cx = canvas.width / 2, cy = canvas.height / 2;
@@ -203,11 +256,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     // ── Touch handling ────────────────────────────────────────────────
     const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
     const lastPinchRef = useRef<number | null>(null);
-    const lastPanRef = useRef<{ x: number; y: number } | null>(null);
     const didMoveRef = useRef(false);
     const grantPosRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-    const selectedRef = useRef(selected);
-    selectedRef.current = selected;
 
     const responder = useMemo(
       () =>
@@ -218,7 +268,6 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           onPanResponderGrant: (_, gs) => {
             lastTouchRef.current = null;
             lastPinchRef.current = null;
-            lastPanRef.current = null;
             didMoveRef.current = false;
             grantPosRef.current = { x: gs.x0, y: gs.y0 };
           },
@@ -229,106 +278,116 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               touches[0]!.pageY - grantPosRef.current.y,
             ) > 5) didMoveRef.current = true;
 
+            const cam = cameraRef.current;
+            if (!cam) return;
+            const anch = anchorsRef.current;
+            const fbi = fieldByIdRef.current;
+
             if (touches.length === 2) {
-              // ── Two fingers: pinch (zoom) + pan ──
+              // ── Pinch: zoom (all modes) ──
               const t0 = touches[0]!, t1 = touches[1]!;
               const dist = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
-              const cx = (t0.pageX + t1.pageX) / 2;
-              const cy = (t0.pageY + t1.pageY) / 2;
-
-              if (lastPinchRef.current !== null && lastPanRef.current !== null) {
+              if (lastPinchRef.current !== null) {
                 const pinchDelta = dist - lastPinchRef.current;
-                const panDx = cx - lastPanRef.current.x;
-                const panDy = cy - lastPanRef.current.y;
-
-                setOrbit((prev) => ({
-                  ...prev,
-                  distance: Math.max(5, Math.min(100, prev.distance - pinchDelta * 0.1)),
-                  targetX: prev.targetX + panDx * 0.05,
-                  targetY: prev.targetY - panDy * 0.05,
-                }));
+                setOrbit((prev) => {
+                  const next = {
+                    ...prev,
+                    distance: Math.max(5, Math.min(100, prev.distance - pinchDelta * 0.1)),
+                  };
+                  // If 1 anchor, solve target to keep it pinned after zoom
+                  if (anch.length === 1) {
+                    const a = anch[0]!;
+                    const f = fbi[a.id];
+                    if (f) {
+                      const solved = solveTarget(next.azimuth, next.elevation, next.distance, f, a, cam);
+                      next.targetX = solved.targetX;
+                      next.targetY = solved.targetY;
+                    }
+                  }
+                  return next;
+                });
               }
               lastPinchRef.current = dist;
-              lastPanRef.current = { x: cx, y: cy };
               lastTouchRef.current = null;
             } else if (touches.length === 1) {
-              // ── One finger: behavior depends on selection count ──
               const t = touches[0]!;
               const cur = { x: t.pageX, y: t.pageY };
-              const sel = selectedRef.current;
 
               if (lastTouchRef.current) {
                 const dx = cur.x - lastTouchRef.current.x;
                 const dy = cur.y - lastTouchRef.current.y;
 
-                if (sel.length === 0) {
-                  // 0 selected: free orbit around field center
+                if (anch.length === 0) {
+                  // ── 0 anchors: free orbit ──
                   setOrbit((prev) => ({
                     ...prev,
                     azimuth: prev.azimuth - dx * 0.005,
                     elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
                   }));
-                } else if (sel.length === 1) {
-                  // 1 selected: orbit keeping current pan/zoom locked
-                  setOrbit((prev) => ({
-                    ...prev,
-                    azimuth: prev.azimuth - dx * 0.005,
-                    elevation: Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005)),
-                  }));
-                } else if (sel.length === 2) {
-                  // 2 selected: rotate around the axis between them
-                  const f0 = fieldById[sel[0]!];
-                  const f1 = fieldById[sel[1]!];
+                } else if (anch.length === 1) {
+                  // ── 1 anchor: rotate + solve target to keep anchor pinned ──
+                  setOrbit((prev) => {
+                    const newAz = prev.azimuth - dx * 0.005;
+                    const newEl = Math.max(0.05, Math.min(1.4, prev.elevation + dy * 0.005));
+                    const a = anch[0]!;
+                    const f = fbi[a.id];
+                    if (!f) return { ...prev, azimuth: newAz, elevation: newEl };
+                    const solved = solveTarget(newAz, newEl, prev.distance, f, a, cam);
+                    return {
+                      azimuth: newAz,
+                      elevation: newEl,
+                      distance: prev.distance,
+                      targetX: solved.targetX,
+                      targetY: solved.targetY,
+                    };
+                  });
+                } else if (anch.length >= 2) {
+                  // ── 2+ anchors: rotate around the axis between first two anchors ──
+                  const a0 = anch[0]!, a1 = anch[1]!;
+                  const f0 = fbi[a0.id], f1 = fbi[a1.id];
                   if (f0 && f1) {
-                    // Axis direction in screen space (approximate)
-                    const s0 = screenHandlesRef.current[sel[0]!];
-                    const s1 = screenHandlesRef.current[sel[1]!];
+                    // Axis direction on screen
+                    const s0 = screenHandlesRef.current[a0.id];
+                    const s1 = screenHandlesRef.current[a1.id];
                     if (s0 && s1) {
-                      const axisX = s1.x - s0.x;
-                      const axisY = s1.y - s0.y;
+                      const axisX = s1.x - s0.x, axisY = s1.y - s0.y;
                       const axisLen = Math.hypot(axisX, axisY);
                       if (axisLen > 1) {
-                        // Component of drag perpendicular to axis
                         const perpComponent = (-dx * axisY + dy * axisX) / axisLen;
-                        // Axis midpoint as orbit target
-                        const midX = (f0.x + f1.x) / 2;
-                        const midY = (f0.y + f1.y) / 2;
-                        // Axis direction in field coords
-                        const fAxisX = f1.x - f0.x;
-                        const fAxisY = f1.y - f0.y;
-                        const fAxisAngle = Math.atan2(fAxisY, fAxisX);
-                        // Rotate perpendicular to the field axis, keep pan/zoom locked
-                        setOrbit((prev) => ({
-                          ...prev,
-                          azimuth: prev.azimuth + Math.cos(fAxisAngle - prev.azimuth) * perpComponent * 0.003,
-                          elevation: Math.max(0.05, Math.min(1.4,
-                            prev.elevation + Math.sin(fAxisAngle - prev.azimuth) * perpComponent * 0.003)),
-                        }));
+                        const fAxisAngle = Math.atan2(f1.y - f0.y, f1.x - f0.x);
+
+                        setOrbit((prev) => {
+                          const newAz = prev.azimuth + Math.cos(fAxisAngle - prev.azimuth) * perpComponent * 0.003;
+                          const newEl = Math.max(0.05, Math.min(1.4,
+                            prev.elevation + Math.sin(fAxisAngle - prev.azimuth) * perpComponent * 0.003));
+                          // Solve target to keep first anchor pinned
+                          const solved = solveTarget(newAz, newEl, prev.distance, f0, a0, cam);
+                          return {
+                            azimuth: newAz,
+                            elevation: newEl,
+                            distance: prev.distance,
+                            targetX: solved.targetX,
+                            targetY: solved.targetY,
+                          };
+                        });
                       }
                     }
                   }
-                } else {
-                  // 3 selected: locked orientation, translate only
-                  setOrbit((prev) => ({
-                    ...prev,
-                    targetX: prev.targetX + dx * 0.05,
-                    targetY: prev.targetY - dy * 0.05,
-                  }));
                 }
               }
               lastTouchRef.current = cur;
             }
           },
           onPanResponderRelease: (_, gs) => {
-            // Tap (no significant movement): toggle handle selection
+            // ── Tap: toggle anchor ──
             if (!didMoveRef.current) {
               const lx = gs.x0 - canvasPageOffset.x;
               const ly = gs.y0 - canvasPageOffset.y;
               const sh = screenHandlesRef.current;
+              const proj = projectedHandles;
 
-              // Find nearest handle within tap radius
               let nearId = "";
-              let nearDist = 30; // max tap distance in pixels
+              let nearDist = 30;
               for (const h of handles) {
                 const s = sh[h.id];
                 if (!s) continue;
@@ -337,47 +396,35 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               }
 
               if (nearId) {
-                setSelected((prev) => {
-                  let next: string[];
-                  if (prev.includes(nearId)) {
-                    next = prev.filter((id) => id !== nearId);
-                  } else if (prev.length >= 3) {
-                    next = [...prev.slice(1), nearId];
-                  } else {
-                    next = [...prev, nearId];
+                setAnchors((prev) => {
+                  if (prev.some((a) => a.id === nearId)) {
+                    // Deanchor
+                    return prev.filter((a) => a.id !== nearId);
                   }
-                  // Re-target orbit to the selected handle(s) without jumping
-                  if (next.length === 1) {
-                    const f = fieldById[next[0]!];
-                    if (f) retargetOrbit(f.x, f.y);
-                  } else if (next.length === 2) {
-                    const f0 = fieldById[next[0]!];
-                    const f1 = fieldById[next[1]!];
-                    if (f0 && f1) retargetOrbit((f0.x + f1.x) / 2, (f0.y + f1.y) / 2);
-                  }
-                  return next;
+                  if (prev.length >= 3) return prev; // fully constrained
+                  // Anchor at current projected screen position
+                  const p = proj[nearId];
+                  if (!p) return prev;
+                  return [...prev, { id: nearId, nx: p.nx, ny: p.ny }];
                 });
-              } else {
-                setSelected([]);
               }
             }
 
             lastTouchRef.current = null;
             lastPinchRef.current = null;
-            lastPanRef.current = null;
             setProjTick((t) => t + 1);
           },
         }),
-      [canvasPageOffset, fieldById, handles],
+      [canvasPageOffset, handles, projectedHandles],
     );
 
     // ── Mode label ────────────────────────────────────────────────────
     const modeLabel = useMemo(() => {
-      if (selected.length === 0) return "drag to orbit";
-      if (selected.length === 1) return `orbit around ${selected[0]}`;
-      if (selected.length === 2) return `rotate on ${selected[0]}–${selected[1]} axis`;
-      return "drag to translate";
-    }, [selected]);
+      if (anchors.length === 0) return "drag to orbit · tap handle to anchor";
+      if (anchors.length === 1) return `${anchors[0]!.id} pinned · drag to rotate`;
+      if (anchors.length === 2) return `2 pinned · drag to tilt`;
+      return "3 pinned · calibrated";
+    }, [anchors]);
 
     // ── Imperative handle ─────────────────────────────────────────────
     useImperativeHandle(
@@ -387,16 +434,16 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           homography ? { fit: homography, sides: ["left", "right"] } : null,
         reset: () => {
           setOrbit({ azimuth: 0, elevation: 0.25, distance: 25, targetX: 0, targetY: 8 });
-          setSelected([]);
+          setAnchors([]);
         },
-        anchoredCount: () => Object.keys(projectedHandles).length,
+        anchoredCount: () => anchors.length,
         getState: () => ({
           positions: projectedHandles,
-          anchored: Object.fromEntries(handles.map((h) => [h.id, true])),
+          anchored: Object.fromEntries(anchors.map((a) => [a.id, true])),
         }),
         setState: () => {},
       }),
-      [homography, projectedHandles, handles],
+      [homography, projectedHandles, anchors],
     );
 
     // ── GL context setup ──────────────────────────────────────────────
@@ -470,6 +517,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       rendererRef.current?.dispose();
     }, []);
 
+    // ── Anchor set for quick lookup ───────────────────────────────────
+    const anchorSet = useMemo(() => new Set(anchors.map((a) => a.id)), [anchors]);
+
     // ── Render ────────────────────────────────────────────────────────
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -479,18 +529,18 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           pointerEvents="none"
         />
 
-        {/* Projected handle dots */}
+        {/* Handle dots */}
         {handles.map((h) => {
           const s = screenHandles[h.id];
           if (!s) return null;
-          const isSel = selected.includes(h.id);
-          const color = isSel ? SELECTED_COLOR : FREE_COLOR;
+          const isAnch = anchorSet.has(h.id);
           return (
             <View key={h.id} pointerEvents="none" style={{
               position: "absolute", left: s.x - HANDLE_R, top: s.y - HANDLE_R,
               width: HANDLE_R * 2, height: HANDLE_R * 2, borderRadius: HANDLE_R,
-              borderWidth: isSel ? 2.5 : 1.5, borderColor: color,
-              backgroundColor: isSel ? "rgba(255,120,255,0.25)" : "rgba(0,200,255,0.15)",
+              borderWidth: isAnch ? 2.5 : 1.5,
+              borderColor: isAnch ? ANCHOR_COLOR : FREE_COLOR,
+              backgroundColor: isAnch ? "rgba(0,255,100,0.25)" : "rgba(0,200,255,0.15)",
             }} />
           );
         })}
@@ -499,12 +549,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         {handles.map((h) => {
           const s = screenHandles[h.id];
           if (!s) return null;
-          const isSel = selected.includes(h.id);
+          const isAnch = anchorSet.has(h.id);
           return (
             <Text key={`lbl-${h.id}`} pointerEvents="none" style={{
               position: "absolute", left: s.x - 30, top: s.y - HANDLE_R - 12,
               width: 60, textAlign: "center",
-              color: isSel ? SELECTED_COLOR : FREE_COLOR,
+              color: isAnch ? ANCHOR_COLOR : FREE_COLOR,
               fontSize: 7, fontWeight: "600",
             }}>{h.id}</Text>
           );
@@ -515,7 +565,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           position: "absolute", left: 10, top: 8,
           color: "rgba(0,200,255,0.9)", fontSize: 11, fontWeight: "600",
         }}>
-          {loadStatus} · {modeLabel}
+          {anchors.length}/3 · {modeLabel}
         </Text>
 
         {/* Toggle: Model / Video */}
