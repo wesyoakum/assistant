@@ -1,14 +1,14 @@
-// 3D field model overlay with integrated calibration handles.
+// 3D field model overlay — move the model to match the video.
 //
-// Replaces BatterBoxOverlay entirely: the Blender GLB provides both the
-// rendered field geometry AND the calibration handle positions (empties).
-// Touch-draggable handle dots are positioned absolutely over the GLView.
+// Instead of dragging 2D handles and trying to sync the 3D camera,
+// the user directly manipulates the 3D camera (orbit, pan, zoom) to
+// align the model with the video. Handle positions are automatically
+// computed by projecting the model's empties through the Three.js camera.
 //
-// Handle states:
-//   Free (white)     — not anchored, moves with rigid-body transform
-//   Dragging (yellow) — actively being moved by finger
-//   Anchored (green) — locked in place, used for homography solve
-//   Selected (purple) — anchored handle tapped; shows nudge controls
+// Touch controls:
+//   1 finger drag  → orbit (rotate camera around field center)
+//   2 finger pinch → zoom (move camera closer/further)
+//   2 finger drag  → pan (shift the orbit target on the ground)
 
 import React, {
   useCallback,
@@ -19,7 +19,7 @@ import React, {
   useState,
   forwardRef,
 } from "react";
-import { StyleSheet, View, PanResponder, Text, Pressable } from "react-native";
+import { StyleSheet, View, PanResponder, Text } from "react-native";
 import { GLView, type ExpoWebGLRenderingContext } from "expo-gl";
 import { Renderer } from "expo-three";
 import * as THREE from "three";
@@ -30,7 +30,6 @@ import {
   type HomographyFit,
 } from "./videoHomography";
 import { type CameraPose } from "./batterBox";
-import { intrinsicsFromFov } from "./cameraPoseDecompose";
 
 // ── Public interface ────────────────────────────────────────────────────
 
@@ -58,11 +57,8 @@ export interface FieldModelOverlayHandle {
 
 // ── Colors ──────────────────────────────────────────────────────────────
 
-const FREE_COLOR = "rgba(255,255,255,0.6)";
-const DRAGGING_COLOR = "rgba(255,220,0,0.95)";
-const ANCHORED_COLOR = "rgba(0,255,100,0.95)";
-const SELECTED_COLOR = "rgba(180,100,255,0.95)";
-const HANDLE_R = 8;
+const HANDLE_COLOR = "rgba(0,200,255,0.9)";
+const HANDLE_R = 6;
 
 // ── Component ───────────────────────────────────────────────────────────
 
@@ -77,137 +73,90 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
     const modelRef = useRef<FieldModel | null>(null);
     const rafRef = useRef<number>(0);
-    const glRef = useRef<ExpoWebGLRenderingContext | null>(null);
 
-    // ── Calibration state ─────────────────────────────────────────────
-    const [positions, setPositions] = useState<Record<string, { nx: number; ny: number }>>({});
-    const [anchored, setAnchored] = useState<Record<string, boolean>>({});
-    const [draggingId, setDraggingId] = useState<string | null>(null);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    // ── Model handles ─────────────────────────────────────────────────
     const [handles, setHandles] = useState<HandlePoint[]>([]);
     const [loadStatus, setLoadStatus] = useState<string>("loading…");
 
-    const posRef = useRef(positions);
-    posRef.current = positions;
-    const anchoredRef = useRef(anchored);
-    anchoredRef.current = anchored;
-    const handlesRef = useRef(handles);
-    handlesRef.current = handles;
-    const selectedRef = useRef(selectedId);
-    selectedRef.current = selectedId;
+    // ── Orbit camera state ────────────────────────────────────────────
+    // azimuth: horizontal angle (0 = looking from -Y toward +Y, i.e. behind plate)
+    // elevation: angle above ground (radians)
+    // distance: camera distance from target
+    // targetX, targetY: orbit center on the ground plane
+    const [orbit, setOrbit] = useState({
+      azimuth: 0,       // behind plate, looking toward outfield
+      elevation: 0.25,  // ~15° above ground
+      distance: 25,     // meters from target
+      targetX: 0,
+      targetY: 8,       // look at area between plate and pitcher
+    });
 
+    // Trigger re-projection when orbit changes.
+    const [projTick, setProjTick] = useState(0);
+
+    // ── Compute camera position from orbit state ──────────────────────
+    const updateCamera = useCallback(() => {
+      const cam = cameraRef.current;
+      if (!cam) return;
+      const { azimuth, elevation, distance, targetX, targetY } = orbit;
+      const cosE = Math.cos(elevation);
+      cam.position.set(
+        targetX + distance * cosE * Math.sin(azimuth),
+        targetY - distance * cosE * Math.cos(azimuth),
+        distance * Math.sin(elevation),
+      );
+      cam.up.set(0, 0, 1);
+      cam.lookAt(targetX, targetY, 0);
+      cam.updateProjectionMatrix();
+    }, [orbit]);
+
+    useEffect(() => { updateCamera(); }, [updateCamera]);
+
+    // ── Project model handles through Three.js camera → screen ────────
+    const projectedHandles = useMemo(() => {
+      const cam = cameraRef.current;
+      if (!cam || handles.length === 0) return {} as Record<string, { nx: number; ny: number }>;
+
+      // Make sure camera matrices are current.
+      cam.updateMatrixWorld();
+      cam.updateProjectionMatrix();
+
+      const result: Record<string, { nx: number; ny: number }> = {};
+      for (const h of handles) {
+        const v = new THREE.Vector3(h.position.x, h.position.y, h.position.z);
+        v.project(cam);
+        // NDC [-1,1] → normalized image [0,1] (Y flipped for screen coords)
+        result[h.id] = {
+          nx: (v.x + 1) / 2,
+          ny: (1 - v.y) / 2,
+        };
+      }
+      return result;
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [handles, orbit, projTick]);
+
+    // ── Field coord lookup ────────────────────────────────────────────
     const fieldById = useMemo(() => {
       const m: Record<string, { x: number; y: number }> = {};
       for (const h of handles) m[h.id] = { x: h.position.x, y: h.position.y };
       return m;
     }, [handles]);
 
-    const anchoredIds = useMemo(
-      () => handles.filter((h) => anchored[h.id]).map((h) => h.id),
-      [handles, anchored],
-    );
-    const anchorCount = anchoredIds.length;
-
-    // ── Homography from anchored handles ──────────────────────────────
+    // ── Homography from projected positions ───────────────────────────
     const homography = useMemo((): HomographyFit | null => {
-      if (anchorCount < 4) return null;
-      const corr: Correspondence[] = anchoredIds.map((id) => ({
+      const ids = Object.keys(projectedHandles);
+      if (ids.length < 4) return null;
+      const corr: Correspondence[] = ids.map((id) => ({
         field: fieldById[id]!,
-        image: { u: positions[id]!.nx * imageWidth, v: positions[id]!.ny * imageHeight },
+        image: {
+          u: projectedHandles[id]!.nx * imageWidth,
+          v: projectedHandles[id]!.ny * imageHeight,
+        },
       }));
       return fitHomography(corr);
-    }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight, fieldById]);
+    }, [projectedHandles, fieldById, imageWidth, imageHeight]);
 
-    // ── Sync Three.js camera from ALL handle positions ────────────────
-    // Build the projection matrix DIRECTLY from the homography, bypassing
-    // camera pose decomposition entirely. This avoids all the axis
-    // convention mismatches between CV, Three.js, and our field coords.
-    //
-    // The homography H maps field (x,y) → image (u,v). We extend it to
-    // a full 3x4 matrix that also handles Z (height above ground) using
-    // the third rotation column r3 = r1 × r2 from the decomposition.
-    // Then we convert to a 4x4 OpenGL clip-space matrix.
-    useEffect(() => {
-      const cam = cameraRef.current;
-      // Only sync the 3D camera once we have 4+ ANCHORED handles.
-      // Before that, keep the default camera so the model doesn't flip.
-      if (!cam || anchorCount < 4) return;
-
-      // Use only anchored handles for the homography (they're the user's
-      // confirmed correspondences; free handles are just predictions).
-      const corr: Correspondence[] = [];
-      for (const id of anchoredIds) {
-        const p = positions[id];
-        const f = fieldById[id];
-        if (!p || !f) continue;
-        corr.push({
-          field: f,
-          image: { u: p.nx * imageWidth, v: p.ny * imageHeight },
-        });
-      }
-      if (corr.length < 4) return;
-
-      const fit = fitHomography(corr);
-      if (!fit) return;
-      const H = fit.H;
-
-      // Decompose just enough to get r3 for the Z column.
-      const hFovDeg = 69;
-      const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
-      const ifx = 1 / K.fx, ify = 1 / K.fy;
-      const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
-      const M = mul3x3(Kinv, H);
-      const c0 = [M[0]!, M[3]!, M[6]!];
-      let lambda = Math.sqrt(c0[0] * c0[0] + c0[1] * c0[1] + c0[2] * c0[2]);
-      if (lambda < 1e-10) return;
-      // Sign: ensure positive depth for the origin.
-      if (M[8]! / lambda < 0) lambda = -lambda;
-
-      const r1 = c0.map((v) => v / lambda);
-      const c1 = [M[1]!, M[4]!, M[7]!];
-      const r2 = c1.map((v) => v / lambda);
-      const r3 = [
-        r1[1]! * r2[2]! - r1[2]! * r2[1]!,
-        r1[2]! * r2[0]! - r1[0]! * r2[2]!,
-        r1[0]! * r2[1]! - r1[1]! * r2[0]!,
-      ];
-
-      // Z column in image space: lambda * K * r3
-      // This gives the image-pixel response to height (z) in the same
-      // scale as the homography columns.
-      const Kz0 = lambda * (K.fx * r3[0]! + K.cx * r3[2]!);
-      const Kz1 = lambda * (K.fy * r3[1]! + K.cy * r3[2]!);
-      const Kz2 = lambda * r3[2]!;
-
-      // Full 3x4 projection: maps (x, y, z, 1) → (u·w, v·w, w)
-      // P = [H0  H1  Kz0  H2]
-      //     [H3  H4  Kz1  H5]
-      //     [H6  H7  Kz2  H8]
-      const P00 = H[0]!, P01 = H[1]!, P02 = Kz0, P03 = H[2]!;
-      const P10 = H[3]!, P11 = H[4]!, P12 = Kz1, P13 = H[5]!;
-      const P20 = H[6]!, P21 = H[7]!, P22 = Kz2, P23 = H[8]!;
-
-      // Convert to OpenGL 4x4 clip-space matrix.
-      // NDC_x = 2·(u/w)/W - 1 → clip_x = 2·(u·w)/(W) - w = (2·P_row0/W - P_row2) · [x,y,z,1]
-      // NDC_y = 1 - 2·(v/w)/H → clip_y = w - 2·(v·w)/H = (P_row2 - 2·P_row1/H) · [x,y,z,1]
-      // clip_w = P_row2 · [x,y,z,1]
-      const W = imageWidth, Hi = imageHeight;
-
-      cam.matrixAutoUpdate = false;
-      cam.matrix.identity();
-      cam.matrixWorld.identity();
-      cam.matrixWorldInverse.identity();
-
-      cam.projectionMatrix.set(
-        2*P00/W - P20,   2*P01/W - P21,   2*P02/W - P22,   2*P03/W - P23,
-        P20 - 2*P10/Hi,  P21 - 2*P11/Hi,  P22 - 2*P12/Hi,  P23 - 2*P13/Hi,
-        -P20 * 0.001,    -P21 * 0.001,     -P22 * 0.001,     -P23 * 0.001,
-        P20,              P21,              P22,              P23,
-      );
-      cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
-    }, [positions, anchorCount, anchoredIds, fieldById, imageWidth, imageHeight, canvas]);
-
-    // ── Coordinate transforms ─────────────────────────────────────────
+    // ── Coordinate transforms (for rendering dots on screen) ──────────
     const imageToScreen = useCallback(
       (nx: number, ny: number) => {
         const cx = canvas.width / 2, cy = canvas.height / 2;
@@ -219,166 +168,82 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       [canvas, vp],
     );
 
-    const screenToImage = useCallback(
-      (sx: number, sy: number) => {
-        const cx = canvas.width / 2, cy = canvas.height / 2;
-        const ix = (sx - cx - vp.tx) / vp.scale + cx;
-        const iy = (sy - cy - vp.ty) / vp.scale + cy;
-        return {
-          nx: Math.max(0, Math.min(1, ix / canvas.width)),
-          ny: Math.max(0, Math.min(1, iy / canvas.height)),
-        };
-      },
-      [canvas, vp],
-    );
-
     const screenHandles = useMemo(() => {
       const result: Record<string, { x: number; y: number }> = {};
       for (const h of handles) {
-        const pos = positions[h.id] ?? { nx: 0.5, ny: 0.5 };
+        const pos = projectedHandles[h.id];
+        if (!pos) continue;
         result[h.id] = imageToScreen(pos.nx, pos.ny);
       }
       return result;
-    }, [handles, positions, imageToScreen]);
+    }, [handles, projectedHandles, imageToScreen]);
 
-    const screenHandlesRef = useRef(screenHandles);
-    screenHandlesRef.current = screenHandles;
-
-    // ── Nudge a selected handle by pixel increments ───────────────────
-    const nudge = useCallback((dx: number, dy: number) => {
-      const id = selectedRef.current;
-      if (!id) return;
-      setPositions((prev) => {
-        const p = prev[id];
-        if (!p) return prev;
-        return {
-          ...prev,
-          [id]: {
-            nx: p.nx + dx / imageWidth,
-            ny: p.ny + dy / imageHeight,
-          },
-        };
-      });
-    }, [imageWidth, imageHeight]);
-
-    // ── Touch handling ────────────────────────────────────────────────
-    type Drag = { id: string; offset: { dnx: number; dny: number } };
-    const dragRef = useRef<Drag | null>(null);
-    const didMoveRef = useRef(false);
+    // ── Touch handling: orbit controls ────────────────────────────────
+    const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
+    const lastPinchRef = useRef<number | null>(null);
+    const lastPanRef = useRef<{ x: number; y: number } | null>(null);
 
     const responder = useMemo(
       () =>
         PanResponder.create({
           onStartShouldSetPanResponder: () => true,
           onMoveShouldSetPanResponder: () => true,
-          onPanResponderTerminationRequest: () => true,
-          onPanResponderGrant: (_, gs) => {
-            didMoveRef.current = false;
-            const lx = gs.x0 - canvasPageOffset.x;
-            const ly = gs.y0 - canvasPageOffset.y;
-            const touchImg = screenToImage(lx, ly);
-            const sh = screenHandlesRef.current;
-            const hs = handlesRef.current;
-
-            let nearId = hs[0]?.id ?? "";
-            let nearDist = Infinity;
-            for (const h of hs) {
-              const s = sh[h.id];
-              if (!s) continue;
-              const d = Math.hypot(lx - s.x, ly - s.y);
-              if (d < nearDist) { nearDist = d; nearId = h.id; }
-            }
-
-            const handlePos = posRef.current[nearId] ?? { nx: 0.5, ny: 0.5 };
-            dragRef.current = {
-              id: nearId,
-              offset: { dnx: handlePos.nx - touchImg.nx, dny: handlePos.ny - touchImg.ny },
-            };
-            setDraggingId(nearId);
-            setSelectedId(null); // clear selection when starting a drag
+          onPanResponderTerminationRequest: () => false,
+          onPanResponderGrant: () => {
+            lastTouchRef.current = null;
+            lastPinchRef.current = null;
+            lastPanRef.current = null;
           },
-          onPanResponderMove: (_, gs) => {
-            const drag = dragRef.current;
-            if (!drag) return;
-            if (Math.hypot(gs.dx, gs.dy) > 3) didMoveRef.current = true;
-            const lx = gs.moveX - canvasPageOffset.x;
-            const ly = gs.moveY - canvasPageOffset.y;
-            const curImg = screenToImage(lx, ly);
-            const newPos = {
-              nx: curImg.nx + drag.offset.dnx,
-              ny: curImg.ny + drag.offset.dny,
-            };
+          onPanResponderMove: (e) => {
+            const touches = e.nativeEvent.touches;
+            if (touches.length === 2) {
+              // Two fingers: pinch (zoom) + pan
+              const t0 = touches[0]!, t1 = touches[1]!;
+              const dist = Math.hypot(t0.pageX - t1.pageX, t0.pageY - t1.pageY);
+              const cx = (t0.pageX + t1.pageX) / 2;
+              const cy = (t0.pageY + t1.pageY) / 2;
 
-            const anchorId = drag.id === "plate_apex"
-              ? anchoredIds[0] || "2B"
-              : "plate_apex";
-            const anchorField = fieldById[anchorId];
-            const dragField = fieldById[drag.id];
+              if (lastPinchRef.current !== null && lastPanRef.current !== null) {
+                const pinchDelta = dist - lastPinchRef.current;
+                const panDx = cx - lastPanRef.current.x;
+                const panDy = cy - lastPanRef.current.y;
 
-            setPositions((prev) => {
-              const anchorImg = prev[anchorId];
-              if (!anchorImg || !anchorField || !dragField)
-                return { ...prev, [drag.id]: newPos };
-
-              const ffx = dragField.x - anchorField.x;
-              const ffy = dragField.y - anchorField.y;
-              const fDist = Math.hypot(ffx, ffy);
-              if (fDist < 1e-6) return { ...prev, [drag.id]: newPos };
-
-              const iix = newPos.nx - anchorImg.nx;
-              const iiy = newPos.ny - anchorImg.ny;
-              const iDist = Math.hypot(iix, iiy);
-              if (iDist < 1e-6) return { ...prev, [drag.id]: newPos };
-
-              const scale = iDist / fDist;
-              const rot = Math.atan2(iiy, iix) - Math.atan2(ffy, ffx);
-              const cosR = Math.cos(rot) * scale;
-              const sinR = Math.sin(rot) * scale;
-
-              // Anchored handles stay fixed. Free handles get their exact
-              // rigid-body positions so collinearity is preserved.
-              const next: Record<string, { nx: number; ny: number }> = {};
-              for (const h of handlesRef.current) {
-                if (h.id === anchorId) {
-                  next[h.id] = anchorImg;
-                } else if (h.id === drag.id) {
-                  next[h.id] = newPos;
-                } else if (anchoredRef.current[h.id]) {
-                  // Anchored handles stay put.
-                  next[h.id] = prev[h.id]!;
-                } else {
-                  // Free handles: apply similarity transform.
-                  const fx = fieldById[h.id]!.x - anchorField.x;
-                  const fy = fieldById[h.id]!.y - anchorField.y;
-                  next[h.id] = {
-                    nx: anchorImg.nx + cosR * fx - sinR * fy,
-                    ny: anchorImg.ny + sinR * fx + cosR * fy,
-                  };
-                }
+                setOrbit((prev) => ({
+                  ...prev,
+                  // Pinch: zoom
+                  distance: Math.max(5, Math.min(100, prev.distance - pinchDelta * 0.1)),
+                  // Pan: shift target
+                  targetX: prev.targetX - panDx * 0.05,
+                  targetY: prev.targetY + panDy * 0.05,
+                }));
               }
-              return next;
-            });
+              lastPinchRef.current = dist;
+              lastPanRef.current = { x: cx, y: cy };
+              lastTouchRef.current = null; // don't orbit during pinch
+            } else if (touches.length === 1) {
+              // One finger: orbit
+              const t = touches[0]!;
+              const cur = { x: t.pageX, y: t.pageY };
+              if (lastTouchRef.current) {
+                const dx = cur.x - lastTouchRef.current.x;
+                const dy = cur.y - lastTouchRef.current.y;
+                setOrbit((prev) => ({
+                  ...prev,
+                  azimuth: prev.azimuth + dx * 0.005,
+                  elevation: Math.max(0.05, Math.min(1.4, prev.elevation - dy * 0.005)),
+                }));
+              }
+              lastTouchRef.current = cur;
+            }
           },
           onPanResponderRelease: () => {
-            const drag = dragRef.current;
-            if (drag) {
-              if (!didMoveRef.current && anchoredRef.current[drag.id]) {
-                // Tap on anchored handle → select it (purple).
-                setSelectedId(drag.id);
-              } else if (didMoveRef.current) {
-                // Dragged → anchor.
-                setAnchored((prev) => ({ ...prev, [drag.id]: true }));
-              }
-            }
-            setDraggingId(null);
-            dragRef.current = null;
-          },
-          onPanResponderTerminate: () => {
-            setDraggingId(null);
-            dragRef.current = null;
+            lastTouchRef.current = null;
+            lastPinchRef.current = null;
+            lastPanRef.current = null;
+            setProjTick((t) => t + 1);
           },
         }),
-      [canvasPageOffset, screenToImage, anchoredIds, fieldById],
+      [],
     );
 
     // ── Imperative handle ─────────────────────────────────────────────
@@ -388,63 +253,24 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         solve: (): CameraPose | null =>
           homography ? { fit: homography, sides: ["left", "right"] } : null,
         reset: () => {
-          initDefaultPositions(handlesRef.current, fieldById);
-          setAnchored({});
-          setDraggingId(null);
-          setSelectedId(null);
+          setOrbit({
+            azimuth: 0, elevation: 0.25, distance: 25,
+            targetX: 0, targetY: 8,
+          });
         },
-        anchoredCount: () => anchorCount,
-        getState: () => ({ positions, anchored }),
-        setState: (s) => { setPositions(s.positions); setAnchored(s.anchored); },
+        anchoredCount: () => Object.keys(projectedHandles).length,
+        getState: () => ({
+          positions: projectedHandles,
+          anchored: Object.fromEntries(handles.map((h) => [h.id, true])),
+        }),
+        setState: () => {}, // Orbit-based: no external state to restore for now
       }),
-      [homography, anchorCount, positions, anchored, fieldById],
+      [homography, projectedHandles, handles],
     );
-
-    function initDefaultPositions(
-      hs: HandlePoint[],
-      fById: Record<string, { x: number; y: number }>,
-    ) {
-      // Virtual camera behind the plate, elevated, looking toward outfield.
-      const cam = { x: 2, y: -10, z: 3 };
-      const focus = { x: 0, y: 15, z: 0 };
-      const hFov = 69;
-      const fwd = [focus.x - cam.x, focus.y - cam.y, focus.z - cam.z];
-      const fLen = Math.hypot(fwd[0]!, fwd[1]!, fwd[2]!);
-      fwd[0]! /= fLen; fwd[1]! /= fLen; fwd[2]! /= fLen;
-      const up = [0, 0, 1];
-      const right = [
-        fwd[1]! * up[2]! - fwd[2]! * up[1]!,
-        fwd[2]! * up[0]! - fwd[0]! * up[2]!,
-        fwd[0]! * up[1]! - fwd[1]! * up[0]!,
-      ];
-      const rLen = Math.hypot(right[0]!, right[1]!, right[2]!);
-      right[0]! /= rLen; right[1]! /= rLen; right[2]! /= rLen;
-      const camUp = [
-        right[1]! * fwd[2]! - right[2]! * fwd[1]!,
-        right[2]! * fwd[0]! - right[0]! * fwd[2]!,
-        right[0]! * fwd[1]! - right[1]! * fwd[0]!,
-      ];
-      const fx = 0.5 / Math.tan(((hFov * Math.PI) / 180) / 2);
-
-      const result: Record<string, { nx: number; ny: number }> = {};
-      for (const h of hs) {
-        const f = fById[h.id];
-        if (!f) continue;
-        const dx = f.x - cam.x, dy = f.y - cam.y, dz = 0 - cam.z;
-        const cx2 = right[0]! * dx + right[1]! * dy + right[2]! * dz;
-        const cy2 = camUp[0]! * dx + camUp[1]! * dy + camUp[2]! * dz;
-        const cz2 = fwd[0]! * dx + fwd[1]! * dy + fwd[2]! * dz;
-        if (cz2 < 0.01) { result[h.id] = { nx: 0.5, ny: 0.5 }; continue; }
-        result[h.id] = { nx: 0.5 + fx * (cx2 / cz2), ny: 0.5 - fx * (cy2 / cz2) };
-      }
-      setPositions(result);
-    }
 
     // ── GL context setup ──────────────────────────────────────────────
     const onContextCreate = useCallback(
       async (gl: ExpoWebGLRenderingContext) => {
-        glRef.current = gl;
-
         const renderer = new Renderer({ gl }) as unknown as THREE.WebGLRenderer;
         renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
         renderer.setClearColor(0x000000, 0);
@@ -454,11 +280,11 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         sceneRef.current = scene;
 
         const camera = new THREE.PerspectiveCamera(
-          60, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, 500,
+          50, gl.drawingBufferWidth / gl.drawingBufferHeight, 0.1, 500,
         );
         camera.up.set(0, 0, 1);
-        camera.position.set(0, -15, 5);
-        camera.lookAt(0, 10, 0);
+        camera.position.set(0, -25, 7);
+        camera.lookAt(0, 8, 0);
         cameraRef.current = camera;
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -485,7 +311,6 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           setLoadStatus(`${model.handles.length} handles`);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          console.warn("[FieldModelOverlay] GLB failed:", msg);
           setLoadStatus(`GLB failed: ${msg.slice(0, 60)}`);
         }
 
@@ -495,9 +320,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         }
 
         setHandles(loadedHandles);
-        const fById: Record<string, { x: number; y: number }> = {};
-        for (const h of loadedHandles) fById[h.id] = { x: h.position.x, y: h.position.y };
-        initDefaultPositions(loadedHandles, fById);
+        setProjTick(1); // trigger initial projection
 
         const render = () => {
           rafRef.current = requestAnimationFrame(render);
@@ -516,14 +339,6 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       rendererRef.current?.dispose();
     }, []);
 
-    // ── Handle color helper ───────────────────────────────────────────
-    function handleColor(id: string): { border: string; bg: string } {
-      if (id === draggingId) return { border: DRAGGING_COLOR, bg: "rgba(255,220,0,0.35)" };
-      if (id === selectedId) return { border: SELECTED_COLOR, bg: "rgba(180,100,255,0.3)" };
-      if (anchored[id]) return { border: ANCHORED_COLOR, bg: "rgba(0,255,100,0.25)" };
-      return { border: FREE_COLOR, bg: "rgba(255,255,255,0.08)" };
-    }
-
     // ── Render ────────────────────────────────────────────────────────
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -533,16 +348,16 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           pointerEvents="none"
         />
 
-        {/* Handle dots */}
+        {/* Projected handle dots */}
         {handles.map((h) => {
           const s = screenHandles[h.id];
           if (!s) return null;
-          const { border, bg } = handleColor(h.id);
           return (
             <View key={h.id} pointerEvents="none" style={{
               position: "absolute", left: s.x - HANDLE_R, top: s.y - HANDLE_R,
               width: HANDLE_R * 2, height: HANDLE_R * 2, borderRadius: HANDLE_R,
-              borderWidth: 2, borderColor: border, backgroundColor: bg,
+              borderWidth: 1.5, borderColor: HANDLE_COLOR,
+              backgroundColor: "rgba(0,200,255,0.15)",
             }} />
           );
         })}
@@ -551,99 +366,31 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         {handles.map((h) => {
           const s = screenHandles[h.id];
           if (!s) return null;
-          const { border } = handleColor(h.id);
           return (
             <Text key={`lbl-${h.id}`} pointerEvents="none" style={{
-              position: "absolute", left: s.x - 30, top: s.y - HANDLE_R - 14,
-              width: 60, textAlign: "center", color: border, fontSize: 7, fontWeight: "600",
+              position: "absolute", left: s.x - 30, top: s.y - HANDLE_R - 12,
+              width: 60, textAlign: "center", color: HANDLE_COLOR,
+              fontSize: 7, fontWeight: "600",
             }}>{h.id}</Text>
           );
         })}
 
-        {/* Status text */}
+        {/* Status */}
         <Text pointerEvents="none" style={{
           position: "absolute", left: 10, top: 8,
-          color: anchorCount >= 4 ? ANCHORED_COLOR : "rgba(255,200,0,0.9)",
-          fontSize: 11, fontWeight: "600",
+          color: "rgba(0,200,255,0.9)", fontSize: 11, fontWeight: "600",
         }}>
-          {anchorCount >= 4 && homography
-            ? `${anchorCount} anchored · RMS ${homography.rmsPx.toFixed(1)}px`
-            : `${anchorCount}/4 anchored · ${loadStatus}`}
+          {loadStatus} · drag to orbit · pinch to zoom
         </Text>
 
-        {/* Nudge controls for selected (purple) handle */}
-        {selectedId && (() => {
-          const s = screenHandles[selectedId];
-          if (!s) return null;
-          const btnSize = 32;
-          const gap = 4;
-          return (
-            <View pointerEvents="box-none" style={{
-              position: "absolute", left: s.x - btnSize * 1.5 - gap, top: s.y + HANDLE_R + 8,
-              alignItems: "center",
-            }}>
-              {/* Up */}
-              <Pressable onPress={() => nudge(0, -1)} style={nudgeBtnStyle(btnSize)}>
-                <Text style={nudgeText}>▲</Text>
-              </Pressable>
-              {/* Left / Deactivate / Right */}
-              <View style={{ flexDirection: "row", gap }}>
-                <Pressable onPress={() => nudge(-1, 0)} style={nudgeBtnStyle(btnSize)}>
-                  <Text style={nudgeText}>◀</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setAnchored((prev) => { const n = { ...prev }; delete n[selectedId]; return n; });
-                    setSelectedId(null);
-                  }}
-                  style={[nudgeBtnStyle(btnSize), { backgroundColor: "rgba(255,60,60,0.7)" }]}
-                >
-                  <Text style={[nudgeText, { fontSize: 9 }]}>✕</Text>
-                </Pressable>
-                <Pressable onPress={() => nudge(1, 0)} style={nudgeBtnStyle(btnSize)}>
-                  <Text style={nudgeText}>▶</Text>
-                </Pressable>
-              </View>
-              {/* Down */}
-              <Pressable onPress={() => nudge(0, 1)} style={nudgeBtnStyle(btnSize)}>
-                <Text style={nudgeText}>▼</Text>
-              </Pressable>
-            </View>
-          );
-        })()}
-
-        {/* Touch surface */}
+        {/* Touch surface for orbit controls */}
         <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
       </View>
     );
   },
 );
 
-// ── Styles ──────────────────────────────────────────────────────────────
-
-const nudgeBtnStyle = (size: number) => ({
-  width: size, height: size, borderRadius: size / 2,
-  backgroundColor: "rgba(180,100,255,0.5)",
-  alignItems: "center" as const, justifyContent: "center" as const,
-  margin: 2,
-});
-
-const nudgeText = { color: "#fff", fontSize: 14, fontWeight: "600" as const };
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-function mul3x3(A: number[], B: number[]): number[] {
-  const C = new Array(9).fill(0);
-  for (let r = 0; r < 3; r++)
-    for (let c = 0; c < 3; c++)
-      for (let k = 0; k < 3; k++)
-        C[r * 3 + c] += A[r * 3 + k]! * B[k * 3 + c]!;
-  return C;
-}
-
 // ── Fallback handles ────────────────────────────────────────────────────
-// Positions match the Blender model after +90° X rotation (Z-up).
-// X = 1B foul line, Y = 3B foul line, Z = up. Origin = plate apex.
 function buildFallbackHandles(): HandlePoint[] {
   const h = (id: string, x: number, y: number, z: number = 0) => ({
     id, position: new THREE.Vector3(x, y, z),
