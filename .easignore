@@ -1,0 +1,26 @@
+# Exclude from EAS Build uploads — paths relative to monorepo root.
+.git
+.claude
+apps/api
+apps/web
+apps/mobile
+archive
+node_modules
+.pnpm-store
+
+# Dev artifacts
+*.blend
+*.blend1
+*.onnx
+*.pt
+runs/
+coverage/
+dist/
+build/
+*.tsbuildinfo
+*.log
+
+.wrangler
+.dev.vars
+.env
+.env.*
