@@ -136,7 +136,6 @@ public final class YoloModule: Module {
       ]
     }
   }
-}
 
   /// Directory for downloaded/imported models.
   private var modelsDir: URL {
