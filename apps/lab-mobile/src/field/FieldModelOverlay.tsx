@@ -30,7 +30,7 @@ import {
   type HomographyFit,
 } from "./videoHomography";
 import { type CameraPose } from "./batterBox";
-import { intrinsicsFromFov } from "./cameraPoseDecompose";
+import { decomposeCameraPose, intrinsicsFromFov } from "./cameraPoseDecompose";
 
 // ── Public interface ────────────────────────────────────────────────────
 
@@ -119,8 +119,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight, fieldById]);
 
     // ── Sync Three.js camera from ALL handle positions ────────────────
-    // Fit homography from all handles, decompose to R,t, build camera
-    // matrix + custom projection from intrinsics for pixel-exact alignment.
+    // Skip full homography decomposition (too many axis conventions to
+    // get wrong). Instead, use the existing decomposeCameraPose which is
+    // already tested and working for the tracker, then apply with lookAt.
     useEffect(() => {
       const cam = cameraRef.current;
       if (!cam || handles.length < 4) return;
@@ -140,59 +141,37 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       const fit = fitHomography(corr);
       if (!fit) return;
 
-      // Decompose H into R, t using intrinsics.
+      // Use the same decomposition the tracker already uses.
       const hFovDeg = 69;
       const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
-      const ifx = 1 / K.fx, ify = 1 / K.fy;
-      const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
-      const M = mul3x3(Kinv, fit.H);
-      const c0 = [M[0]!, M[3]!, M[6]!];
-      const c1 = [M[1]!, M[4]!, M[7]!];
-      const c2 = [M[2]!, M[5]!, M[8]!];
+      const pose = decomposeCameraPose(fit.H, K);
+      if (!pose) return;
 
-      let lambda = Math.sqrt(c0[0] * c0[0] + c0[1] * c0[1] + c0[2] * c0[2]);
-      if (lambda < 1e-10) return;
-      if (c2[2] / lambda < 0) lambda = -lambda;
+      // Ensure camera is above ground (Z > 0). The decomposition can
+      // produce a below-ground solution due to the sign ambiguity in
+      // homography decomposition.
+      const pz = Math.abs(pose.position.z);
 
-      const r1 = c0.map((v) => v / lambda);
-      const r2 = c1.map((v) => v / lambda);
-      const t = c2.map((v) => v / lambda);
-      const r3 = [
-        r1[1]! * r2[2]! - r1[2]! * r2[1]!,
-        r1[2]! * r2[0]! - r1[0]! * r2[2]!,
-        r1[0]! * r2[1]! - r1[1]! * r2[0]!,
-      ];
-
-      // Camera position in world = -R^T * t
-      const posX = -(r1[0]! * t[0]! + r1[1]! * t[1]! + r1[2]! * t[2]!);
-      const posY = -(r2[0]! * t[0]! + r2[1]! * t[1]! + r2[2]! * t[2]!);
-      const posZ = -(r3[0]! * t[0]! + r3[1]! * t[1]! + r3[2]! * t[2]!);
-
-      // Use lookAt for robust orientation (avoids fragile matrix construction).
-      // Point camera at the centroid of the field handles.
       cam.matrixAutoUpdate = true;
+      cam.position.set(pose.position.x, pose.position.y, pz);
+      cam.up.set(0, 0, 1);
+
+      // Look at the centroid of the field handles.
       let cx = 0, cy = 0, n = 0;
       for (const h of handles) {
         const f = fieldById[h.id];
         if (f) { cx += f.x; cy += f.y; n++; }
       }
       if (n > 0) { cx /= n; cy /= n; }
-
-      cam.position.set(posX, posY, posZ);
-      cam.up.set(0, 0, 1);
       cam.lookAt(cx, cy, 0);
 
-      // Build projection matrix directly from intrinsics so it matches
-      // the homography's pixel mapping exactly.
-      const near = 0.1, far = 500;
-      const w = imageWidth, h = imageHeight;
-      cam.projectionMatrix.set(
-        2 * K.fx / w,  0,              1 - 2 * K.cx / w,   0,
-        0,             2 * K.fy / h,   2 * K.cy / h - 1,   0,
-        0,             0,              -(far + near) / (far - near),  -2 * far * near / (far - near),
-        0,             0,              -1,                  0,
-      );
-      cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
+      // Use standard PerspectiveCamera projection (simpler, avoids
+      // custom matrix issues). Convert horizontal FOV to vertical.
+      const d2r = Math.PI / 180;
+      const aspect = canvas.width / canvas.height;
+      cam.fov = 2 * Math.atan(Math.tan((hFovDeg * d2r) / 2) / aspect) * (180 / Math.PI);
+      cam.aspect = aspect;
+      cam.updateProjectionMatrix();
     }, [positions, handles, fieldById, imageWidth, imageHeight, canvas]);
 
     // ── Coordinate transforms ─────────────────────────────────────────
@@ -617,17 +596,6 @@ const nudgeBtnStyle = (size: number) => ({
 });
 
 const nudgeText = { color: "#fff", fontSize: 14, fontWeight: "600" as const };
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-function mul3x3(A: number[], B: number[]): number[] {
-  const C = new Array(9).fill(0);
-  for (let r = 0; r < 3; r++)
-    for (let c = 0; c < 3; c++)
-      for (let k = 0; k < 3; k++)
-        C[r * 3 + c] += A[r * 3 + k]! * B[k * 3 + c]!;
-  return C;
-}
 
 // ── Fallback handles ────────────────────────────────────────────────────
 // Positions match the Blender model after +90° X rotation (Z-up).
