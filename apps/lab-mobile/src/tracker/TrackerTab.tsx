@@ -1154,7 +1154,7 @@ export function TrackerTab() {
 
   return (
     <>
-    <ScrollView contentContainerStyle={{ padding: isLandscape ? 8 : 12 }} scrollEnabled={scrollEnabled && !showPoseOverlay && !showRoiOverlay}>
+    <ScrollView contentContainerStyle={{ padding: isLandscape ? 8 : 12 }} scrollEnabled={scrollEnabled && !showRoiOverlay}>
       {!isLandscape && (
         <>
           <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, marginBottom: 6 }}>Vision tracker</Text>
