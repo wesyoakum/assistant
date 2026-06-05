@@ -137,6 +137,7 @@ export function TrackerTab() {
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
   const [showAllDetections, setShowAllDetections] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
   const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
@@ -664,16 +665,15 @@ export function TrackerTab() {
     return catmullRomPath(pts);
   }, [result, interpolated, reviewIdx, showAllDetections]);
 
-  // Playback: advance reviewIdx on a timer. Interval is one source-frame
-  // duration divided by the current playSpeed (1x = real-time; 1/8x = 8x slower).
-  // Frame fetches (frameAtTime) may not keep up at higher speeds — the timer
-  // still fires, the image just lags behind. Best-effort; the trail still
-  // advances synchronously with the index.
+  // Track whether frame decode is in-flight (ref for use in playback timer).
+  const reviewLoadingRef = useRef(false);
   useEffect(() => {
     if (!isPlaying || !result) return;
     const sourceFrameMs = result.frameRate > 0 ? 1000 / result.frameRate : 33;
     const intervalMs = Math.max(16, sourceFrameMs / playSpeed);
     const id = setInterval(() => {
+      // Skip this tick if the frame image hasn't loaded yet.
+      if (reviewLoadingRef.current) return;
       setReviewIdx((i) => {
         if (i + 1 >= result.frames.length) {
           setIsPlaying(false);
@@ -784,6 +784,7 @@ export function TrackerTab() {
   // of showing the initial still under every tracker result.
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
+  useEffect(() => { reviewLoadingRef.current = reviewLoading; }, [reviewLoading]);
   const [reviewError, setReviewError] = useState<string | null>(null);
   useEffect(() => {
     if (!result || !videoUri || !reviewedFrame) {
@@ -1359,27 +1360,30 @@ export function TrackerTab() {
                   <Text style={{ color: "#bbb", fontSize: 11 }}>(loading frame…)</Text>
                 </View>
               )}
+              {/* Transport bar — bottom edge of video canvas */}
+              {!fullScreen && (
+                <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 3, backgroundColor: "rgba(0,0,0,0.7)" }}>
+                  <Pressable onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 60)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 30)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
+                  <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 10 }]}><Text style={[styles.transportTxt, { fontSize: 14 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 30)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 60)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
+                  <Pressable onPress={() => setReviewIdx(result.frames.length - 1)} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
+                </View>
+              )}
+              {/* Fullscreen toggle — tap video to toggle */}
+              <Pressable onPress={() => setFullScreen((f) => !f)} style={{ position: "absolute", top: 4, right: 4, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 }}>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10 }}>{fullScreen ? "▣" : "▢"}</Text>
+              </Pressable>
             </View>
           )}
         </View>
 
-        {/* Transport bar for result review — below video */}
-        {!isLandscape && result && (
-          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.85)" }}>
-            <Pressable onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 60)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 30)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
-            <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 12 }]}><Text style={[styles.transportTxt, { fontSize: 14 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 30)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 60)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
-            <Pressable onPress={() => setReviewIdx(result.frames.length - 1)} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
-          </View>
-        )}
-
-        {/* Overlaid controls */}
-        <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        {/* Overlaid controls (hidden in fullscreen) */}
+        {!fullScreen && <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {isLandscape ? (
             /* ── Landscape result review ── */
             <View style={{ flex: 1 }} pointerEvents="box-none">
@@ -1519,7 +1523,7 @@ export function TrackerTab() {
               </View>
             </View>
           )}
-        </SafeAreaView>
+        </SafeAreaView>}
       </View>
     )}
 
