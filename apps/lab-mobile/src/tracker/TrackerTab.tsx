@@ -1154,7 +1154,13 @@ export function TrackerTab() {
 
   return (
     <>
-    <ScrollView contentContainerStyle={{ padding: isLandscape ? 8 : 12 }} scrollEnabled={scrollEnabled && !showPoseOverlay && !showRoiOverlay}>
+    <ScrollView
+      contentContainerStyle={{
+        padding: isLandscape && showPoseOverlay ? 0 : isLandscape ? 8 : 12,
+        flex: isLandscape && showPoseOverlay ? 1 : undefined,
+      }}
+      scrollEnabled={scrollEnabled && !showPoseOverlay && !showRoiOverlay}
+    >
       {!isLandscape && (
         <>
           <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, marginBottom: 6 }}>Vision tracker</Text>
@@ -1164,7 +1170,7 @@ export function TrackerTab() {
         </>
       )}
 
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, display: isLandscape && showPoseOverlay ? "none" : "flex" }}>
         <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
           <Text style={styles.btnText}>{videoUri ? "Pick another" : "Pick video"}</Text>
         </Pressable>
@@ -1224,7 +1230,7 @@ export function TrackerTab() {
         )}
       </View>
 
-      {!videoUri && savedVideos.length > 0 && (
+      {!videoUri && savedVideos.length > 0 && !(isLandscape && showPoseOverlay) && (
         <View style={{ marginBottom: 8 }}>
           <Text style={{ color: theme.textSubtle, fontSize: 12, marginBottom: 4 }}>Saved videos:</Text>
           {savedVideos.map((v) => (
@@ -1255,8 +1261,12 @@ export function TrackerTab() {
         </View>
       )}
 
-      {/* Video + Controls: side-by-side in landscape, stacked in portrait */}
-      {videoCanvas && controlsBlock && isLandscape ? (
+      {/* Video + Controls: side-by-side in landscape, stacked in portrait.
+          When calibrating (showPoseOverlay) in landscape, video fills the screen
+          and TrackerTab controls are hidden — the overlay has its own controls. */}
+      {videoCanvas && isLandscape && showPoseOverlay ? (
+        <View style={{ flex: 1 }}>{videoCanvas}</View>
+      ) : videoCanvas && controlsBlock && isLandscape ? (
         <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, height: canvas.height || 300 }}>
           <View style={{ flex: 2 }}>{videoCanvas}</View>
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }} nestedScrollEnabled>
