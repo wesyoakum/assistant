@@ -61,7 +61,7 @@ function AuthGate() {
   }
 
   if (isAuthenticated && onSignIn) {
-    return <Redirect href="/(tabs)/ar" />;
+    return <Redirect href="/tracker" />;
   }
 
   return (
@@ -74,7 +74,7 @@ function AuthGate() {
         contentStyle: { backgroundColor: theme.background },
       }}
     >
-      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="tracker" />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="index" />
     </Stack>
