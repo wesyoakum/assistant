@@ -475,19 +475,24 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             </View>
           )}
 
-          {/* Main control row */}
-          <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingBottom: 14 }}>
+          {/* Bottom bar: Place left, context center, Model right */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingHorizontal: 8, paddingBottom: 10 }}>
+            {/* Left: Place */}
             <Pill
               label={activeId ? displayName(activeId) : "Place ▾"}
               active={dropdownOpen}
               onPress={() => setDropdownOpen((v) => !v)}
             />
-            {activeId && placed[activeId] && (
-              <Pill label="Remove" onPress={() => removeHandle(activeId)} />
-            )}
-            {activeId && (
-              <Pill label="Deselect" onPress={() => setActiveId(null)} />
-            )}
+            {/* Center: context actions */}
+            <View style={{ flexDirection: "row", gap: 6 }}>
+              {activeId && placed[activeId] && (
+                <Pill label="Remove" onPress={() => removeHandle(activeId)} small />
+              )}
+              {activeId && (
+                <Pill label="Deselect" onPress={() => setActiveId(null)} small />
+              )}
+            </View>
+            {/* Right: Model/Video */}
             <Pill
               label={controlMode === "model" ? "Model" : "Video"}
               active={controlMode === "video"}
@@ -496,12 +501,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           </View>
         </View>
 
-        {/* Dropdown list */}
+        {/* Dropdown list — compact, anchored to bottom-left */}
         {dropdownOpen && (
           <View style={{
-            position: "absolute", bottom: 56, left: 12, right: 12,
-            maxHeight: 260, backgroundColor: "rgba(0,0,0,0.92)",
-            borderRadius: 12, padding: 6,
+            position: "absolute", bottom: 48, left: 8,
+            width: 120, maxHeight: 200, backgroundColor: "rgba(0,0,0,0.88)",
+            borderRadius: 8, paddingVertical: 4,
           }}>
             <ScrollView>
               {handleList.map((h) => (
@@ -509,17 +514,16 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                   key={h.id}
                   onPress={() => selectHandle(h.id)}
                   style={{
-                    flexDirection: "row", alignItems: "center", gap: 8,
-                    paddingHorizontal: 14, paddingVertical: 9,
-                    borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.08)",
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    paddingHorizontal: 10, paddingVertical: 7,
                     backgroundColor: activeId === h.id ? "rgba(255,220,0,0.15)" : "transparent",
                   }}
                 >
                   <View style={{
-                    width: 8, height: 8, borderRadius: 4,
+                    width: 6, height: 6, borderRadius: 3,
                     backgroundColor: h.isPlaced ? PLACED_COLOR : "rgba(255,255,255,0.2)",
                   }} />
-                  <Text style={{ color: h.isPlaced ? PLACED_COLOR : "#fff", fontSize: 13 }}>{displayName(h.id)}</Text>
+                  <Text style={{ color: h.isPlaced ? PLACED_COLOR : "#fff", fontSize: 12 }}>{displayName(h.id)}</Text>
                 </Pressable>
               ))}
             </ScrollView>

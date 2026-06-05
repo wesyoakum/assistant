@@ -508,6 +508,16 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
 // Convert camera position from field frame to viewer frame (used by both marker and rays).
 const cv = f2v(camPos.x, camPos.y, camPos.z);
 
+// Camera forward direction: reconstruct from pan + tilt in field frame,
+// then rotate into viewer frame. Used by both frustum and "Cam View".
+const panRad = (camRot.rz || 0) * DEG;
+const tiltRad = (camRot.rx || 0) * DEG;
+const fwdFx = Math.sin(panRad) * Math.cos(tiltRad);
+const fwdFy = Math.cos(panRad) * Math.cos(tiltRad);
+const fwdFz = -Math.sin(tiltRad);
+const fwdV = f2v(fwdFx, fwdFy, fwdFz);
+const lookTarget = u2t(cv[0] + fwdV[0], cv[1] + fwdV[1], cv[2] + fwdV[2]);
+
 // Camera marker (red frustum, oriented by saved rotation)
 {
   const camGroup = new THREE.Group();
@@ -531,18 +541,7 @@ const cv = f2v(camPos.x, camPos.y, camPos.z);
   const camP = u2t(cv[0], cv[1], cv[2]);
   camGroup.position.copy(camP);
 
-  // Apply rotation: camRot has rx (tilt), ry (roll), rz (pan) in user coords.
-  // User pan (rz) = rotation about user Z (up) = rotation about Three.js Y
-  // User tilt (rx) = rotation about user X = rotation about Three.js X
-  // User roll (ry) = rotation about camera forward
-  // Build rotation: first pan (Y), then tilt (X)
-  const euler = new THREE.Euler(
-    -camRot.rx * DEG,   // tilt: negative because Three.js X rotation is opposite
-    -camRot.rz * DEG,   // pan: around Three.js Y (= user Z)
-    camRot.ry * DEG,    // roll
-    'YXZ'
-  );
-  camGroup.setRotationFromEuler(euler);
+  camGroup.lookAt(lookTarget);
 
   scene.add(camGroup);
   // Also add a line from camera to origin for reference
@@ -632,13 +631,7 @@ scene.add(speedLabelGroup);
 {
   const rcp = u2t(cv[0], cv[1], cv[2]);
   realCam.position.copy(rcp);
-  const euler = new THREE.Euler(
-    -camRot.rx * DEG,
-    -camRot.rz * DEG,
-    camRot.ry * DEG,
-    'YXZ'
-  );
-  realCam.setRotationFromEuler(euler);
+  realCam.lookAt(lookTarget);
 }
 
 // Mid-plane toggle
