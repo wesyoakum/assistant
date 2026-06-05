@@ -13,10 +13,13 @@ node_modules
 *.blend1
 *.onnx
 *.pt
+*.MOV
+*.mov
+*.mp4
+apps/lab-mobile/videos
 runs/
 coverage/
 dist/
-build/
 *.tsbuildinfo
 *.log
 
