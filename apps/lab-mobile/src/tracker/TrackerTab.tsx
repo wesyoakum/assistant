@@ -6,6 +6,7 @@ import {
   Image,
   StyleSheet,
   ScrollView,
+  SafeAreaView,
   PanResponder,
   ActivityIndicator,
   Modal,
@@ -775,522 +776,397 @@ export function TrackerTab() {
     );
   }
 
-  // ── Controls block (reused in both portrait and landscape) ──────────
-  const controlsBlock = !result && frame ? (
-    <View style={{ gap: 6, flex: isLandscape ? 1 : undefined }}>
-      {/* Frame step + zoom */}
-      <View style={{ flexDirection: "row", gap: 6 }}>
-        <Pressable onPress={() => frameStep(-1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-          <Text style={[styles.btnText, { color: theme.text }]}>«1s</Text>
-        </Pressable>
-        <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-          <Text style={[styles.btnText, { color: theme.text }]}>‹</Text>
-        </Pressable>
-        <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-          <Text style={[styles.btnText, { color: theme.text }]}>›</Text>
-        </Pressable>
-        <Pressable onPress={() => frameStep(1)} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-          <Text style={[styles.btnText, { color: theme.text }]}>1s»</Text>
-        </Pressable>
-        <Pressable onPress={() => zoomBy(1 / 1.5)} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
-          <Text style={[styles.btnText, { color: theme.text }]}>−</Text>
-        </Pressable>
-        <Pressable onPress={resetViewport} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
-          <Text style={[styles.btnText, { color: theme.text, fontSize: 10 }]}>{vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"}</Text>
-        </Pressable>
-        <Pressable onPress={() => zoomBy(1.5)} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
-          <Text style={[styles.btnText, { color: theme.text }]}>+</Text>
-        </Pressable>
-      </View>
+  // ── Extracted handlers (used by pill buttons) ─────────────────────────
 
-      {/* Setup row: Calibrate / ROI / Start / End */}
-      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-        <Pressable
-          onPress={() => {
-            setShowPoseOverlay((v) => !v); if (!showPoseOverlay) setShowRoiOverlay(false);
-          }}
-          disabled={!!busy}
-          style={[styles.btn, { backgroundColor: showPoseOverlay ? theme.primary : cameraPose ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
-        >
-          <Text style={[styles.btnText, { color: showPoseOverlay || cameraPose ? "#fff" : theme.text, fontSize: 11 }]}>
-            {showPoseOverlay ? "Hide" : cameraPose ? "Pose ✓" : "Calibrate"}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => {
-            if (box && !showRoiOverlay) { setBox(null); }
-            else { setShowRoiOverlay((v) => !v); setShowPoseOverlay(false); }
-          }}
-          disabled={!!busy}
-          style={[styles.btn, { backgroundColor: showRoiOverlay ? "#FF3B30" : box ? "#FF3B30" : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
-        >
-          <Text style={[styles.btnText, { color: showRoiOverlay || box ? "#fff" : theme.text, fontSize: 11 }]}>
-            {box ? "ROI ✓" : showRoiOverlay ? "ROI…" : "ROI"}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }}
-          disabled={!!busy}
-          style={[styles.btn, { backgroundColor: startTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
-        >
-          <Text style={[styles.btnText, { color: startTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
-            {startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"}
-          </Text>
-        </Pressable>
-        <Pressable
-          onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }}
-          disabled={!!busy}
-          style={[styles.btn, { backgroundColor: endTimeSec != null ? theme.primary : theme.surfaceAlt, flex: 1, minWidth: "22%" }]}
-        >
-          <Text style={[styles.btnText, { color: endTimeSec != null ? "#fff" : theme.text, fontSize: 11 }]}>
-            {endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"}
-          </Text>
-        </Pressable>
-      </View>
+  const handleLoadSession = async () => {
+    setBusy("loading sessions…");
+    try {
+      const res = await apiFetch<{ sessions: { id: string; uploaded: string }[] }>("/tracking");
+      if (!res.sessions.length) { setErr("No saved sessions"); setBusy(null); return; }
+      const latest = res.sessions[0]!;
+      setBusy(`loading ${latest.id}…`);
+      const data = await apiFetch<any>(`/tracking/${latest.id}`);
+      if (data.session) {
+        await restoreSession(data.session);
+        setCopyHint(`Loaded session ${latest.id}`);
+        setTimeout(() => setCopyHint(null), 3000);
+      } else {
+        setErr("Session data not found in saved payload");
+      }
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  };
 
-      {/* Pose overlay controls */}
-      {showPoseOverlay && (
-        <View style={{ gap: 6 }}>
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable onPress={() => poseOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-              <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                const pose = poseOverlayRef.current?.solve();
-                if (pose && frame) {
-                  setCameraPose(pose);
-                  const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
-                  const decomp = decomposeCameraPose(pose.fit.H, K);
-                  if (decomp) {
-                    setCameraXYZ(decomp.position);
-                    setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
-                  }
-                }
-              }}
-              style={[styles.btn, { backgroundColor: theme.highlight, flex: 2 }]}
-            >
-              <Text style={styles.btnText}>Set Pose</Text>
-            </Pressable>
-          </View>
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable
-              onPress={async () => {
-                const state = poseOverlayRef.current?.getState?.();
-                if (!state) return;
-                setBusy("saving calibration…");
-                try {
-                  const pose = poseOverlayRef.current?.solve();
-                  const payload = {
-                    name: new Date().toLocaleString(),
-                    positions: state.positions,
-                    anchored: state.anchored,
-                    cameraPose: pose ? { H: pose.fit.H, Hinv: pose.fit.Hinv, rmsPx: pose.fit.rmsPx, count: pose.fit.count } : null,
-                    cameraXYZ,
-                    cameraAngles,
-                    basepathFt,
-                  };
-                  await apiFetch("/tracking/calibrations", { method: "POST", body: JSON.stringify(payload) });
-                  setCopyHint("Calibration saved");
-                  setTimeout(() => setCopyHint(null), 3000);
-                } catch (e) { setErr((e as Error).message); }
-                finally { setBusy(null); }
-              }}
-              disabled={!!busy}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: busy ? 0.5 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>Save Cal</Text>
-            </Pressable>
-            <Pressable
-              onPress={async () => {
-                setBusy("loading calibrations…");
-                try {
-                  const res = await apiFetch<{ calibrations: { id: string; uploaded: string }[] }>("/tracking/calibrations");
-                  if (!res.calibrations.length) { setErr("No saved calibrations"); setBusy(null); return; }
-                  const latest = res.calibrations[0]!;
-                  setBusy(`loading ${latest.id}…`);
-                  const cal = await apiFetch<any>(`/tracking/calibrations/${latest.id}`);
-                  // Restore overlay state
-                  if (cal.positions && cal.anchored) {
-                    poseOverlayRef.current?.setState?.({ positions: cal.positions, anchored: cal.anchored });
-                  }
-                  // Restore camera pose
-                  if (cal.cameraPose) {
-                    setCameraPose({ fit: cal.cameraPose as any, sides: ["left", "right"] });
-                  }
-                  if (cal.cameraXYZ) setCameraXYZ(cal.cameraXYZ);
-                  if (cal.cameraAngles) setCameraAngles(cal.cameraAngles);
-                  if (cal.basepathFt) useTrackerSettings.getState().setBasepathFt(cal.basepathFt);
-                  setCopyHint("Calibration loaded");
-                  setTimeout(() => setCopyHint(null), 3000);
-                } catch (e) { setErr((e as Error).message); }
-                finally { setBusy(null); }
-              }}
-              disabled={!!busy}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: busy ? 0.5 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>Load Cal</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
+  const handleSaveVideoLocal = async () => {
+    if (!videoUri) return;
+    setBusy("saving…");
+    try {
+      const saved = await saveVideo(videoUri);
+      loadVideo(saved.uri);
+      setSavedVideos(await listSavedVideos());
+      setIsSaved(true);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  };
 
-      {/* ROI overlay controls */}
-      {showRoiOverlay && (
-        <View style={{ flexDirection: "row", gap: 6 }}>
-          <Pressable onPress={() => roiOverlayRef.current?.reset()} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>Reset</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }}
-            style={[styles.btn, { backgroundColor: "#FF3B30", flex: 2 }]}
-          >
-            <Text style={styles.btnText}>Set ROI</Text>
-          </Pressable>
-        </View>
-      )}
+  const handleSetPose = () => {
+    const pose = poseOverlayRef.current?.solve();
+    if (pose && frame) {
+      setCameraPose(pose);
+      const K = intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0);
+      const decomp = decomposeCameraPose(pose.fit.H, K);
+      if (decomp) {
+        setCameraXYZ(decomp.position);
+        setCameraAngles({ panDeg: decomp.panDeg, tiltDeg: decomp.tiltDeg, rollDeg: decomp.rollDeg });
+      }
+    }
+  };
 
-      {/* Model selector + Preprocess + Run / Clear */}
-      <View style={{ flexDirection: "row", gap: 6 }}>
-        <Pressable
-          onPress={() => setShowModelPicker(true)}
-          style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
-        >
-          <Text style={[styles.btnText, { color: theme.text, fontSize: 11 }]}>{MODE_LABEL[trackerMode]} ▾</Text>
-        </Pressable>
-        <View style={[styles.btn, { backgroundColor: preprocessBW ? theme.primary : theme.surfaceAlt }]}>
-          <Text style={[styles.btnText, { color: preprocessBW ? "#fff" : theme.text, fontSize: 10 }]}>
-            {preprocessBW ? `B&W ${contrastLevel.toFixed(1)}×` : "Color"}
-          </Text>
-        </View>
-        <View style={[styles.btn, { backgroundColor: outlierRejection ? theme.primary : theme.surfaceAlt }]}>
-          <Text style={[styles.btnText, { color: outlierRejection ? "#fff" : theme.text, fontSize: 10 }]}>
-            {outlierRejection ? "Filter" : "No filter"}
-          </Text>
-        </View>
-        <Pressable
-          onPress={runTracker}
-          disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy}
-          style={[styles.btn, { backgroundColor: theme.highlight, flex: 2, opacity: (!box && !DETECTOR_MODES.includes(trackerMode)) || busy ? 0.4 : 1 }]}
-        >
-          <Text style={styles.btnText}>{busy?.startsWith("tracking") ? "Tracking…" : "Run"}</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => { setBox(null); setResult(null); setCameraPose(null); setCameraXYZ(null); setCameraAngles(null); setShowPoseOverlay(false); setShowRoiOverlay(false); setStartTimeSec(null); setEndTimeSec(null); }}
-          disabled={!box}
-          style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: !box ? 0.4 : 1 }]}
-        >
-          <Text style={[styles.btnText, { color: theme.text }]}>Clear</Text>
-        </Pressable>
-      </View>
+  const handleSaveCal = async () => {
+    const state = poseOverlayRef.current?.getState?.();
+    if (!state) return;
+    setBusy("saving calibration…");
+    try {
+      const pose = poseOverlayRef.current?.solve();
+      const payload = {
+        name: new Date().toLocaleString(),
+        positions: state.positions,
+        anchored: state.anchored,
+        cameraPose: pose ? { H: pose.fit.H, Hinv: pose.fit.Hinv, rmsPx: pose.fit.rmsPx, count: pose.fit.count } : null,
+        cameraXYZ,
+        cameraAngles,
+        basepathFt,
+      };
+      await apiFetch("/tracking/calibrations", { method: "POST", body: JSON.stringify(payload) });
+      setCopyHint("Calibration saved");
+      setTimeout(() => setCopyHint(null), 3000);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  };
 
-      {busy && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <ActivityIndicator color={theme.primary} />
-          <Text style={{ color: theme.textSubtle, fontSize: 12 }}>{busy}</Text>
-        </View>
-      )}
+  const handleLoadCal = async () => {
+    setBusy("loading calibrations…");
+    try {
+      const res = await apiFetch<{ calibrations: { id: string; uploaded: string }[] }>("/tracking/calibrations");
+      if (!res.calibrations.length) { setErr("No saved calibrations"); setBusy(null); return; }
+      const latest = res.calibrations[0]!;
+      setBusy(`loading ${latest.id}…`);
+      const cal = await apiFetch<any>(`/tracking/calibrations/${latest.id}`);
+      if (cal.positions && cal.anchored) {
+        poseOverlayRef.current?.setState?.({ positions: cal.positions, anchored: cal.anchored });
+      }
+      if (cal.cameraPose) setCameraPose({ fit: cal.cameraPose as any, sides: ["left", "right"] });
+      if (cal.cameraXYZ) setCameraXYZ(cal.cameraXYZ);
+      if (cal.cameraAngles) setCameraAngles(cal.cameraAngles);
+      if (cal.basepathFt) useTrackerSettings.getState().setBasepathFt(cal.basepathFt);
+      setCopyHint("Calibration loaded");
+      setTimeout(() => setCopyHint(null), 3000);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  };
 
-      {cameraXYZ && (
-        <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 4 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-            <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700" }}>Camera Pose</Text>
-            <Pressable
-              onPress={async () => {
-                const lines = [
-                  `pos  x=${cameraXYZ.x.toFixed(3)}  y=${cameraXYZ.y.toFixed(3)}  z=${cameraXYZ.z.toFixed(3)} m`,
-                  cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
-                ].filter(Boolean).join("\n");
-                await Clipboard.setStringAsync(lines);
-                setCopyHint("Copied camera pose");
-                setTimeout(() => setCopyHint(null), 3000);
-              }}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 4, paddingHorizontal: 8 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text, fontSize: 9 }]}>Copy</Text>
-            </Pressable>
-          </View>
-          <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
-            pos  x={cameraXYZ.x.toFixed(3)}  y={cameraXYZ.y.toFixed(3)}  z={cameraXYZ.z.toFixed(3)} m
-          </Text>
-          {cameraAngles && (
-            <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
-              rot  rx={cameraAngles.tiltDeg.toFixed(1)}°  ry={cameraAngles.rollDeg.toFixed(1)}°  rz={cameraAngles.panDeg.toFixed(1)}°
-            </Text>
-          )}
-          <Text style={{ color: theme.textSubtle, fontSize: 8 }}>
-            X ∥ front edge · Y → 2B · Z ↑ · foul lines ±45° from Y
-          </Text>
-        </View>
-      )}
+  const handleSaveSession = async () => {
+    if (!result) return;
+    setBusy("saving session…");
+    try {
+      const ip = interpolated ?? [];
+      const detections = result.frames.map((f, i) => {
+        const p = ip[i];
+        const bx = p?.box ?? f.box;
+        if (!bx) return null;
+        const cx = bx.x + bx.width / 2, cy = bx.y + bx.height / 2;
+        const ri = allRayInfo?.find((r) => r.frameIndex === i);
+        return {
+          frame: i, time: Number(f.timeSec.toFixed(4)),
+          type: f.lost ? (p?.interpolated ? "interp" : "lost") : "detect",
+          pixel: { x: Number((cx * result.videoWidth).toFixed(1)), y: Number(((1 - cy) * result.videoHeight).toFixed(1)) },
+          yzPlane: ri && ri.yzY != null && ri.yzZ != null ? { y: Number(ri.yzY.toFixed(4)), z: Number(ri.yzZ.toFixed(4)) } : null,
+          ray: ri ? { dx: Number(ri.rayDirX.toFixed(5)), dy: Number(ri.rayDirY.toFixed(5)), dz: Number(ri.rayDirZ.toFixed(5)) } : null,
+        };
+      }).filter(Boolean);
+      const overlayState = poseOverlayRef.current?.getState?.() ?? null;
+      const session: TrackerSession = {
+        version: 2,
+        savedAt: new Date().toISOString(),
+        videoUri,
+        frameTimeSec,
+        trackerMode,
+        startTimeSec,
+        endTimeSec,
+        roi: box,
+        cameraPose: cameraPose ? { fit: { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx, count: cameraPose.fit.count }, sides: cameraPose.sides } : null,
+        cameraXYZ,
+        cameraAngles,
+        overlayPositions: overlayState?.positions ?? null,
+        overlayAnchored: overlayState?.anchored ?? null,
+        result: result ? { frames: result.frames, elapsedMs: result.elapsedMs, videoWidth: result.videoWidth, videoHeight: result.videoHeight, frameRate: result.frameRate, mode: result.mode } : null,
+        reviewIdx,
+        settings: { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize: useTrackerSettings.getState().roiSize, basepathFt },
+      };
+      const payload = {
+        session,
+        cameraPose: cameraXYZ ? { position: cameraXYZ, rotation: cameraAngles ? { rx: cameraAngles.tiltDeg, ry: cameraAngles.rollDeg, rz: cameraAngles.panDeg } : null } : null,
+        homography: cameraPose ? { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx } : null,
+        imageSize: result ? { width: result.videoWidth, height: result.videoHeight } : null,
+        frameRate: result?.frameRate ?? 0,
+        trackerMode,
+        basepathFt,
+        detections,
+      };
+      const res = await apiFetch<{ id: string }>("/tracking", { method: "POST", body: JSON.stringify(payload) });
+      const viewUrl = `https://api.whyapp.us/tracking/${res.id}/view`;
+      setSavedViewUrl(viewUrl);
+      setCopyHint("Saved!");
+      setTimeout(() => setCopyHint(null), 3000);
+    } catch (e) {
+      setCopyHint(`Save failed: ${(e as Error).message}`);
+      setTimeout(() => setCopyHint(null), 5000);
+    } finally {
+      setBusy(null);
+    }
+  };
 
-      {allRayInfo && (
-        <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 4 }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-            <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700" }}>
-              Detections ({allRayInfo.length} frames)
-            </Text>
-            <Pressable
-              onPress={async () => {
-                const lines = [
-                  `Camera Pose`,
-                  `pos  x=${cameraXYZ!.x.toFixed(3)}  y=${cameraXYZ!.y.toFixed(3)}  z=${cameraXYZ!.z.toFixed(3)} m`,
-                  cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
-                  "",
-                  "frame\ttime\ttype\tpixel_x\tpixel_y\tyz_y\tyz_z\tray_dir_x\tray_dir_y\tray_dir_z",
-                  ...allRayInfo.map((r) =>
-                    `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.yzY.toFixed(4)}\t${r.yzZ.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
-                  ),
-                ].filter(Boolean).join("\n");
-                await Clipboard.setStringAsync(lines);
-                setCopyHint("Copied position data");
-                setTimeout(() => setCopyHint(null), 3000);
-              }}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 4, paddingHorizontal: 8 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text, fontSize: 9 }]}>Copy</Text>
-            </Pressable>
-          </View>
-          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-            {allRayInfo.map((r, i) => (
-              <View key={i} style={{ marginBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, paddingBottom: 3 }}>
-                <Text style={{ color: r.interpolated ? "#FF9500" : "#34C759", fontSize: 8, fontWeight: "600" }}>
-                  f{r.frameIndex} t={r.timeSec.toFixed(3)}s {r.interpolated ? "INTERP" : "DETECT"}
-                </Text>
-                <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                  pixel  x={r.pixelX.toFixed(1)}  y={(result!.videoHeight - r.pixelY).toFixed(1)}
-                    </Text>
-                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                  YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
-                </Text>
-                <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                  YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
-                </Text>
-                <Text style={{ color: theme.textSubtle, fontSize: 7, fontFamily: "monospace" }}>
-                  {r.rayEquation}
-                </Text>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-    </View>
-  ) : null;
+  const handleCopyPose = async () => {
+    if (!cameraXYZ) return;
+    const lines = [
+      `pos  x=${cameraXYZ.x.toFixed(3)}  y=${cameraXYZ.y.toFixed(3)}  z=${cameraXYZ.z.toFixed(3)} m`,
+      cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
+    ].filter(Boolean).join("\n");
+    await Clipboard.setStringAsync(lines);
+    setCopyHint("Copied camera pose");
+    setTimeout(() => setCopyHint(null), 3000);
+  };
 
-  // ── Video canvas block ─────────────────────────────────────────────
-  const videoCanvas = !result && frame ? (
-    <View
-      ref={canvasRef2}
-      {...responder.panHandlers}
-      onLayout={onCanvasLayout}
-      style={{
-        aspectRatio: frame.imageWidth / frame.imageHeight,
-        backgroundColor: "#000",
-        borderRadius: 8,
-        overflow: "hidden",
-        flex: isLandscape ? 2 : undefined,
-      }}
-    >
-      <Image
-        source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }}
-        style={{
-          width: "100%",
-          height: "100%",
-          transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
-        }}
-        resizeMode="cover"
-        fadeDuration={0}
-      />
-      {committedBoxScreen && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: committedBoxScreen.x,
-            top: committedBoxScreen.y,
-            width: committedBoxScreen.w,
-            height: committedBoxScreen.h,
-            borderWidth: 2,
-            borderColor: "#FF3B30",
-            borderStyle: "dashed",
-          }}
-        />
-      )}
-      {vp.scale > 1.01 && (
-        <View style={{ position: "absolute", top: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-          <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
-        </View>
-      )}
-      <View style={{ position: "absolute", bottom: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-        <Text style={{ color: "#fff", fontSize: 11 }}>
-          {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
-          {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
-        </Text>
-      </View>
-      {showRoiOverlay && (
-        <RoiOverlay
-          ref={roiOverlayRef}
-          imageWidth={frame.imageWidth}
-          imageHeight={frame.imageHeight}
-          vp={vp}
-          canvas={canvas}
-          canvasPageOffset={canvasPageOffsetRef.current}
-        />
-      )}
-      {showPoseOverlay && (
-        <React.Suspense fallback={<View style={StyleSheet.absoluteFill}><Text style={{ color: "#fff", padding: 10 }}>Loading 3D overlay…</Text></View>}>
-          <FieldModelOverlay
-            ref={poseOverlayRef}
-            imageWidth={frame.imageWidth}
-            imageHeight={frame.imageHeight}
-            vp={vp}
-            canvas={canvas}
-            canvasPageOffset={canvasPageOffsetRef.current}
-          />
-        </React.Suspense>
-      )}
-    </View>
-  ) : null;
+  const handleCopyDetections = async () => {
+    if (!allRayInfo || !cameraXYZ) return;
+    const lines = [
+      `Camera Pose`,
+      `pos  x=${cameraXYZ.x.toFixed(3)}  y=${cameraXYZ.y.toFixed(3)}  z=${cameraXYZ.z.toFixed(3)} m`,
+      cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
+      "",
+      "frame\ttime\ttype\tpixel_x\tpixel_y\tmid_d\tmid_z\tray_dir_x\tray_dir_y\tray_dir_z",
+      ...allRayInfo.map((r) =>
+        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.yzY?.toFixed(4) ?? ""}\t${r.yzZ?.toFixed(4) ?? ""}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
+      ),
+    ].filter(Boolean).join("\n");
+    await Clipboard.setStringAsync(lines);
+    setCopyHint("Copied position data");
+    setTimeout(() => setCopyHint(null), 3000);
+  };
+
+  const handleClearAll = () => {
+    setBox(null); setResult(null); setCameraPose(null); setCameraXYZ(null);
+    setCameraAngles(null); setShowPoseOverlay(false); setShowRoiOverlay(false);
+    setStartTimeSec(null); setEndTimeSec(null);
+  };
+
 
   return (
     <>
-    <ScrollView contentContainerStyle={{ padding: isLandscape ? 8 : 12 }} scrollEnabled={scrollEnabled && !showRoiOverlay}>
-      {!isLandscape && (
-        <>
-          <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, marginBottom: 6 }}>Vision tracker</Text>
-          <Text style={{ fontSize: 12, color: theme.textSubtle, marginBottom: 12 }}>
-            Pick a video, calibrate the batter's boxes, set ROI and frame range, run the tracker.
-          </Text>
-        </>
-      )}
+    {/* ── Empty state: no video loaded ───────────────────────────────── */}
+    {!frame && (
+      <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background }}>
+        <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, textAlign: "center", marginBottom: 6 }}>Vision tracker</Text>
+        <Text style={{ fontSize: 12, color: theme.textSubtle, textAlign: "center", marginBottom: 20 }}>
+          Pick a video, calibrate the field, set ROI and frame range, run the tracker.
+        </Text>
 
-      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-        <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
-          <Text style={styles.btnText}>{videoUri ? "Pick another" : "Pick video"}</Text>
-        </Pressable>
-        <Pressable
-          onPress={async () => {
-            setBusy("loading sessions…");
-            try {
-              const res = await apiFetch<{ sessions: { id: string; uploaded: string }[] }>("/tracking");
-              if (!res.sessions.length) { setErr("No saved sessions"); setBusy(null); return; }
-              // Load the most recent session
-              const latest = res.sessions[0]!;
-              setBusy(`loading ${latest.id}…`);
-              const data = await apiFetch<any>(`/tracking/${latest.id}`);
-              if (data.session) {
-                await restoreSession(data.session);
-                setCopyHint(`Loaded session ${latest.id}`);
-                setTimeout(() => setCopyHint(null), 3000);
-              } else {
-                setErr("Session data not found in saved payload");
-              }
-            } catch (e) { setErr((e as Error).message); }
-            finally { setBusy(null); }
-          }}
-          disabled={!!busy}
-          style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: busy ? 0.5 : 1 }]}
-        >
-          <Text style={[styles.btnText, { color: theme.text }]}>Load</Text>
-        </Pressable>
-        {videoUri && !isSaved && (
-          <Pressable
-            onPress={async () => {
-              if (!videoUri) return;
-              setBusy("saving…");
-              try {
-                const saved = await saveVideo(videoUri);
-                loadVideo(saved.uri);
-                setSavedVideos(await listSavedVideos());
-                setIsSaved(true);
-              } catch (e) { setErr((e as Error).message); }
-              finally { setBusy(null); }
-            }}
-            disabled={!!busy}
-            style={[styles.btn, { backgroundColor: theme.highlight, opacity: busy ? 0.5 : 1 }]}
-          >
-            <Text style={styles.btnText}>Save</Text>
+        <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", marginBottom: 16 }}>
+          <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
+            <Text style={styles.btnText}>Pick video</Text>
           </Pressable>
-        )}
-        {videoUri && isSaved && (
-          <View style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
-            <Text style={[styles.btnText, { color: theme.textSubtle }]}>Saved ✓</Text>
+          <Pressable onPress={handleLoadSession} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: busy ? 0.5 : 1 }]}>
+            <Text style={[styles.btnText, { color: theme.text }]}>Load</Text>
+          </Pressable>
+        </View>
+
+        {savedVideos.length > 0 && (
+          <View style={{ marginBottom: 8 }}>
+            <Text style={{ color: theme.textSubtle, fontSize: 12, marginBottom: 4, textAlign: "center" }}>Saved videos:</Text>
+            {savedVideos.map((v) => (
+              <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <Pressable onPress={() => loadVideo(v.uri)} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, paddingVertical: 8 }]}>
+                  <Text style={[styles.btnText, { color: theme.text, fontSize: 12 }]} numberOfLines={1}>{v.name}</Text>
+                </Pressable>
+                <Pressable onPress={async () => { await deleteSavedVideo(v.id); setSavedVideos(await listSavedVideos()); }} style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 8, paddingHorizontal: 8 }]}>
+                  <Text style={{ color: theme.destructive, fontSize: 12, fontWeight: "600" }}>X</Text>
+                </Pressable>
+              </View>
+            ))}
           </View>
         )}
-        {frame && (
-          <Pressable onPress={resetViewport} style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}>
-            <Text style={[styles.btnText, { color: theme.text }]}>Reset zoom</Text>
-          </Pressable>
+
+        {err && (
+          <View style={{ padding: 10, backgroundColor: theme.destructive, borderRadius: 8, marginBottom: 8 }}>
+            <Text style={{ color: "#fff" }}>{err}</Text>
+          </View>
         )}
-      </View>
+        {busy && (
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 }}>
+            <ActivityIndicator color={theme.primary} />
+            <Text style={{ color: theme.textSubtle, fontSize: 12 }}>{busy}</Text>
+          </View>
+        )}
+        {copyHint && (
+          <Text style={{ color: theme.textSubtle, fontSize: 11, marginTop: 6, textAlign: "center" }}>{copyHint}</Text>
+        )}
+      </ScrollView>
+    )}
 
-      {!videoUri && savedVideos.length > 0 && (
-        <View style={{ marginBottom: 8 }}>
-          <Text style={{ color: theme.textSubtle, fontSize: 12, marginBottom: 4 }}>Saved videos:</Text>
-          {savedVideos.map((v) => (
-            <View key={v.id} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-              <Pressable
-                onPress={() => loadVideo(v.uri)}
-                style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, paddingVertical: 8 }]}
-              >
-                <Text style={[styles.btnText, { color: theme.text, fontSize: 12 }]} numberOfLines={1}>{v.name}</Text>
-              </Pressable>
-              <Pressable
-                onPress={async () => {
-                  await deleteSavedVideo(v.id);
-                  setSavedVideos(await listSavedVideos());
-                }}
-                style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 8, paddingHorizontal: 8 }]}
-              >
-                <Text style={{ color: theme.destructive, fontSize: 12, fontWeight: "600" }}>X</Text>
-              </Pressable>
+    {/* ── Video loaded, tracking setup: full-screen ──────────────────── */}
+    {frame && !result && (
+      <View style={{ flex: 1, backgroundColor: "#000" }}>
+        {/* Video fills available space, maintaining aspect ratio */}
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+          <View
+            ref={canvasRef2}
+            {...responder.panHandlers}
+            onLayout={onCanvasLayout}
+            style={{
+              aspectRatio: frame.imageWidth / frame.imageHeight,
+              width: "100%",
+              maxHeight: "100%",
+              overflow: "hidden",
+            }}
+          >
+            <Image
+              source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }}
+              style={{ width: "100%", height: "100%", transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }] }}
+              resizeMode="cover"
+              fadeDuration={0}
+            />
+            {committedBoxScreen && (
+              <View pointerEvents="none" style={{ position: "absolute", left: committedBoxScreen.x, top: committedBoxScreen.y, width: committedBoxScreen.w, height: committedBoxScreen.h, borderWidth: 2, borderColor: "#FF3B30", borderStyle: "dashed" }} />
+            )}
+            {showRoiOverlay && (
+              <RoiOverlay ref={roiOverlayRef} imageWidth={frame.imageWidth} imageHeight={frame.imageHeight} vp={vp} canvas={canvas} canvasPageOffset={canvasPageOffsetRef.current} />
+            )}
+            {showPoseOverlay && (
+              <React.Suspense fallback={<View style={StyleSheet.absoluteFill}><Text style={{ color: "#fff", padding: 10 }}>Loading 3D overlay…</Text></View>}>
+                <FieldModelOverlay ref={poseOverlayRef} imageWidth={frame.imageWidth} imageHeight={frame.imageHeight} vp={vp} canvas={canvas} canvasPageOffset={canvasPageOffsetRef.current} />
+              </React.Suspense>
+            )}
+          </View>
+        </View>
+
+        {/* Pill overlay */}
+        <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
+            {/* Top: status indicators */}
+            <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
+              <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 11, fontVariant: ["tabular-nums"] }}>
+                  {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
+                  {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
+                  {vp.scale > 1.01 ? `  ·  ${vp.scale.toFixed(1)}×` : ""}
+                </Text>
+              </View>
+              {err && (
+                <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
+                </View>
+              )}
+              {busy && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <ActivityIndicator color="#fff" size="small" />
+                  <Text style={{ color: "#fff", fontSize: 11 }}>{busy}</Text>
+                </View>
+              )}
+              {copyHint && (
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }}>{copyHint}</Text>
+                </View>
+              )}
+              {cameraXYZ && (
+                <Pressable onPress={handleCopyPose} style={{ backgroundColor: "rgba(0,200,255,0.15)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.3)" }}>
+                  <Text style={{ color: "rgba(0,200,255,1)", fontSize: 9, fontFamily: "monospace" }}>
+                    pos {cameraXYZ.x.toFixed(2)} {cameraXYZ.y.toFixed(2)} {cameraXYZ.z.toFixed(2)}m
+                    {cameraAngles ? `  rot ${cameraAngles.tiltDeg.toFixed(0)}° ${cameraAngles.rollDeg.toFixed(0)}° ${cameraAngles.panDeg.toFixed(0)}°` : ""}
+                  </Text>
+                </Pressable>
+              )}
             </View>
-          ))}
-        </View>
-      )}
 
-      {err && (
-        <View style={{ padding: 10, backgroundColor: theme.destructive, borderRadius: 8, marginBottom: 8 }}>
-          <Text style={{ color: "#fff" }}>{err}</Text>
-        </View>
-      )}
+            {/* Bottom: pill controls */}
+            <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: isLandscape ? 8 : 16 }}>
+              {showPoseOverlay ? (
+                <>
+                  <View style={styles.pillRow}>
+                    <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} />
+                    <Pill label="Set Pose" active onPress={handleSetPose} />
+                  </View>
+                  <View style={styles.pillRow}>
+                    <Pill label="Save Cal" onPress={handleSaveCal} disabled={!!busy} small />
+                    <Pill label="Load Cal" onPress={handleLoadCal} disabled={!!busy} small />
+                    <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} />
+                  </View>
+                </>
+              ) : showRoiOverlay ? (
+                <View style={styles.pillRow}>
+                  <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />
+                  <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} />
+                  <Pill label="Hide" onPress={() => setShowRoiOverlay(false)} />
+                </View>
+              ) : (
+                <>
+                  {/* Frame stepping + zoom */}
+                  <View style={styles.pillRow}>
+                    <Pill label="«1s" onPress={() => frameStep(-1)} disabled={!!busy} small />
+                    <Pill label="‹" onPress={() => frameStep(-frameStepSec)} disabled={!!busy} small />
+                    <Pill label="›" onPress={() => frameStep(frameStepSec)} disabled={!!busy} small />
+                    <Pill label="1s»" onPress={() => frameStep(1)} disabled={!!busy} small />
+                    <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
+                    <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
+                    <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
+                  </View>
+                  {/* Setup: Calibrate, ROI, Start, End */}
+                  <View style={styles.pillRow}>
+                    <Pill label={cameraPose ? "Pose ✓" : "Calibrate"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} />
+                    <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} />
+                    <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                    <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                  </View>
+                  {/* Model + Run + actions */}
+                  <View style={styles.pillRow}>
+                    <Pill label={`${MODE_LABEL[trackerMode]} ▾`} onPress={() => setShowModelPicker(true)} small />
+                    <Pill label={busy?.startsWith("tracking") ? "Tracking…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} />
+                    <Pill label="Pick" onPress={pickVideo} disabled={!!busy} small />
+                    {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
+                    {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled small />}
+                    <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        </SafeAreaView>
+      </View>
+    )}
 
-      {/* Video + Controls: side-by-side in landscape, stacked in portrait.
-          When calibrating (showPoseOverlay) in landscape, video fills the screen
-          and TrackerTab controls are hidden — the overlay has its own controls. */}
-      {videoCanvas && controlsBlock && isLandscape ? (
-        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, height: canvas.height || 300 }}>
-          <View style={{ flex: 2 }}>{videoCanvas}</View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 6 }} nestedScrollEnabled>
-            {controlsBlock}
-          </ScrollView>
-        </View>
-      ) : (
-        <>
-          {videoCanvas && <View style={{ marginBottom: 8 }}>{videoCanvas}</View>}
-          {controlsBlock}
-        </>
-      )}
-
-      {result && (
-        <View style={{ marginTop: 6 }}>
+    {/* ── Result review: full-screen ─────────────────────────────────── */}
+    {result && (
+      <View style={{ flex: 1, backgroundColor: "#000" }}>
+        {/* Review canvas fills available space */}
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
           {reviewedFrame && (
             <View
               ref={canvasRef2}
               onLayout={onCanvasLayout}
-              style={{ aspectRatio: result.videoWidth / result.videoHeight, backgroundColor: "#111", borderRadius: 8, overflow: "hidden", marginBottom: 8, position: "relative" }}
+              {...resultResponder.panHandlers}
+              style={{
+                aspectRatio: result.videoWidth / result.videoHeight,
+                width: "100%",
+                maxHeight: "100%",
+                backgroundColor: "#111",
+                overflow: "hidden",
+                position: "relative",
+              }}
             >
-              {/* Image + overlays are wrapped in a transformed View so they
-                  pan and zoom together. Stroke width of the spline stays
-                  constant via vectorEffect="non-scaling-stroke". */}
+              {/* Transformed image + overlays */}
               <View
                 pointerEvents="none"
                 style={{
-                  position: "absolute",
-                  left: 0,
-                  top: 0,
-                  right: 0,
-                  bottom: 0,
+                  position: "absolute", left: 0, top: 0, right: 0, bottom: 0,
                   transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
                 }}
               >
@@ -1306,20 +1182,8 @@ export function TrackerTab() {
                   />
                 )}
                 {splinePath !== "" && (
-                  <Svg
-                    style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }}
-                    viewBox="0 0 1 1"
-                    preserveAspectRatio="none"
-                  >
-                    <Path
-                      d={splinePath}
-                      stroke="rgba(0,200,255,0.95)"
-                      strokeWidth={2}
-                      fill="none"
-                      vectorEffect="non-scaling-stroke"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
+                  <Svg style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }} viewBox="0 0 1 1" preserveAspectRatio="none">
+                    <Path d={splinePath} stroke="rgba(0,200,255,0.95)" strokeWidth={2} fill="none" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 )}
                 {interpolated?.slice(0, reviewIdx).map((p, i) => {
@@ -1327,74 +1191,26 @@ export function TrackerTab() {
                   const cx = p.box.x + p.box.width / 2;
                   const cy = p.box.y + p.box.height / 2;
                   const denom = Math.max(1, reviewIdx - 1);
-                  const t = i / denom; // 0 = oldest, 1 = newest
+                  const t = i / denom;
                   const alpha = 0.25 + t * 0.7;
-                  // Size: shrink from full size (newest) to half (oldest).
                   const sizeFactor = 0.5 + t * 0.5;
                   if (p.interpolated) {
                     const sz = 6 * sizeFactor;
                     return (
-                      <View
-                        key={`trail-${i}`}
-                        pointerEvents="none"
-                        style={{
-                          position: "absolute",
-                          left: `${cx * 100}%`,
-                          top: `${cy * 100}%`,
-                          width: sz,
-                          height: sz,
-                          marginLeft: -sz / 2,
-                          marginTop: -sz / 2,
-                          borderRadius: sz / 2,
-                          borderWidth: 1,
-                          borderColor: `rgba(255,204,0,${alpha})`,
-                          backgroundColor: "transparent",
-                        }}
-                      />
+                      <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, borderWidth: 1, borderColor: `rgba(255,204,0,${alpha})`, backgroundColor: "transparent" }} />
                     );
                   }
                   const sz = 8 * sizeFactor;
                   return (
-                    <View
-                      key={`trail-${i}`}
-                      pointerEvents="none"
-                      style={{
-                        position: "absolute",
-                        left: `${cx * 100}%`,
-                        top: `${cy * 100}%`,
-                        width: sz,
-                        height: sz,
-                        marginLeft: -sz / 2,
-                        marginTop: -sz / 2,
-                        borderRadius: sz / 2,
-                        backgroundColor: `rgba(255,204,0,${alpha})`,
-                      }}
-                    />
+                    <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, backgroundColor: `rgba(255,204,0,${alpha})` }} />
                   );
                 })}
-                {/* Rejected points (red hollow circles) */}
                 {result.frames.slice(0, reviewIdx + 1).map((f: any, i) => {
                   if (!f.rejected || !f.rejectedBox) return null;
                   const cx = f.rejectedBox.x + f.rejectedBox.width / 2;
                   const cy = f.rejectedBox.y + f.rejectedBox.height / 2;
                   return (
-                    <View
-                      key={`rej-${i}`}
-                      pointerEvents="none"
-                      style={{
-                        position: "absolute",
-                        left: `${cx * 100}%`,
-                        top: `${cy * 100}%`,
-                        width: 8,
-                        height: 8,
-                        marginLeft: -4,
-                        marginTop: -4,
-                        borderRadius: 4,
-                        borderWidth: 1.5,
-                        borderColor: "rgba(255,59,48,0.7)",
-                        backgroundColor: "transparent",
-                      }}
-                    />
+                    <View key={`rej-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: 8, height: 8, marginLeft: -4, marginTop: -4, borderRadius: 4, borderWidth: 1.5, borderColor: "rgba(255,59,48,0.7)", backgroundColor: "transparent" }} />
                   );
                 })}
                 {(() => {
@@ -1402,29 +1218,14 @@ export function TrackerTab() {
                   if (!cur?.box) return null;
                   const isInterp = cur.interpolated;
                   return (
-                    <View
-                      pointerEvents="none"
-                      style={{
-                        position: "absolute",
-                        left: `${cur.box.x * 100}%`,
-                        top: `${cur.box.y * 100}%`,
-                        width: `${cur.box.width * 100}%`,
-                        height: `${cur.box.height * 100}%`,
-                        borderWidth: 2,
-                        borderColor: isInterp ? "#FF9500" : "#34C759",
-                        borderStyle: isInterp ? "dashed" : "solid",
-                      }}
-                    />
+                    <View pointerEvents="none" style={{ position: "absolute", left: `${cur.box.x * 100}%`, top: `${cur.box.y * 100}%`, width: `${cur.box.width * 100}%`, height: `${cur.box.height * 100}%`, borderWidth: 2, borderColor: isInterp ? "#FF9500" : "#34C759", borderStyle: isInterp ? "dashed" : "solid" }} />
                   );
                 })()}
               </View>
-              {/* Overlays OUTSIDE the transformed wrapper — stay readable
-                  regardless of zoom level. */}
+              {/* Fixed overlays (outside transform) */}
               {reviewLoading && (
                 <View style={{ position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Text style={{ color: "#fff", fontSize: 10 }}>
-                    loading t={reviewedFrame?.timeSec.toFixed(3)}s
-                  </Text>
+                  <Text style={{ color: "#fff", fontSize: 10 }}>loading t={reviewedFrame?.timeSec.toFixed(3)}s</Text>
                 </View>
               )}
               {reviewError && (
@@ -1437,302 +1238,108 @@ export function TrackerTab() {
                   <Text style={{ color: "#bbb", fontSize: 11 }}>(loading frame…)</Text>
                 </View>
               )}
+            </View>
+          )}
+        </View>
+
+        {/* Overlaid controls */}
+        <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
+            {/* Top: stats + pose info */}
+            <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
+              <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontVariant: ["tabular-nums"] }}>
+                  {MODE_LABEL[result.mode]}  ·  frame {reviewIdx + 1}/{result.frames.length}
+                  {"  ·  t="}
+                  {reviewedFrame ? reviewedFrame.timeSec.toFixed(2) : "?"}s
+                  {"  ·  conf "}
+                  {reviewedFrame ? reviewedFrame.confidence.toFixed(2) : "?"}
+                </Text>
+              </View>
+              <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
+                <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
+                  {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected
+                  {result.frames.filter((f: any) => f.rejected).length > 0 ? `  ·  ${result.frames.filter((f: any) => f.rejected).length} rejected` : ""}
+                  {"  ·  "}{result.elapsedMs}ms
+                  {result.frameRate > 0 ? `  ·  ${result.frameRate.toFixed(1)} fps` : ""}
+                </Text>
+              </View>
+              {currentBallDir && (
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
+                  <Text style={{ color: currentBallDir.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
+                    {currentBallDir.interpolated ? "interp" : "detect"}
+                    {"  ·  az "}
+                    {currentBallDir.azimuthDeg.toFixed(1)}°
+                    {"  ·  el "}
+                    {currentBallDir.elevationDeg.toFixed(1)}°
+                  </Text>
+                </View>
+              )}
               {vp.scale > 1.01 && (
-                <View style={{ position: "absolute", top: 6, left: 8, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
                   <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
                 </View>
               )}
-              <View style={{ position: "absolute", bottom: 8, left: 8, right: 8, gap: 2 }}>
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" }}>
-                  <Text style={{ color: "#fff", fontSize: 11 }}>
-                    frame {reviewIdx + 1}/{result.frames.length}
-                    {"  ·  t="}
-                    {reviewedFrame.timeSec.toFixed(2)}s
-                    {"  ·  conf "}
-                    {reviewedFrame.confidence.toFixed(2)}
-                  </Text>
+              {err && (
+                <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
                 </View>
-                {currentBallDir && (
-                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: "flex-start" }}>
-                    <Text style={{ color: currentBallDir.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
-                      {currentBallDir.interpolated ? "interp" : "detect"}
-                      {"  ·  az "}
-                      {currentBallDir.azimuthDeg.toFixed(1)}°
-                      {"  ·  el "}
-                      {currentBallDir.elevationDeg.toFixed(1)}°
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
-          <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-            <Pressable
-              onPress={() => setReviewIdx(0)}
-              disabled={reviewIdx === 0}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx === 0 ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>⏮ Start</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }}
-              disabled={reviewIdx === 0}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx === 0 ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>‹ Frame</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                if (reviewIdx >= result.frames.length - 1) {
-                  setReviewIdx(0);
-                }
-                setIsPlaying((p) => !p);
-              }}
-              style={[styles.btn, { backgroundColor: theme.primary, flex: 1.4 }]}
-            >
-              <Text style={styles.btnText}>{isPlaying ? "⏸ Pause" : "▶ Play"}</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }}
-              disabled={reviewIdx >= result.frames.length - 1}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: reviewIdx >= result.frames.length - 1 ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>Frame ›</Text>
-            </Pressable>
-          </View>
-          <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-            {([1, 0.5, 0.25, 0.125] as const).map((s) => (
-              <Pressable
-                key={s}
-                onPress={() => setPlaySpeed(s)}
-                style={[
-                  styles.btn,
-                  {
-                    flex: 1,
-                    backgroundColor: playSpeed === s ? theme.primary : theme.surfaceAlt,
-                    borderWidth: playSpeed === s ? 0 : StyleSheet.hairlineWidth,
-                    borderColor: theme.border,
-                  },
-                ]}
-              >
-                <Text style={[styles.btnText, { color: playSpeed === s ? "#fff" : theme.text }]}>
-                  {s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
-            <Pressable
-              onPress={() => zoomBy(1 / 1.5)}
-              disabled={vp.scale <= MIN_SCALE + 0.001}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: vp.scale <= MIN_SCALE + 0.001 ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>− Zoom</Text>
-            </Pressable>
-            <Pressable
-              onPress={resetViewport}
-              disabled={vp.scale <= MIN_SCALE + 0.001 && vp.tx === 0 && vp.ty === 0}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: vp.scale <= MIN_SCALE + 0.001 && vp.tx === 0 && vp.ty === 0 ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>Reset zoom</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => zoomBy(1.5)}
-              disabled={vp.scale >= MAX_SCALE - 0.001}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1, opacity: vp.scale >= MAX_SCALE - 0.001 ? 0.4 : 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>+ Zoom</Text>
-            </Pressable>
-          </View>
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            <Pressable onPress={copyTrace} style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}>
-              <Text style={[styles.btnText, { color: theme.text }]}>Copy trace</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => setShowProcessed((v) => !v)}
-              style={[styles.btn, { backgroundColor: showProcessed ? theme.primary : theme.surfaceAlt }]}
-            >
-              <Text style={[styles.btnText, { color: showProcessed ? "#fff" : theme.text, fontSize: 10 }]}>B&W</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }}
-              style={[styles.btn, { backgroundColor: theme.surfaceAlt, flex: 1 }]}
-            >
-              <Text style={[styles.btnText, { color: theme.text }]}>New tracking</Text>
-            </Pressable>
-          </View>
-          {copyHint && (
-            <Text style={{ color: theme.textSubtle, fontSize: 11, marginTop: 6, textAlign: "center" }}>{copyHint}</Text>
-          )}
-
-          {/* Tracking stats */}
-          <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 8 }}>
-            <Text style={{ color: theme.text, fontSize: 10, fontWeight: "600" }}>
-              {MODE_LABEL[result.mode]}  ·  {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected  ·  {result.frames.filter((f: any) => f.rejected).length > 0 ? `${result.frames.filter((f: any) => f.rejected).length} rejected  ·  ` : ""}{result.elapsedMs}ms  ·  {result.frameRate > 0 ? `${result.frameRate.toFixed(1)} fps` : "?"}
-            </Text>
-          </View>
-
-          {/* Camera pose + detection data (visible during review) */}
-          {cameraXYZ && (
-            <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 8 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700" }}>Camera Pose</Text>
-                <Pressable
-                  onPress={async () => {
-                    const lines = [
-                      `pos  x=${cameraXYZ.x.toFixed(3)}  y=${cameraXYZ.y.toFixed(3)}  z=${cameraXYZ.z.toFixed(3)} m`,
-                      cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
-                    ].filter(Boolean).join("\n");
-                    await Clipboard.setStringAsync(lines);
-                    setCopyHint("Copied camera pose");
-                    setTimeout(() => setCopyHint(null), 3000);
-                  }}
-                  style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 4, paddingHorizontal: 8 }]}
-                >
-                  <Text style={[styles.btnText, { color: theme.text, fontSize: 9 }]}>Copy</Text>
-                </Pressable>
-              </View>
-              <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
-                pos  x={cameraXYZ.x.toFixed(3)}  y={cameraXYZ.y.toFixed(3)}  z={cameraXYZ.z.toFixed(3)} m
-              </Text>
-              {cameraAngles && (
-                <Text style={{ color: theme.text, fontSize: 9, fontFamily: "monospace" }}>
-                  rot  rx={cameraAngles.tiltDeg.toFixed(1)}°  ry={cameraAngles.rollDeg.toFixed(1)}°  rz={cameraAngles.panDeg.toFixed(1)}°
-                </Text>
+              )}
+              {busy && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <ActivityIndicator color="#fff" size="small" />
+                  <Text style={{ color: "#fff", fontSize: 11 }}>{busy}</Text>
+                </View>
+              )}
+              {copyHint && (
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }}>{copyHint}</Text>
+                </View>
               )}
             </View>
-          )}
 
-          {allRayInfo && (
-            <View style={{ backgroundColor: "rgba(0,200,255,0.08)", borderRadius: 6, padding: 6, marginTop: 4 }}>
-              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                <Text style={{ color: theme.text, fontSize: 10, fontWeight: "700" }}>
-                  Detections ({allRayInfo.length} frames)
-                </Text>
-                <Pressable
-                  onPress={async () => {
-                    const lines = [
-                      `Camera Pose`,
-                      `pos  x=${cameraXYZ!.x.toFixed(3)}  y=${cameraXYZ!.y.toFixed(3)}  z=${cameraXYZ!.z.toFixed(3)} m`,
-                      cameraAngles ? `rot  rx=${cameraAngles.tiltDeg.toFixed(1)}  ry=${cameraAngles.rollDeg.toFixed(1)}  rz=${cameraAngles.panDeg.toFixed(1)} deg` : "",
-                      "",
-                      "frame\ttime\ttype\tpixel_x\tpixel_y\tyz_y\tyz_z\tray_dir_x\tray_dir_y\tray_dir_z",
-                      ...allRayInfo.map((r) =>
-                        `${r.frameIndex}\t${r.timeSec.toFixed(4)}\t${r.interpolated ? "interp" : "detect"}\t${r.pixelX.toFixed(1)}\t${(result!.videoHeight - r.pixelY).toFixed(1)}\t${r.yzY.toFixed(4)}\t${r.yzZ.toFixed(4)}\t${r.rayDirX.toFixed(5)}\t${r.rayDirY.toFixed(5)}\t${r.rayDirZ.toFixed(5)}`
-                      ),
-                    ].filter(Boolean).join("\n");
-                    await Clipboard.setStringAsync(lines);
-                    setCopyHint("Copied position data");
-                    setTimeout(() => setCopyHint(null), 3000);
-                  }}
-                  style={[styles.btn, { backgroundColor: theme.surfaceAlt, paddingVertical: 4, paddingHorizontal: 8 }]}
-                >
-                  <Text style={[styles.btnText, { color: theme.text, fontSize: 9 }]}>Copy</Text>
-                </Pressable>
+            {/* Bottom: playback + action pills */}
+            <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: isLandscape ? 8 : 16 }}>
+              {/* Frame navigation */}
+              <View style={styles.pillRow}>
+                <Pill label="⏮" onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} small />
+                <Pill label="‹" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} small />
+                <Pill label={isPlaying ? "⏸ Pause" : "▶ Play"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} />
+                <Pill label="›" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} small />
               </View>
-              <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                {allRayInfo.map((r, i) => (
-                  <View key={i} style={{ marginBottom: 4, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, paddingBottom: 3 }}>
-                    <Text style={{ color: r.interpolated ? "#FF9500" : "#34C759", fontSize: 8, fontWeight: "600" }}>
-                      f{r.frameIndex} t={r.timeSec.toFixed(3)}s {r.interpolated ? "INTERP" : "DETECT"}
-                    </Text>
-                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                      pixel  x={r.pixelX.toFixed(1)}  y={(result!.videoHeight - r.pixelY).toFixed(1)}
-                    </Text>
-                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                  YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
-                    </Text>
-                    <Text style={{ color: theme.text, fontSize: 8, fontFamily: "monospace" }}>
-                      YZ plane  y={r.yzY.toFixed(3)}  z={r.yzZ.toFixed(3)} m
-                    </Text>
-                    <Text style={{ color: theme.textSubtle, fontSize: 7, fontFamily: "monospace" }}>
-                      {r.rayEquation}
-                    </Text>
-                  </View>
+              {/* Speed */}
+              <View style={styles.pillRow}>
+                {([1, 0.5, 0.25, 0.125] as const).map((s) => (
+                  <Pill key={s} label={s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"} active={playSpeed === s} onPress={() => setPlaySpeed(s)} small />
                 ))}
-              </ScrollView>
+              </View>
+              {/* Zoom */}
+              <View style={styles.pillRow}>
+                <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
+                <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
+                <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
+              </View>
+              {/* Actions */}
+              <View style={styles.pillRow}>
+                <Pill label="Copy" onPress={copyTrace} small />
+                {cameraXYZ && <Pill label="Pose" onPress={handleCopyPose} small />}
+                {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
+                <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
+                <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
+              </View>
+              {savedViewUrl && (
+                <View style={styles.pillRow}>
+                  <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }}>
+                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 11, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
-          )}
-
-          {/* Save full session to whyapp.us */}
-          <Pressable
-            onPress={async () => {
-              setBusy("saving session…");
-              try {
-                // Build detection data for the viewer
-                const ip = interpolated ?? [];
-                const detections = result ? result.frames.map((f, i) => {
-                  const p = ip[i];
-                  const bx = p?.box ?? f.box;
-                  if (!bx) return null;
-                  const cx = bx.x + bx.width / 2, cy = bx.y + bx.height / 2;
-                  const ri = allRayInfo?.find((r) => r.frameIndex === i);
-                  return {
-                    frame: i, time: Number(f.timeSec.toFixed(4)),
-                    type: f.lost ? (p?.interpolated ? "interp" : "lost") : "detect",
-                    pixel: { x: Number((cx * result.videoWidth).toFixed(1)), y: Number(((1 - cy) * result.videoHeight).toFixed(1)) },
-                    yzPlane: ri ? { y: Number(ri.yzY.toFixed(4)), z: Number(ri.yzZ.toFixed(4)) } : null,
-                    ray: ri ? { dx: Number(ri.rayDirX.toFixed(5)), dy: Number(ri.rayDirY.toFixed(5)), dz: Number(ri.rayDirZ.toFixed(5)) } : null,
-                  };
-                }).filter(Boolean) : [];
-
-                // Full session for restore
-                const overlayState = poseOverlayRef.current?.getState?.() ?? null;
-                const session: TrackerSession = {
-                  version: 2,
-                  savedAt: new Date().toISOString(),
-                  videoUri,
-                  frameTimeSec,
-                  trackerMode,
-                  startTimeSec,
-                  endTimeSec,
-                  roi: box,
-                  cameraPose: cameraPose ? { fit: { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx, count: cameraPose.fit.count }, sides: cameraPose.sides } : null,
-                  cameraXYZ,
-                  cameraAngles,
-                  overlayPositions: overlayState?.positions ?? null,
-                  overlayAnchored: overlayState?.anchored ?? null,
-                  result: result ? { frames: result.frames, elapsedMs: result.elapsedMs, videoWidth: result.videoWidth, videoHeight: result.videoHeight, frameRate: result.frameRate, mode: result.mode } : null,
-                  reviewIdx,
-                  settings: { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize: useTrackerSettings.getState().roiSize, basepathFt },
-                };
-
-                // Also include viewer data in the payload
-                const payload = {
-                  session,
-                  cameraPose: cameraXYZ ? { position: cameraXYZ, rotation: cameraAngles } : null,
-                  homography: cameraPose ? { H: cameraPose.fit.H, Hinv: cameraPose.fit.Hinv, rmsPx: cameraPose.fit.rmsPx } : null,
-                  imageSize: result ? { width: result.videoWidth, height: result.videoHeight } : null,
-                  frameRate: result?.frameRate ?? 0,
-                  trackerMode,
-                  basepathFt,
-                  detections,
-                };
-                const res = await apiFetch<{ id: string }>("/tracking", { method: "POST", body: JSON.stringify(payload) });
-                const viewUrl = `https://api.whyapp.us/tracking/${res.id}/view`;
-                setSavedViewUrl(viewUrl);
-                setCopyHint("Saved!");
-                setTimeout(() => setCopyHint(null), 3000);
-              } catch (e) {
-                setCopyHint(`Save failed: ${(e as Error).message}`);
-                setTimeout(() => setCopyHint(null), 5000);
-              } finally {
-                setBusy(null);
-              }
-            }}
-            disabled={!!busy}
-            style={[styles.btn, { backgroundColor: theme.highlight, marginTop: 8, opacity: busy ? 0.5 : 1 }]}
-          >
-            <Text style={styles.btnText}>Save Session</Text>
-          </Pressable>
-          {savedViewUrl && (
-            <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }} style={{ marginTop: 4 }}>
-              <Text style={{ color: "rgba(0,200,255,1)", fontSize: 11, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
-            </Pressable>
-          )}
-        </View>
-      )}
-    </ScrollView>
+          </View>
+        </SafeAreaView>
+      </View>
+    )}
 
     {/* Model picker modal */}
     <Modal visible={showModelPicker} transparent animationType="fade" onRequestClose={() => setShowModelPicker(false)}>
@@ -1801,6 +1408,32 @@ export function TrackerTab() {
   );
 }
 
+// ── Pill button (AR tab / camera-app style) ────────────────────────────
+
+function Pill({ label, active, onPress, disabled, small, color }: {
+  label: string; active?: boolean; onPress: () => void; disabled?: boolean; small?: boolean; color?: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress} disabled={disabled}
+      style={{
+        paddingHorizontal: small ? 10 : 16,
+        paddingVertical: small ? 5 : 8,
+        borderRadius: small ? 14 : 20,
+        backgroundColor: active ? "rgba(255,255,255,0.85)" : color ?? "rgba(0,0,0,0.5)",
+        borderWidth: 1,
+        borderColor: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",
+        opacity: disabled ? 0.35 : 1,
+      }}
+    >
+      <Text style={{
+        color: active ? "#000" : "rgba(255,255,255,0.95)",
+        fontSize: small ? 11 : 13, fontWeight: "600",
+      }}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   btn: {
     paddingVertical: 10,
@@ -1812,6 +1445,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "600",
     fontSize: 13,
+  },
+  pillRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    flexWrap: "wrap",
+    gap: 6,
   },
 });
 

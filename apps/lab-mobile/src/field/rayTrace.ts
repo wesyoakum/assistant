@@ -1,7 +1,12 @@
 // Ray tracing from pixel positions through the camera.
 //
-// All coordinates are in user frame: X→1B, Y→2B, Z→up (meters).
-// H now maps user ground (x,y) → image pixels directly.
+// Coordinate system: X→1B foul line, Y→3B foul line, Z→up (meters).
+// Origin at home plate apex. Right-handed.
+//
+// The "mid-plane" is the vertical plane through the apex and 2B,
+// bisecting the diamond at 45° between the foul lines. Its equation
+// is x = y (normal (1,-1,0)). This is the natural cross-section for
+// a pitch traveling from the mound to the plate.
 
 // @ts-ignore
 import { type Homography } from "./videoHomography.ts";
@@ -13,9 +18,10 @@ import { type CameraIntrinsics } from "./cameraPoseDecompose.ts";
 export interface RayInfo {
   pixelX: number;
   pixelY: number;
-  /** YZ plane intersection (X=0): Y (toward 2B), Z (height), meters. */
-  yzY: number;
-  yzZ: number;
+  /** Mid-plane crossing: distance from apex toward 2B (meters). null if ray doesn't cross. */
+  yzY: number | null;
+  /** Mid-plane crossing: height above ground (meters). null if ray doesn't cross. */
+  yzZ: number | null;
   rayDirX: number;
   rayDirY: number;
   rayDirZ: number;
@@ -40,7 +46,7 @@ export function computeRayInfo(
   const pixelX = normCx * imageWidth;
   const pixelY = normCy * imageHeight;
 
-  // Back-project pixel to ground plane — now returns user coords directly.
+  // Back-project pixel to ground plane — returns user coords directly.
   const groundPt = imageToField(Hinv, { u: pixelX, v: pixelY });
   if (!groundPt) return null;
 
@@ -54,12 +60,24 @@ export function computeRayInfo(
   const rayDirY = dy / len;
   const rayDirZ = dz / len;
 
-  // Intersect ray with YZ plane (X=0).
-  let yzY = 0, yzZ = 0;
-  if (Math.abs(rayDirX) > 1e-10) {
-    const t = -cameraPos.x / rayDirX;
+  // Intersect ray with the mid-plane (x = y).
+  // The plane normal is (1, -1, 0). For a point on the plane, x - y = 0.
+  // Ray: P(t) = camPos + t * rayDir
+  // Solve: (camPos.x + t*rayDir.x) - (camPos.y + t*rayDir.y) = 0
+  //   t * (rayDir.x - rayDir.y) = camPos.y - camPos.x
+  //   t = (camPos.y - camPos.x) / (rayDir.x - rayDir.y)
+  //
+  // t > 0 means the crossing is in front of the camera.
+  let yzY: number | null = null;
+  let yzZ: number | null = null;
+  const denom = rayDirX - rayDirY;
+  if (Math.abs(denom) > 1e-10) {
+    const t = (cameraPos.y - cameraPos.x) / denom;
     if (t > 0) {
-      yzY = cameraPos.y + t * rayDirY;
+      const ix = cameraPos.x + t * rayDirX;
+      // Distance from apex toward 2B along the (1,1,0) direction:
+      // the crossing point is (ix, ix, iz) so ground distance = ix * sqrt(2)
+      yzY = ix * Math.SQRT2;
       yzZ = cameraPos.z + t * rayDirZ;
     }
   }

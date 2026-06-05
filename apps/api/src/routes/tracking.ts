@@ -202,7 +202,7 @@ function viewerHTML(id: string, data: any): string {
   const img = data.imageSize || {};
   const H = data.homography || {};
 
-  const csvHeader = "frame,time,type,pixel_x,pixel_y,yz_y,yz_z,ray_dx,ray_dy,ray_dz";
+  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,ray_dx,ray_dy,ray_dz";
   const csvRows = d.map((r: any) =>
     `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`
   ).join("\\n");
@@ -254,7 +254,7 @@ a{color:#0cf}
 <div id="scene3d-container" style="width:100%;max-width:800px;height:500px;position:relative;border-radius:8px;overflow:hidden;background:#0a0a0a">
   <canvas id="scene3d"></canvas>
 </div>
-<button id="toggleYZ" style="position:absolute;top:8px;right:8px;padding:4px 10px;border-radius:4px;border:1px solid #ffcc00;background:rgba(255,204,0,0.2);color:#ffcc00;font-size:12px;cursor:pointer">YZ Plane</button>
+<button id="toggleYZ" style="position:absolute;top:8px;right:8px;padding:4px 10px;border-radius:4px;border:1px solid #ffcc00;background:rgba(255,204,0,0.2);color:#ffcc00;font-size:12px;cursor:pointer">Mid Plane</button>
 </div>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 <script type="module">
@@ -264,19 +264,22 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const camPos = ${JSON.stringify(cam?.position || { x: 0, y: -7, z: 2 })};
 const camRot = ${JSON.stringify(cam?.rotation || { rx: 0, ry: 0, rz: 0 })};
 const hasCam = ${!!(cam?.position)};
-const detData = ${JSON.stringify(detected.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray })))};
+const detData = ${JSON.stringify(d.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray })))};
 const bp = ${data.basepathFt || 60}; // basepath in feet
 const FT = 0.3048;
 const D = Math.SQRT1_2;
 const DEG = Math.PI / 180;
 
-// User coords: X→1B, Y→2B, Z→up (meters)
+// Field frame: X→1B foul line, Y→3B foul line, Z→up (meters, origin at apex)
+// Viewer frame: rotated 45° so viewerY→2B. iu() does this rotation.
 // Three.js:    X→right, Y→up, Z→toward viewer
-// Mapping: threeX = userX, threeY = userZ (up), threeZ = -userY
-function u2t(ux, uy, uz) { return new THREE.Vector3(ux, uz, -uy); }
-// Compute user coords from basepath (all in meters now)
-// Convert internal field (feet) to user coords (meters) for the 3D viewer geometry.
+// Mapping: threeX = viewerX, threeY = viewerZ (up), threeZ = -viewerY
+function u2t(vx, vy, vz) { return new THREE.Vector3(vx, vz, -vy); }
+// Convert field coords (1B_ft, 3B_ft) → viewer frame (meters).
+// Rotates 45° so viewer Y axis points toward 2B.
 function iu(fx, fz) { return [(fx - fz) * D * FT, (fx + fz) * D * FT]; }
+// Convert field-frame position (1B, 3B, up) meters → viewer frame.
+function f2v(fx, fy, fz) { return [(fx - fy) * D, (fx + fy) * D, fz]; }
 
 const container = document.getElementById('scene3d-container');
 const W = container.clientWidth, H = container.clientHeight;
@@ -305,9 +308,9 @@ scene.add(dl);
 
 // Axes
 const axLen = 3;
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), axLen, 0xff0000)); // X = toward 1B
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), axLen, 0x00ff00)); // Y(three) = Z(user) = up
-scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(0,0,0), axLen, 0x0066ff)); // -Z(three) = Y(user) = toward 2B
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(1,0,0), new THREE.Vector3(0,0,0), axLen, 0xff0000)); // viewer X (perp to 2B line)
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,1,0), new THREE.Vector3(0,0,0), axLen, 0x00ff00)); // up (Z)
+scene.add(new THREE.ArrowHelper(new THREE.Vector3(0,0,-1), new THREE.Vector3(0,0,0), axLen, 0x0066ff)); // toward 2B
 
 // Sprite labels for bases
 function makeLabel(text, pos, color) {
@@ -449,8 +452,9 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   const frustMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
   camGroup.add(new THREE.Mesh(frustGeo, frustMat));
 
-  // Position in Three.js coords
-  const camP = u2t(camPos.x, camPos.y, camPos.z);
+  // Position: convert from field frame (1B, 3B, up) to viewer frame, then to Three.js.
+  const cv = f2v(camPos.x, camPos.y, camPos.z);
+  const camP = u2t(cv[0], cv[1], cv[2]);
   camGroup.position.copy(camP);
 
   // Apply rotation: camRot has rx (tilt), ry (roll), rz (pan) in user coords.
@@ -474,7 +478,7 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   ));
 }
 
-// YZ plane (semi-transparent yellow, at X=0) — toggleable
+// Mid-plane (apex→2B, semi-transparent yellow, at viewerX=0) — toggleable
 const yzGroup = new THREE.Group();
 const yzGeo = new THREE.PlaneGeometry(20, 6);
 const yzMat = new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.12, side: THREE.DoubleSide });
@@ -491,7 +495,7 @@ scene.add(yzGroup);
 
 // Rays and intersection points
 const rayMat = new THREE.LineBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0.3 });
-const camPos3 = u2t(camPos.x, camPos.y, camPos.z);
+const camPos3 = u2t(cv[0], cv[1], cv[2]);
 const detectSphMat = new THREE.MeshBasicMaterial({ color: 0x34c759 });
 const interpSphMat = new THREE.MeshBasicMaterial({ color: 0xff9500 });
 const sphGeo = new THREE.SphereGeometry(0.06, 8, 8);
@@ -532,7 +536,7 @@ window.addEventListener('resize', () => {
 <h2>Detections (${d.length} frames, ${detected.length} detected)</h2>
 <div style="max-height:400px;overflow:auto">
 <table>
-<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>yz_y</th><th>yz_z</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
+<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
 <tbody>${tableRows}</tbody>
 </table>
 </div>
