@@ -550,7 +550,26 @@ export function TrackerTab() {
           const res = isYolo
             ? await Yolo.detect(detectUri, { minConfidence: 0.10, roi })
             : await Baseball.detect(detectUri, { minConfidence: 0.10 });
-          return res.detections.map((d) => ({ label: d.label, confidence: d.confidence, box: d.box }));
+          return res.detections.map((d) => {
+            let b = d.box;
+            // When ROI is set, Vision's regionOfInterest SHOULD return
+            // full-frame coords, but remap just in case: if the detection
+            // center falls outside the ROI in full-frame space, the native
+            // layer returned crop-relative coords — remap them.
+            if (roi) {
+              const cx = b.x + b.width / 2;
+              const cy = b.y + b.height / 2;
+              if (cx < roi.x || cx > roi.x + roi.width || cy < roi.y || cy > roi.y + roi.height) {
+                b = {
+                  x: roi.x + b.x * roi.width,
+                  y: roi.y + b.y * roi.height,
+                  width: b.width * roi.width,
+                  height: b.height * roi.height,
+                };
+              }
+            }
+            return { label: d.label, confidence: d.confidence, box: b };
+          });
         };
         const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
         const walkStart = startTimeSec ?? frameTimeSec;
