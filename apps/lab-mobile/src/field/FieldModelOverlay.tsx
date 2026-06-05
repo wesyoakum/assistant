@@ -205,9 +205,23 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     const responder = useMemo(
       () =>
         PanResponder.create({
-          onStartShouldSetPanResponder: () => true,
-          onMoveShouldSetPanResponder: () => true,
-          onPanResponderTerminationRequest: () => true,
+          // Only claim the gesture if there's an active handle to place,
+          // or the touch is near a placed handle. Otherwise let the parent
+          // (video zoom/pan) handle it — prevents accidental anchor moves.
+          onStartShouldSetPanResponder: (_, gs) => {
+            // Active handle waiting to be placed? Always claim.
+            if (activeIdRef.current) return true;
+            // Near a placed handle? Claim.
+            const lx = gs.x0 - canvasPageOffset.x;
+            const ly = gs.y0 - canvasPageOffset.y;
+            const sp = screenPlacedRef.current;
+            for (const [, s] of Object.entries(sp)) {
+              if (Math.hypot(lx - s.x, ly - s.y) < 40) return true;
+            }
+            return false;
+          },
+          onMoveShouldSetPanResponder: () => !!dragRef.current,
+          onPanResponderTerminationRequest: () => !dragRef.current,
           onPanResponderGrant: (_, gs) => {
             didMoveRef.current = false;
             const lx = gs.x0 - canvasPageOffset.x;
@@ -216,7 +230,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             const aid = activeIdRef.current;
 
             if (aid && placedRef.current[aid]) {
-              // Already active: start dragging it
+              // Already active + placed: start dragging it
               const pos = placedRef.current[aid]!;
               dragRef.current = {
                 id: aid,
@@ -232,10 +246,10 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               return;
             }
 
-            // No active handle: check if tapping a placed one
+            // No active: find nearest placed handle
             const sp = screenPlacedRef.current;
             let nearId = "";
-            let nearDist = 30;
+            let nearDist = 40;
             for (const [id, s] of Object.entries(sp)) {
               const d = Math.hypot(lx - s.x, ly - s.y);
               if (d < nearDist) { nearDist = d; nearId = id; }
@@ -424,106 +438,107 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Controls layer — rendered AFTER touch surface so taps work */}
-        <View style={{ position: "absolute", top: 6, left: 8, right: 8 }} pointerEvents="box-none">
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }} pointerEvents="box-none">
-            <Text pointerEvents="none" style={{
-              color: placedCount >= 4 ? PLACED_COLOR : "rgba(255,200,0,0.9)",
-              fontSize: 11, fontWeight: "600",
-            }}>
-              {placedCount}/4{placedCount >= 4 ? " ✓" : ""}
-            </Text>
+        {/* Status bar — top center */}
+        <View style={{ position: "absolute", top: 8, left: 0, right: 0, alignItems: "center" }} pointerEvents="none">
+          <Text style={{
+            color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: "500",
+            backgroundColor: "rgba(0,0,0,0.4)", paddingHorizontal: 10, paddingVertical: 4,
+            borderRadius: 8, overflow: "hidden",
+          }}>
+            {placedCount}/4 anchors{placedCount >= 4 ? " ✓" : ""}{activeId ? ` · ${activeId}` : ""}
+          </Text>
+        </View>
 
-            {/* Dropdown trigger */}
-            <Pressable
-              onPress={() => setDropdownOpen((v) => !v)}
-              style={{
-                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-                backgroundColor: "rgba(0,200,255,0.6)",
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-                {activeId ? activeId : "Place handle ▾"}
-              </Text>
-            </Pressable>
-
-            {/* Remove active */}
-            {activeId && placed[activeId] && (
-              <Pressable onPress={() => removeHandle(activeId)} style={{
-                paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
-                backgroundColor: "rgba(255,60,60,0.6)",
-              }}>
-                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>✕</Text>
-              </Pressable>
-            )}
-
-            {/* Nudge buttons */}
-            {activeId && placed[activeId] && (
-              <View style={{ flexDirection: "row", gap: 2 }}>
-                <Pressable onPress={() => nudge(-1, 0)} style={nudgeBtn}><Text style={nudgeT}>◀</Text></Pressable>
-                <Pressable onPress={() => nudge(0, -1)} style={nudgeBtn}><Text style={nudgeT}>▲</Text></Pressable>
-                <Pressable onPress={() => nudge(0, 1)} style={nudgeBtn}><Text style={nudgeT}>▼</Text></Pressable>
-                <Pressable onPress={() => nudge(1, 0)} style={nudgeBtn}><Text style={nudgeT}>▶</Text></Pressable>
-              </View>
-            )}
-
-            {/* Model/Video toggle */}
-            <Pressable
-              onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
-              style={{
-                marginLeft: "auto",
-                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-                backgroundColor: controlMode === "model" ? "rgba(0,200,255,0.6)" : "rgba(255,160,0,0.6)",
-              }}
-            >
-              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-                {controlMode === "model" ? "Model" : "Video"}
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Dropdown list */}
-          {dropdownOpen && (
-            <View style={{
-              marginTop: 4, maxHeight: 200,
-              backgroundColor: "rgba(0,0,0,0.9)",
-              borderRadius: 8, padding: 4,
-            }}>
-              <ScrollView>
-                {availableHandles.map((h) => (
-                  <Pressable
-                    key={h.id}
-                    onPress={() => selectHandle(h.id)}
-                    style={{
-                      paddingHorizontal: 10, paddingVertical: 8,
-                      borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.1)",
-                    }}
-                  >
-                    <Text style={{ color: FREE_COLOR, fontSize: 13 }}>{h.id}</Text>
-                  </Pressable>
-                ))}
-                {availableHandles.length === 0 && (
-                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, padding: 8 }}>
-                    All handles placed
-                  </Text>
-                )}
-              </ScrollView>
+        {/* Controls — bottom, AR-style pills */}
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0 }} pointerEvents="box-none">
+          {/* Nudge row (only when active handle is placed) */}
+          {activeId && placed[activeId] && (
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 8 }}>
+              <Pill label="◀" onPress={() => nudge(-1, 0)} small />
+              <Pill label="▲" onPress={() => nudge(0, -1)} small />
+              <Pill label="▼" onPress={() => nudge(0, 1)} small />
+              <Pill label="▶" onPress={() => nudge(1, 0)} small />
             </View>
           )}
+
+          {/* Main control row */}
+          <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingBottom: 16 }}>
+            <Pill
+              label={activeId ? activeId : "Place ▾"}
+              active={dropdownOpen}
+              onPress={() => setDropdownOpen((v) => !v)}
+            />
+            {activeId && placed[activeId] && (
+              <Pill label="Remove" onPress={() => removeHandle(activeId)} />
+            )}
+            <Pill
+              label={controlMode === "model" ? "Model" : "Video"}
+              active={controlMode === "video"}
+              onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
+            />
+          </View>
         </View>
+
+        {/* Dropdown list — above the control bar */}
+        {dropdownOpen && (
+          <View style={{
+            position: "absolute", bottom: 60, left: 12, right: 12,
+            maxHeight: 240, backgroundColor: "rgba(0,0,0,0.9)",
+            borderRadius: 12, padding: 6,
+          }}>
+            <ScrollView>
+              {availableHandles.map((h) => (
+                <Pressable
+                  key={h.id}
+                  onPress={() => selectHandle(h.id)}
+                  style={{
+                    paddingHorizontal: 14, paddingVertical: 10,
+                    borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.1)",
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 14 }}>{h.id}</Text>
+                </Pressable>
+              ))}
+              {availableHandles.length === 0 && (
+                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, padding: 10 }}>
+                  All handles placed
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        )}
       </View>
     );
   },
 );
 
-// ── Styles ──────────────────────────────────────────────────────────────
+// ── Pill button (matches AR tab style) ───────────────────────────────────
 
-const nudgeBtn = {
-  width: 22, height: 22, borderRadius: 11,
-  backgroundColor: "rgba(255,220,0,0.5)",
-  alignItems: "center" as const, justifyContent: "center" as const,
-};
-const nudgeT = { color: "#fff", fontSize: 10, fontWeight: "600" as const };
+function Pill({ label, active, onPress, disabled, small }: {
+  label: string; active?: boolean; onPress: () => void; disabled?: boolean; small?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={{
+        paddingHorizontal: small ? 12 : 18,
+        paddingVertical: small ? 6 : 10,
+        borderRadius: small ? 14 : 20,
+        backgroundColor: active ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.45)",
+        borderWidth: 1,
+        borderColor: active ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",
+        opacity: disabled ? 0.35 : 1,
+      }}
+    >
+      <Text style={{
+        color: active ? "#000" : "rgba(255,255,255,0.9)",
+        fontSize: small ? 12 : 14,
+        fontWeight: "600",
+      }}>{label}</Text>
+    </Pressable>
+  );
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
