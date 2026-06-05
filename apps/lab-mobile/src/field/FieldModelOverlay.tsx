@@ -465,17 +465,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             </View>
           )}
 
-          {/* Nudge row */}
-          {activeId && placed[activeId] && (
-            <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 6 }}>
-              <Pill label="◀" onPress={() => nudge(-1, 0)} small />
-              <Pill label="▲" onPress={() => nudge(0, -1)} small />
-              <Pill label="▼" onPress={() => nudge(0, 1)} small />
-              <Pill label="▶" onPress={() => nudge(1, 0)} small />
-            </View>
-          )}
-
-          {/* Bottom bar: Place left, context center, Model right */}
+          {/* Bottom bar: Place left, context center */}
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingHorizontal: 8, paddingBottom: 10 }}>
             {/* Left: Place */}
             <Pill
@@ -492,13 +482,51 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                 <Pill label="Deselect" onPress={() => setActiveId(null)} small />
               )}
             </View>
-            {/* Right: Model/Video */}
-            <Pill
-              label={controlMode === "model" ? "Model" : "Video"}
-              active={controlMode === "video"}
-              onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
-            />
+            <View style={{ width: 70 }} />
           </View>
+        </View>
+
+        {/* D-pad + mode toggle — bottom-right corner */}
+        <View pointerEvents="box-none" style={{ position: "absolute", bottom: 12, right: 12, width: 88, height: 88, alignItems: "center", justifyContent: "center" }}>
+          {/* Up */}
+          {activeId && placed[activeId] && (
+            <Pressable onPress={() => nudge(0, -1)} style={{ position: "absolute", top: 0, alignItems: "center" }}>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>▲</Text>
+            </Pressable>
+          )}
+          {/* Down */}
+          {activeId && placed[activeId] && (
+            <Pressable onPress={() => nudge(0, 1)} style={{ position: "absolute", bottom: 0, alignItems: "center" }}>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>▼</Text>
+            </Pressable>
+          )}
+          {/* Left */}
+          {activeId && placed[activeId] && (
+            <Pressable onPress={() => nudge(-1, 0)} style={{ position: "absolute", left: 0, alignItems: "center", justifyContent: "center", height: "100%" }}>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>◀</Text>
+            </Pressable>
+          )}
+          {/* Right */}
+          {activeId && placed[activeId] && (
+            <Pressable onPress={() => nudge(1, 0)} style={{ position: "absolute", right: 0, alignItems: "center", justifyContent: "center", height: "100%" }}>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 16 }}>▶</Text>
+            </Pressable>
+          )}
+          {/* Center: mode toggle circle */}
+          <Pressable
+            onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
+            style={{
+              width: 40, height: 40, borderRadius: 20,
+              backgroundColor: controlMode === "video" ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.5)",
+              borderWidth: 1,
+              borderColor: controlMode === "video" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.2)",
+              alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: controlMode === "video" ? "#000" : "rgba(255,255,255,0.9)", fontSize: 16 }}>
+              {controlMode === "model" ? "◇" : "▢"}
+            </Text>
+          </Pressable>
         </View>
 
         {/* Dropdown list — compact, anchored to bottom-left */}
