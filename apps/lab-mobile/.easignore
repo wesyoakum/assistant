@@ -34,8 +34,13 @@ archive/**
 !modules/**
 
 # Dev artifacts
+videos
+videos/**
 **/*.blend
 **/*.blend1
+**/*.MOV
+**/*.mov
+**/*.mp4
 **/*.onnx
 **/*.pt
 **/runs

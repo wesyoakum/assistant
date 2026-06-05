@@ -254,7 +254,12 @@ a{color:#0cf}
 <div id="scene3d-container" style="width:100%;max-width:800px;height:500px;position:relative;border-radius:8px;overflow:hidden;background:#0a0a0a">
   <canvas id="scene3d"></canvas>
 </div>
-<button id="toggleYZ" style="position:absolute;top:8px;right:8px;padding:4px 10px;border-radius:4px;border:1px solid #ffcc00;background:rgba(255,204,0,0.2);color:#ffcc00;font-size:12px;cursor:pointer">Mid Plane</button>
+<div style="position:absolute;top:8px;right:8px;display:flex;gap:4px">
+<button id="toggleYZ" style="padding:4px 10px;border-radius:4px;border:1px solid #ffcc00;background:rgba(255,204,0,0.2);color:#ffcc00;font-size:12px;cursor:pointer">Mid Plane</button>
+<button id="viewOrtho" style="padding:4px 10px;border-radius:4px;border:1px solid #0cf;background:rgba(0,204,255,0.2);color:#0cf;font-size:12px;cursor:pointer">Ortho</button>
+<button id="viewCam" style="padding:4px 10px;border-radius:4px;border:1px solid #f33;background:rgba(255,51,51,0.2);color:#f33;font-size:12px;cursor:pointer">Cam View</button>
+<button id="viewOrbit" style="padding:4px 10px;border-radius:4px;border:1px solid #888;background:rgba(136,136,136,0.2);color:#888;font-size:12px;cursor:pointer">Orbit</button>
+</div>
 </div>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
 <script type="module">
@@ -285,15 +290,30 @@ const container = document.getElementById('scene3d-container');
 const W = container.clientWidth, H = container.clientHeight;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0a);
-const camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 500);
-// Start behind home plate looking toward 2B (catcher's view).
-// User Y negative = behind plate → Three.js Z positive = toward viewer.
-camera.position.set(0, 8, 15); // elevated, behind plate
-camera.lookAt(0, 0, -10); // look toward 2B (negative Three.js Z)
+
+// ── Cameras ──
+// Perspective (orbit)
+const perspCam = new THREE.PerspectiveCamera(60, W / H, 0.1, 500);
+perspCam.position.set(0, 8, 15);
+perspCam.lookAt(0, 0, -10);
+
+// Orthographic looking straight at mid-plane (from +X toward -X in Three.js)
+const orthoH = 12;
+const orthoW = orthoH * (W / H);
+const orthoCam = new THREE.OrthographicCamera(-orthoW/2, orthoW/2, orthoH/2, -orthoH/2, 0.1, 200);
+// Mid-plane is at Three.js X=0; look from +X side. Three.js -Z = toward 2B.
+// Position far along +X, centered on likely ball height (~1.5m) and ~8m toward 2B.
+orthoCam.position.set(40, 1.5, -8);
+orthoCam.lookAt(0, 1.5, -8);
+
+// Camera-view cam (matches the real camera's pose)
+const realCam = new THREE.PerspectiveCamera(69, W / H, 0.1, 500);
+
+let activeCamera = perspCam;
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene3d'), antialias: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(window.devicePixelRatio);
-const controls = new OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(perspCam, renderer.domElement);
 controls.target.set(0, 1, 0);
 controls.update();
 
@@ -433,6 +453,9 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   });
 }
 
+// Convert camera position from field frame to viewer frame (used by both marker and rays).
+const cv = f2v(camPos.x, camPos.y, camPos.z);
+
 // Camera marker (red frustum, oriented by saved rotation)
 {
   const camGroup = new THREE.Group();
@@ -452,8 +475,7 @@ const baseMat = new THREE.MeshBasicMaterial({ color: 0xffdc00 });
   const frustMat = new THREE.MeshBasicMaterial({ color: 0xff3333, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
   camGroup.add(new THREE.Mesh(frustGeo, frustMat));
 
-  // Position: convert from field frame (1B, 3B, up) to viewer frame, then to Three.js.
-  const cv = f2v(camPos.x, camPos.y, camPos.z);
+  // Position in Three.js coords (cv already converted to viewer frame above).
   const camP = u2t(cv[0], cv[1], cv[2]);
   camGroup.position.copy(camP);
 
@@ -514,18 +536,50 @@ detData.forEach(d => {
   scene.add(sph);
 });
 
-// YZ plane toggle
+// Set up real camera pose (matches the physical camera used for tracking).
+{
+  const rcp = u2t(cv[0], cv[1], cv[2]);
+  realCam.position.copy(rcp);
+  const euler = new THREE.Euler(
+    -camRot.rx * DEG,
+    -camRot.rz * DEG,
+    camRot.ry * DEG,
+    'YXZ'
+  );
+  realCam.setRotationFromEuler(euler);
+}
+
+// Mid-plane toggle
 document.getElementById('toggleYZ').addEventListener('click', function() {
   yzGroup.visible = !yzGroup.visible;
   this.style.opacity = yzGroup.visible ? '1' : '0.4';
 });
 
-function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+// View switching
+function setView(cam) {
+  activeCamera = cam;
+  controls.enabled = (cam === perspCam);
+  // Highlight active button
+  ['viewOrtho','viewCam','viewOrbit'].forEach(id => {
+    document.getElementById(id).style.opacity = '0.5';
+  });
+  const btnId = cam === orthoCam ? 'viewOrtho' : cam === realCam ? 'viewCam' : 'viewOrbit';
+  document.getElementById(btnId).style.opacity = '1';
+}
+document.getElementById('viewOrtho').addEventListener('click', () => setView(orthoCam));
+document.getElementById('viewCam').addEventListener('click', () => setView(realCam));
+document.getElementById('viewOrbit').addEventListener('click', () => setView(perspCam));
+
+function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, activeCamera); }
 animate();
 
 window.addEventListener('resize', () => {
   const w = container.clientWidth, h = container.clientHeight;
-  camera.aspect = w / h; camera.updateProjectionMatrix();
+  perspCam.aspect = w / h; perspCam.updateProjectionMatrix();
+  realCam.aspect = w / h; realCam.updateProjectionMatrix();
+  const oH = orthoH, oW = oH * (w / h);
+  orthoCam.left = -oW/2; orthoCam.right = oW/2;
+  orthoCam.updateProjectionMatrix();
   renderer.setSize(w, h);
 });
 </script>
