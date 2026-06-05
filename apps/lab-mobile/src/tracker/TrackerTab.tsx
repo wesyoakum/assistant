@@ -136,6 +136,7 @@ export function TrackerTab() {
   const [showSettings, setShowSettings] = useState(false);
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
+  const [showAllDetections, setShowAllDetections] = useState(false);
   const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
@@ -632,7 +633,8 @@ export function TrackerTab() {
   const splinePath = useMemo(() => {
     if (!result || !interpolated) return "";
     const pts: Array<{ x: number; y: number }> = [];
-    for (let i = 0; i <= reviewIdx && i < result.frames.length; i++) {
+    const end = showAllDetections ? result.frames.length - 1 : reviewIdx;
+    for (let i = 0; i <= end && i < result.frames.length; i++) {
       const f = result.frames[i]!;
       if (!f.box || f.lost) continue;
       pts.push({
@@ -641,7 +643,7 @@ export function TrackerTab() {
       });
     }
     return catmullRomPath(pts);
-  }, [result, interpolated, reviewIdx]);
+  }, [result, interpolated, reviewIdx, showAllDetections]);
 
   // Playback: advance reviewIdx on a timer. Interval is one source-frame
   // duration divided by the current playSpeed (1x = real-time; 1/8x = 8x slower).
@@ -1290,7 +1292,7 @@ export function TrackerTab() {
                     <Path d={splinePath} stroke="rgba(0,200,255,0.95)" strokeWidth={2} fill="none" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 )}
-                {interpolated?.slice(0, reviewIdx).map((p, i) => {
+                {(showAllDetections ? interpolated : interpolated?.slice(0, reviewIdx))?.map((p, i) => {
                   if (!p.box) return null;
                   const cx = p.box.x + p.box.width / 2;
                   const cy = p.box.y + p.box.height / 2;
@@ -1309,7 +1311,7 @@ export function TrackerTab() {
                     <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, backgroundColor: `rgba(255,204,0,${alpha})` }} />
                   );
                 })}
-                {result.frames.slice(0, reviewIdx + 1).map((f: any, i) => {
+                {(showAllDetections ? result.frames : result.frames.slice(0, reviewIdx + 1)).map((f: any, i) => {
                   if (!f.rejected || !f.rejectedBox) return null;
                   const cx = f.rejectedBox.x + f.rejectedBox.width / 2;
                   const cy = f.rejectedBox.y + f.rejectedBox.height / 2;
@@ -1398,7 +1400,8 @@ export function TrackerTab() {
                 <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
                 <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
                 <Pill label="Copy" onPress={copyTrace} small />
-                <Pill label={showProcessed ? "B&W" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
+                <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
+                <Pill label="B&W" active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
                 <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
               </View>
@@ -1486,6 +1489,7 @@ export function TrackerTab() {
                   <Pill label="Copy" onPress={copyTrace} small />
                   {cameraXYZ && <Pill label="Pose" onPress={handleCopyPose} small />}
                   {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
+                  <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                   <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
                   <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
