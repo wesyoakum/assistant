@@ -1157,7 +1157,7 @@ export function TrackerTab() {
     <ScrollView
       contentContainerStyle={{
         padding: isLandscape && showPoseOverlay ? 0 : isLandscape ? 8 : 12,
-        flex: isLandscape && showPoseOverlay ? 1 : undefined,
+        flexGrow: isLandscape && showPoseOverlay ? 1 : undefined,
       }}
       scrollEnabled={scrollEnabled && !showPoseOverlay && !showRoiOverlay}
     >
