@@ -202,16 +202,35 @@ function viewerHTML(id: string, data: any): string {
   const img = data.imageSize || {};
   const H = data.homography || {};
 
-  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,ray_dx,ray_dy,ray_dz";
-  const csvRows = d.map((r: any) =>
-    `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`
+  // Compute speed (mph) between consecutive MPI points.
+  const MS_TO_MPH = 2.23694;
+  const withSpeed = d.map((r: any, i: number) => {
+    if (!r.yzPlane?.y || !r.yzPlane?.z) return { ...r, speed: null };
+    // Find previous frame with valid MPI
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = d[j];
+      if (!prev.yzPlane?.y || !prev.yzPlane?.z) continue;
+      const dd = r.yzPlane.y - prev.yzPlane.y;
+      const dz = r.yzPlane.z - prev.yzPlane.z;
+      const dist = Math.sqrt(dd * dd + dz * dz);
+      const dt = r.time - prev.time;
+      if (dt <= 0) return { ...r, speed: null };
+      return { ...r, speed: (dist / dt) * MS_TO_MPH };
+    }
+    return { ...r, speed: null };
+  });
+
+  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,speed_mph,ray_dx,ray_dy,ray_dz";
+  const csvRows = withSpeed.map((r: any) =>
+    `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.speed?.toFixed?.(1) ?? ""},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`
   ).join("\\n");
 
-  const tableRows = d.map((r: any) => `<tr class="${r.type}">
+  const tableRows = withSpeed.map((r: any) => `<tr class="${r.type}">
     <td>${r.frame}</td><td>${r.time}</td><td>${r.type}</td>
     <td>${r.pixel?.x}</td><td>${r.pixel?.y}</td>
     <td>${r.yzPlane?.y?.toFixed?.(3) ?? r.yzPlane?.y}</td>
     <td>${r.yzPlane?.z?.toFixed?.(3) ?? r.yzPlane?.z}</td>
+    <td style="color:#0f0;font-weight:600">${r.speed?.toFixed?.(1) ?? ""}</td>
     <td>${r.ray?.dx}</td><td>${r.ray?.dy}</td><td>${r.ray?.dz}</td>
   </tr>`).join("\n");
 
@@ -269,7 +288,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const camPos = ${JSON.stringify(cam?.position || { x: 0, y: -7, z: 2 })};
 const camRot = ${JSON.stringify(cam?.rotation || { rx: 0, ry: 0, rz: 0 })};
 const hasCam = ${!!(cam?.position)};
-const detData = ${JSON.stringify(d.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray })))};
+const detData = ${JSON.stringify(withSpeed.map((r: any) => ({ type: r.type, yz: r.yzPlane, ray: r.ray, speed: r.speed })))};
 const bp = ${data.basepathFt || 60}; // basepath in feet
 const FT = 0.3048;
 const D = Math.SQRT1_2;
@@ -534,6 +553,23 @@ detData.forEach(d => {
   const sph = new THREE.Mesh(sphGeo, d.type === 'detect' ? detectSphMat : interpSphMat);
   sph.position.copy(intPt);
   scene.add(sph);
+  // Speed label (sprite) next to the sphere
+  if (d.speed != null) {
+    const c = document.createElement('canvas');
+    c.width = 96; c.height = 32;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#00ff88';
+    ctx.font = 'bold 20px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(d.speed.toFixed(0), 48, 22);
+    const tex = new THREE.CanvasTexture(c);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+    const spr = new THREE.Sprite(mat);
+    spr.position.copy(intPt);
+    spr.position.y += 0.3;
+    spr.scale.set(1.2, 0.4, 1);
+    scene.add(spr);
+  }
 });
 
 // Set up real camera pose (matches the physical camera used for tracking).
@@ -590,7 +626,7 @@ window.addEventListener('resize', () => {
 <h2>Detections (${d.length} frames, ${detected.length} detected)</h2>
 <div style="max-height:400px;overflow:auto">
 <table>
-<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
+<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>mph</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
 <tbody>${tableRows}</tbody>
 </table>
 </div>

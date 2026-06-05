@@ -738,6 +738,26 @@ export function TrackerTab() {
     return rays.length > 0 ? rays : null;
   }, [cameraPose, cameraXYZ, result, interpolated, frame]);
 
+  // Speed (mph) at the current review frame, computed from consecutive MPI points.
+  const currentSpeedMph = useMemo((): number | null => {
+    if (!allRayInfo) return null;
+    const cur = allRayInfo.find((r) => r.frameIndex === reviewIdx);
+    if (!cur || cur.yzY == null || cur.yzZ == null) return null;
+    // Find previous frame with valid MPI
+    for (let j = allRayInfo.length - 1; j >= 0; j--) {
+      const prev = allRayInfo[j]!;
+      if (prev.frameIndex >= reviewIdx) continue;
+      if (prev.yzY == null || prev.yzZ == null) continue;
+      const dd = cur.yzY - prev.yzY;
+      const dz = cur.yzZ - prev.yzZ;
+      const dist = Math.sqrt(dd * dd + dz * dz);
+      const dt = cur.timeSec - prev.timeSec;
+      if (dt <= 0) return null;
+      return (dist / dt) * 2.23694; // m/s → mph
+    }
+    return null;
+  }, [allRayInfo, reviewIdx]);
+
   // Review section: load the actual frame at the reviewed timestamp instead
   // of showing the initial still under every tracker result.
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
@@ -1272,6 +1292,13 @@ export function TrackerTab() {
                     {currentBallDir.azimuthDeg.toFixed(1)}°
                     {"  ·  el "}
                     {currentBallDir.elevationDeg.toFixed(1)}°
+                  </Text>
+                </View>
+              )}
+              {currentSpeedMph != null && (
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
+                  <Text style={{ color: "#00ff88", fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
+                    {currentSpeedMph.toFixed(1)} mph
                   </Text>
                 </View>
               )}
