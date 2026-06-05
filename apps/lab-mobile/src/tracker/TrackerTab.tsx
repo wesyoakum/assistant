@@ -1071,18 +1071,90 @@ export function TrackerTab() {
 
         {/* Pill overlay */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
-            {/* Top: status indicators + calibration controls */}
-            <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
-              <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                <Text style={{ color: "#fff", fontSize: 11, fontVariant: ["tabular-nums"] }}>
-                  {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
-                  {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
-                  {vp.scale > 1.01 ? `  ·  ${vp.scale.toFixed(1)}×` : ""}
-                </Text>
+          {isLandscape ? (
+            /* ── Landscape: top row + side columns ── */
+            <View style={{ flex: 1 }} pointerEvents="box-none">
+              {/* Top row */}
+              <View pointerEvents="box-none" style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 4, paddingTop: 4, paddingHorizontal: 8 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
+                    {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
+                    {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
+                    {vp.scale > 1.01 ? `  ·  ${vp.scale.toFixed(1)}×` : ""}
+                  </Text>
+                </View>
+                {showPoseOverlay && (
+                  <>
+                    <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
+                    <Pill label="Set Pose" active onPress={handleSetPose} small />
+                    <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
+                    <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
+                    <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} small />
+                  </>
+                )}
+                {showRoiOverlay && (
+                  <>
+                    <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} small />
+                    <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} small />
+                    <Pill label="Hide" onPress={() => setShowRoiOverlay(false)} small />
+                  </>
+                )}
+                {!showPoseOverlay && !showRoiOverlay && (
+                  <>
+                    <Pill label={cameraPose ? "Pose ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
+                    <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} small />
+                    <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                    <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                    <Pill label={`${MODE_LABEL[trackerMode]} ▾`} onPress={() => setShowModelPicker(true)} small />
+                    <Pill label="Pick" onPress={pickVideo} disabled={!!busy} small />
+                  </>
+                )}
+                {err && <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }} numberOfLines={1}>{err}</Text></View>}
+                {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><ActivityIndicator color="#fff" size="small" /><Text style={{ color: "#fff", fontSize: 9 }}>{busy}</Text></View>}
+                {copyHint && <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }}>{copyHint}</Text></View>}
               </View>
-              {showPoseOverlay && (
-                <>
+              {/* Left column: frame stepping */}
+              {!showPoseOverlay && !showRoiOverlay && (
+                <View pointerEvents="box-none" style={{ position: "absolute", left: 6, top: "50%", transform: [{ translateY: -60 }], gap: 4, alignItems: "center" }}>
+                  <Pill label="«" onPress={() => frameStep(-1)} disabled={!!busy} small />
+                  <Pill label="‹" onPress={() => frameStep(-frameStepSec)} disabled={!!busy} small />
+                  <Pill label="›" onPress={() => frameStep(frameStepSec)} disabled={!!busy} small />
+                  <Pill label="»" onPress={() => frameStep(1)} disabled={!!busy} small />
+                </View>
+              )}
+              {/* Right column: zoom + run + actions */}
+              {!showPoseOverlay && !showRoiOverlay && (
+                <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -60 }], gap: 4, alignItems: "center" }}>
+                  <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
+                  <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
+                  <Pill label={busy?.startsWith("tracking") ? "…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} small />
+                  <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
+                </View>
+              )}
+              {/* Bottom: camera pose (if set) */}
+              {cameraXYZ && !showPoseOverlay && (
+                <View pointerEvents="box-none" style={{ position: "absolute", bottom: 4, left: 0, right: 0, alignItems: "center" }}>
+                  <Pressable onPress={handleCopyPose} style={{ backgroundColor: "rgba(0,200,255,0.15)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: "rgba(0,200,255,0.3)" }}>
+                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 8, fontFamily: "monospace" }}>
+                      pos {cameraXYZ.x.toFixed(2)} {cameraXYZ.y.toFixed(2)} {cameraXYZ.z.toFixed(2)}m
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          ) : (
+            /* ── Portrait: top status + bottom pill rows ── */
+            <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
+              {/* Top: status indicators + calibration controls */}
+              <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: "#fff", fontSize: 11, fontVariant: ["tabular-nums"] }}>
+                    {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
+                    {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
+                    {vp.scale > 1.01 ? `  ·  ${vp.scale.toFixed(1)}×` : ""}
+                  </Text>
+                </View>
+                {showPoseOverlay && (
                   <View style={styles.pillRow}>
                     <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
                     <Pill label="Set Pose" active onPress={handleSetPose} small />
@@ -1090,78 +1162,71 @@ export function TrackerTab() {
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
                     <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} small />
                   </View>
-                </>
-              )}
-              {err && (
-                <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
-                  <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
-                </View>
-              )}
-              {busy && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                  <ActivityIndicator color="#fff" size="small" />
-                  <Text style={{ color: "#fff", fontSize: 11 }}>{busy}</Text>
-                </View>
-              )}
-              {copyHint && (
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                  <Text style={{ color: "#fff", fontSize: 11 }}>{copyHint}</Text>
-                </View>
-              )}
-              {cameraXYZ && (
-                <Pressable onPress={handleCopyPose} style={{ backgroundColor: "rgba(0,200,255,0.15)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.3)" }}>
-                  <Text style={{ color: "rgba(0,200,255,1)", fontSize: 9, fontFamily: "monospace" }}>
-                    pos {cameraXYZ.x.toFixed(2)} {cameraXYZ.y.toFixed(2)} {cameraXYZ.z.toFixed(2)}m
-                    {cameraAngles ? `  rot ${cameraAngles.tiltDeg.toFixed(0)}° ${cameraAngles.rollDeg.toFixed(0)}° ${cameraAngles.panDeg.toFixed(0)}°` : ""}
-                  </Text>
-                </Pressable>
-              )}
-            </View>
+                )}
+                {err && (
+                  <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
+                    <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
+                  </View>
+                )}
+                {busy && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text style={{ color: "#fff", fontSize: 11 }}>{busy}</Text>
+                  </View>
+                )}
+                {copyHint && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>{copyHint}</Text>
+                  </View>
+                )}
+                {cameraXYZ && (
+                  <Pressable onPress={handleCopyPose} style={{ backgroundColor: "rgba(0,200,255,0.15)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.3)" }}>
+                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 9, fontFamily: "monospace" }}>
+                      pos {cameraXYZ.x.toFixed(2)} {cameraXYZ.y.toFixed(2)} {cameraXYZ.z.toFixed(2)}m
+                      {cameraAngles ? `  rot ${cameraAngles.tiltDeg.toFixed(0)}° ${cameraAngles.rollDeg.toFixed(0)}° ${cameraAngles.panDeg.toFixed(0)}°` : ""}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
 
-            {/* Bottom: pill controls */}
-            <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: isLandscape ? 8 : 16 }}>
-              {showPoseOverlay ? (
-                /* Calibration mode: bottom left = Place, bottom right = Model
-                   (handled by FieldModelOverlay — TrackerTab stays out of the way) */
-                null
-              ) : showRoiOverlay ? (
-                <View style={styles.pillRow}>
-                  <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />
-                  <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} />
-                  <Pill label="Hide" onPress={() => setShowRoiOverlay(false)} />
-                </View>
-              ) : (
-                <>
-                  {/* Frame stepping + zoom */}
+              {/* Bottom: pill controls */}
+              <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 16 }}>
+                {showPoseOverlay ? null : showRoiOverlay ? (
                   <View style={styles.pillRow}>
-                    <Pill label="«1s" onPress={() => frameStep(-1)} disabled={!!busy} small />
-                    <Pill label="‹" onPress={() => frameStep(-frameStepSec)} disabled={!!busy} small />
-                    <Pill label="›" onPress={() => frameStep(frameStepSec)} disabled={!!busy} small />
-                    <Pill label="1s»" onPress={() => frameStep(1)} disabled={!!busy} small />
-                    <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                    <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
-                    <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
+                    <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />
+                    <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} />
+                    <Pill label="Hide" onPress={() => setShowRoiOverlay(false)} />
                   </View>
-                  {/* Setup: Calibrate, ROI, Start, End */}
-                  <View style={styles.pillRow}>
-                    <Pill label={cameraPose ? "Pose ✓" : "Calibrate"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} />
-                    <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} />
-                    <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
-                    <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
-                  </View>
-                  {/* Model + Run + actions */}
-                  <View style={styles.pillRow}>
-                    <Pill label={`${MODE_LABEL[trackerMode]} ▾`} onPress={() => setShowModelPicker(true)} small />
-                    <Pill label={busy?.startsWith("tracking") ? "Tracking…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} />
-                    <Pill label="Pick" onPress={pickVideo} disabled={!!busy} small />
-                    {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
-                    {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled small />}
-                    <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
-                  </View>
-                </>
-              )}
+                ) : (
+                  <>
+                    <View style={styles.pillRow}>
+                      <Pill label="«1s" onPress={() => frameStep(-1)} disabled={!!busy} small />
+                      <Pill label="‹" onPress={() => frameStep(-frameStepSec)} disabled={!!busy} small />
+                      <Pill label="›" onPress={() => frameStep(frameStepSec)} disabled={!!busy} small />
+                      <Pill label="1s»" onPress={() => frameStep(1)} disabled={!!busy} small />
+                      <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
+                      <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
+                      <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
+                    </View>
+                    <View style={styles.pillRow}>
+                      <Pill label={cameraPose ? "Pose ✓" : "Calibrate"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} />
+                      <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} />
+                      <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                      <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                    </View>
+                    <View style={styles.pillRow}>
+                      <Pill label={`${MODE_LABEL[trackerMode]} ▾`} onPress={() => setShowModelPicker(true)} small />
+                      <Pill label={busy?.startsWith("tracking") ? "Tracking…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} />
+                      <Pill label="Pick" onPress={pickVideo} disabled={!!busy} small />
+                      {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
+                      {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled small />}
+                      <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
+                    </View>
+                  </>
+                )}
+              </View>
             </View>
-          </View>
+          )}
         </SafeAreaView>
       </View>
     )}
@@ -1267,106 +1332,152 @@ export function TrackerTab() {
 
         {/* Overlaid controls */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
-            {/* Top: stats + pose info */}
-            <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
-              <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                <Text style={{ color: "#fff", fontSize: 10, fontVariant: ["tabular-nums"] }}>
-                  {MODE_LABEL[result.mode]}  ·  frame {reviewIdx + 1}/{result.frames.length}
-                  {"  ·  t="}
-                  {reviewedFrame ? reviewedFrame.timeSec.toFixed(2) : "?"}s
-                  {"  ·  conf "}
-                  {reviewedFrame ? reviewedFrame.confidence.toFixed(2) : "?"}
-                </Text>
-              </View>
-              <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
-                <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
-                  {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected
-                  {result.frames.filter((f: any) => f.rejected).length > 0 ? `  ·  ${result.frames.filter((f: any) => f.rejected).length} rejected` : ""}
-                  {"  ·  "}{result.elapsedMs}ms
-                  {result.frameRate > 0 ? `  ·  ${result.frameRate.toFixed(1)} fps` : ""}
-                </Text>
-              </View>
-              {currentBallDir && (
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
-                  <Text style={{ color: currentBallDir.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
-                    {currentBallDir.interpolated ? "interp" : "detect"}
-                    {"  ·  az "}
-                    {currentBallDir.azimuthDeg.toFixed(1)}°
-                    {"  ·  el "}
-                    {currentBallDir.elevationDeg.toFixed(1)}°
+          {isLandscape ? (
+            /* ── Landscape result review ── */
+            <View style={{ flex: 1 }} pointerEvents="box-none">
+              {/* Top row: stats + speed */}
+              <View pointerEvents="box-none" style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 4, paddingTop: 4, paddingHorizontal: 8 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
+                    {reviewIdx + 1}/{result.frames.length}  ·  t={reviewedFrame ? reviewedFrame.timeSec.toFixed(2) : "?"}s
+                    {currentBallDir ? `  ·  az ${currentBallDir.azimuthDeg.toFixed(1)}°  el ${currentBallDir.elevationDeg.toFixed(1)}°` : ""}
                   </Text>
                 </View>
-              )}
-              {currentSpeedMph != null && (
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
-                  <Text style={{ color: "#00ff88", fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
-                    {currentSpeedMph.toFixed(1)} mph
-                  </Text>
-                </View>
-              )}
-              {vp.scale > 1.01 && (
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
-                </View>
-              )}
-              {err && (
-                <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
-                  <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
-                </View>
-              )}
-              {busy && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                  <ActivityIndicator color="#fff" size="small" />
-                  <Text style={{ color: "#fff", fontSize: 11 }}>{busy}</Text>
-                </View>
-              )}
-              {copyHint && (
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                  <Text style={{ color: "#fff", fontSize: 11 }}>{copyHint}</Text>
-                </View>
-              )}
-            </View>
-
-            {/* Bottom: playback + action pills */}
-            <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: isLandscape ? 8 : 16 }}>
-              {/* Frame navigation */}
-              <View style={styles.pillRow}>
-                <Pill label="⏮" onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} small />
-                <Pill label="‹" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} small />
-                <Pill label={isPlaying ? "⏸ Pause" : "▶ Play"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} />
-                <Pill label="›" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} small />
-              </View>
-              {/* Speed */}
-              <View style={styles.pillRow}>
+                {currentSpeedMph != null && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                    <Text style={{ color: "#00ff88", fontSize: 10, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{currentSpeedMph.toFixed(1)} mph</Text>
+                  </View>
+                )}
                 {([1, 0.5, 0.25, 0.125] as const).map((s) => (
                   <Pill key={s} label={s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"} active={playSpeed === s} onPress={() => setPlaySpeed(s)} small />
                 ))}
+                {err && <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }} numberOfLines={1}>{err}</Text></View>}
+                {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><ActivityIndicator color="#fff" size="small" /><Text style={{ color: "#fff", fontSize: 9 }}>{busy}</Text></View>}
+                {copyHint && <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }}>{copyHint}</Text></View>}
               </View>
-              {/* Zoom */}
-              <View style={styles.pillRow}>
+              {/* Left column: frame nav */}
+              <View pointerEvents="box-none" style={{ position: "absolute", left: 6, top: "50%", transform: [{ translateY: -50 }], gap: 4, alignItems: "center" }}>
+                <Pill label="⏮" onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} small />
+                <Pill label="‹" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} small />
+                <Pill label={isPlaying ? "⏸" : "▶"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} small />
+                <Pill label="›" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} small />
+              </View>
+              {/* Right column: zoom + actions */}
+              <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -70 }], gap: 4, alignItems: "center" }}>
                 <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
                 <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
-              </View>
-              {/* Actions */}
-              <View style={styles.pillRow}>
                 <Pill label="Copy" onPress={copyTrace} small />
-                {cameraXYZ && <Pill label="Pose" onPress={handleCopyPose} small />}
-                {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
-                <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
+                <Pill label={showProcessed ? "B&W" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
                 <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
-                <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
+                <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
               </View>
               {savedViewUrl && (
-                <View style={styles.pillRow}>
+                <View pointerEvents="box-none" style={{ position: "absolute", bottom: 4, left: 0, right: 0, alignItems: "center" }}>
                   <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }}>
-                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 11, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
+                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 9, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
                   </Pressable>
                 </View>
               )}
             </View>
-          </View>
+          ) : (
+            /* ── Portrait result review ── */
+            <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
+              {/* Top: stats + pose info */}
+              <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: "#fff", fontSize: 10, fontVariant: ["tabular-nums"] }}>
+                    {MODE_LABEL[result.mode]}  ·  frame {reviewIdx + 1}/{result.frames.length}
+                    {"  ·  t="}
+                    {reviewedFrame ? reviewedFrame.timeSec.toFixed(2) : "?"}s
+                    {"  ·  conf "}
+                    {reviewedFrame ? reviewedFrame.confidence.toFixed(2) : "?"}
+                  </Text>
+                </View>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
+                  <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
+                    {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected
+                    {result.frames.filter((f: any) => f.rejected).length > 0 ? `  ·  ${result.frames.filter((f: any) => f.rejected).length} rejected` : ""}
+                    {"  ·  "}{result.elapsedMs}ms
+                    {result.frameRate > 0 ? `  ·  ${result.frameRate.toFixed(1)} fps` : ""}
+                  </Text>
+                </View>
+                {currentBallDir && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
+                    <Text style={{ color: currentBallDir.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
+                      {currentBallDir.interpolated ? "interp" : "detect"}
+                      {"  ·  az "}
+                      {currentBallDir.azimuthDeg.toFixed(1)}°
+                      {"  ·  el "}
+                      {currentBallDir.elevationDeg.toFixed(1)}°
+                    </Text>
+                  </View>
+                )}
+                {currentSpeedMph != null && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
+                    <Text style={{ color: "#00ff88", fontSize: 12, fontWeight: "700", fontVariant: ["tabular-nums"] }}>
+                      {currentSpeedMph.toFixed(1)} mph
+                    </Text>
+                  </View>
+                )}
+                {vp.scale > 1.01 && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>{vp.scale.toFixed(1)}×</Text>
+                  </View>
+                )}
+                {err && (
+                  <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
+                    <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
+                  </View>
+                )}
+                {busy && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <ActivityIndicator color="#fff" size="small" />
+                    <Text style={{ color: "#fff", fontSize: 11 }}>{busy}</Text>
+                  </View>
+                )}
+                {copyHint && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ color: "#fff", fontSize: 11 }}>{copyHint}</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Bottom: playback + action pills */}
+              <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 16 }}>
+                <View style={styles.pillRow}>
+                  <Pill label="⏮" onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} small />
+                  <Pill label="‹" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} small />
+                  <Pill label={isPlaying ? "⏸ Pause" : "▶ Play"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} />
+                  <Pill label="›" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} small />
+                </View>
+                <View style={styles.pillRow}>
+                  {([1, 0.5, 0.25, 0.125] as const).map((s) => (
+                    <Pill key={s} label={s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"} active={playSpeed === s} onPress={() => setPlaySpeed(s)} small />
+                  ))}
+                </View>
+                <View style={styles.pillRow}>
+                  <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
+                  <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
+                  <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
+                </View>
+                <View style={styles.pillRow}>
+                  <Pill label="Copy" onPress={copyTrace} small />
+                  {cameraXYZ && <Pill label="Pose" onPress={handleCopyPose} small />}
+                  {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
+                  <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
+                  <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                  <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
+                </View>
+                {savedViewUrl && (
+                  <View style={styles.pillRow}>
+                    <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }}>
+                      <Text style={{ color: "rgba(0,200,255,1)", fontSize: 11, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </SafeAreaView>
       </View>
     )}
