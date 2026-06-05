@@ -1087,6 +1087,12 @@ export function TrackerTab() {
 
         {/* Pill overlay */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          {/* Calibrate/Pose button — top-right corner, always visible when not in overlay */}
+          {!showPoseOverlay && !showRoiOverlay && (
+            <View pointerEvents="box-none" style={{ position: "absolute", top: 8, right: 8, zIndex: 10 }}>
+              <Pill label={cameraPose ? "Pose ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
+            </View>
+          )}
           {isLandscape ? (
             /* ── Landscape: top row + side columns ── */
             <View style={{ flex: 1 }} pointerEvents="box-none">
@@ -1116,7 +1122,6 @@ export function TrackerTab() {
                 )}
                 {!showPoseOverlay && !showRoiOverlay && (
                   <>
-                    <Pill label={cameraPose ? "Pose ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
                     <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} small />
                     <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
                     <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
@@ -1214,7 +1219,6 @@ export function TrackerTab() {
                 ) : (
                   <>
                     <View style={styles.pillRow}>
-                      <Pill label={cameraPose ? "Pose ✓" : "Calibrate"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} />
                       <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} />
                       <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
                       <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
