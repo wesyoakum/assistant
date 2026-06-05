@@ -990,7 +990,7 @@ export function TrackerTab() {
       }
       const res = await VisionTracker.exportVideo(videoUri, dets, 4, [1, 0.8, 0]);
       // Save to camera roll.
-      const { default: MediaLibrary } = await import("expo-media-library");
+      const MediaLibrary = await import("expo-media-library");
       const perm = await MediaLibrary.requestPermissionsAsync();
       if (perm.granted) {
         await MediaLibrary.saveToLibraryAsync(res.uri);
