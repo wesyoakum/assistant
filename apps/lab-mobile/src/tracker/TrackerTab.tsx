@@ -133,6 +133,7 @@ export function TrackerTab() {
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
   const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
@@ -1227,6 +1228,7 @@ export function TrackerTab() {
                       {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
                       {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled small />}
                       <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
+                      <Pill label="⚙" onPress={() => setShowSettings(true)} small />
                     </View>
                   </>
                 )}
@@ -1555,6 +1557,62 @@ export function TrackerTab() {
             </View>
           </ScrollView>
         </View>
+      </Pressable>
+    </Modal>
+
+    {/* Settings modal */}
+    <Modal visible={showSettings} transparent animationType="fade" onRequestClose={() => setShowSettings(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => setShowSettings(false)}>
+        <Pressable style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 300 }} onPress={(e) => e.stopPropagation()}>
+          <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15, marginBottom: 12 }}>Settings</Text>
+
+          <View style={{ gap: 12 }}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Preprocess B&W</Text>
+              <Pressable onPress={() => useTrackerSettings.getState().setPreprocessBW(!preprocessBW)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: preprocessBW ? theme.primary : theme.surfaceAlt }}>
+                <Text style={{ color: preprocessBW ? "#fff" : theme.text, fontSize: 12, fontWeight: "600" }}>{preprocessBW ? "ON" : "OFF"}</Text>
+              </Pressable>
+            </View>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Contrast</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <Pressable onPress={() => useTrackerSettings.getState().setContrastLevel(Math.max(0.5, contrastLevel - 0.25))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
+                <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{contrastLevel.toFixed(1)}×</Text>
+                <Pressable onPress={() => useTrackerSettings.getState().setContrastLevel(Math.min(3.0, contrastLevel + 0.25))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Outlier rejection</Text>
+              <Pressable onPress={() => useTrackerSettings.getState().setOutlierRejection(!outlierRejection)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6, backgroundColor: outlierRejection ? theme.primary : theme.surfaceAlt }}>
+                <Text style={{ color: outlierRejection ? "#fff" : theme.text, fontSize: 12, fontWeight: "600" }}>{outlierRejection ? "ON" : "OFF"}</Text>
+              </Pressable>
+            </View>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Outlier threshold</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <Pressable onPress={() => useTrackerSettings.getState().setOutlierThreshold(Math.max(0.005, outlierThreshold - 0.005))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
+                <Text style={{ color: theme.text, fontSize: 12, width: 44, textAlign: "center" }}>{outlierThreshold.toFixed(3)}</Text>
+                <Pressable onPress={() => useTrackerSettings.getState().setOutlierThreshold(Math.min(0.2, outlierThreshold + 0.005))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Basepath (ft)</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <Pressable onPress={() => useTrackerSettings.getState().setBasepathFt(Math.max(30, basepathFt - 5))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
+                <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{basepathFt}</Text>
+                <Pressable onPress={() => useTrackerSettings.getState().setBasepathFt(Math.min(90, basepathFt + 5))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
+              </View>
+            </View>
+          </View>
+
+          <Pressable onPress={() => setShowSettings(false)} style={{ marginTop: 16, paddingVertical: 10, backgroundColor: theme.primary, borderRadius: 8, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Done</Text>
+          </Pressable>
+        </Pressable>
       </Pressable>
     </Modal>
     </>

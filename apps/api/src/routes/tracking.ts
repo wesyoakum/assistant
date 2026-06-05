@@ -205,7 +205,7 @@ function viewerHTML(id: string, data: any): string {
   // Compute speed (mph), distance (m), and elapsed time between consecutive MPI points.
   const MS_TO_MPH = 2.23694;
   const withSpeed = d.map((r: any, i: number) => {
-    if (!r.yzPlane?.y || !r.yzPlane?.z) return { ...r, speed: null, segDist: null, segDt: null };
+    if (!r.yzPlane?.y || !r.yzPlane?.z) return { ...r, speed: null, segDist: null, segDt: null, angleDeg: null };
     for (let j = i - 1; j >= 0; j--) {
       const prev = d[j];
       if (!prev.yzPlane?.y || !prev.yzPlane?.z) continue;
@@ -213,18 +213,20 @@ function viewerHTML(id: string, data: any): string {
       const dz = r.yzPlane.z - prev.yzPlane.z;
       const dist = Math.sqrt(dd * dd + dz * dz);
       const dt = r.time - prev.time;
-      if (dt <= 0) return { ...r, speed: null, segDist: null, segDt: null };
-      return { ...r, speed: (dist / dt) * MS_TO_MPH, segDist: dist, segDt: dt };
+      if (dt <= 0) return { ...r, speed: null, segDist: null, segDt: null, angleDeg: null };
+      const angleDeg = Math.atan2(dz, Math.abs(dd)) * (180 / Math.PI);
+      return { ...r, speed: (dist / dt) * MS_TO_MPH, segDist: dist, segDt: dt, angleDeg };
     }
-    return { ...r, speed: null, segDist: null, segDt: null };
+    return { ...r, speed: null, segDist: null, segDt: null, angleDeg: null };
   });
 
-  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,seg_dist_m,seg_dt_s,speed_mph,ray_dx,ray_dy,ray_dz";
-  const csvRows = withSpeed.map((r: any) =>
-    `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.segDist?.toFixed?.(4) ?? ""},${r.segDt?.toFixed?.(4) ?? ""},${r.speed?.toFixed?.(1) ?? ""},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`
-  ).join("\\n");
+  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,seg_dist_m,seg_dt_s,speed_mph,angle_deg,height_in,ray_dx,ray_dy,ray_dz";
+  const csvRows = withSpeed.map((r: any) => {
+    const hIn = r.yzPlane?.z != null ? (r.yzPlane.z * 39.3701).toFixed(1) : "";
+    return `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.segDist?.toFixed?.(4) ?? ""},${r.segDt?.toFixed?.(4) ?? ""},${r.speed?.toFixed?.(1) ?? ""},${r.angleDeg?.toFixed?.(1) ?? ""},${hIn},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`;
+  }).join("\\n");
 
-  const tableRows = withSpeed.map((r: any) => `<tr class="${r.type}">
+  const tableRows = withSpeed.map((r: any, idx: number) => `<tr class="${r.type}" data-idx="${idx}">
     <td>${r.frame}</td><td>${r.time}</td><td>${r.type}</td>
     <td>${r.pixel?.x}</td><td>${r.pixel?.y}</td>
     <td>${r.yzPlane?.y?.toFixed?.(3) ?? r.yzPlane?.y}</td>
@@ -232,6 +234,8 @@ function viewerHTML(id: string, data: any): string {
     <td>${r.segDist?.toFixed?.(3) ?? ""}</td>
     <td>${r.segDt?.toFixed?.(4) ?? ""}</td>
     <td style="color:#0f0;font-weight:600">${r.speed?.toFixed?.(1) ?? ""}</td>
+    <td>${r.angleDeg?.toFixed?.(1) ?? ""}</td>
+    <td>${r.yzPlane?.z != null ? (r.yzPlane.z * 39.3701).toFixed(1) : ""}</td>
     <td>${r.ray?.dx}</td><td>${r.ray?.dy}</td><td>${r.ray?.dz}</td>
   </tr>`).join("\n");
 
@@ -251,6 +255,9 @@ th,td{padding:4px 8px;text-align:right;border-bottom:1px solid #333}
 th{text-align:right;color:#888;font-weight:600}
 tr.detect td:nth-child(3){color:#3c6}
 tr.interp td:nth-child(3){color:#f90}
+tr.excluded{opacity:0.3;text-decoration:line-through}
+tr{cursor:pointer}
+tr:hover{background:rgba(255,255,255,0.05)}
 canvas{background:#1a1a1a;border-radius:8px;margin-top:12px;width:100%;max-width:700px;height:400px}
 a{color:#0cf}
 .btn{display:inline-block;padding:8px 16px;background:#0cf;color:#111;border-radius:6px;text-decoration:none;font-weight:600;margin-right:8px;margin-top:8px}
@@ -275,11 +282,11 @@ ${(() => {
     const avg = speeds.reduce((a: number, b: number) => a + b, 0) / speeds.length;
     const min = Math.min(...speeds);
     const max = Math.max(...speeds);
-    return `<div style="margin:16px 0;padding:12px 16px;background:#1a1a1a;border-radius:8px;border:1px solid #333;display:inline-block">
-      <span style="color:#0f8;font-size:1.6rem;font-weight:700">${avg.toFixed(1)} mph</span>
-      <span style="color:#888;font-size:0.85rem;margin-left:12px">avg (${speeds.length} frames)</span>
-      <span style="color:#888;font-size:0.85rem;margin-left:12px">·  min ${min.toFixed(1)}</span>
-      <span style="color:#888;font-size:0.85rem;margin-left:4px">·  max ${max.toFixed(1)}</span>
+    return `<div id="speedSummary" style="margin:16px 0;padding:12px 16px;background:#1a1a1a;border-radius:8px;border:1px solid #333;display:inline-block">
+      <span id="avgSpeed" style="color:#0f8;font-size:1.6rem;font-weight:700">${avg.toFixed(1)} mph</span>
+      <span id="avgDetail" style="color:#888;font-size:0.85rem;margin-left:12px">avg (${speeds.length} frames)</span>
+      <span id="minSpeed" style="color:#888;font-size:0.85rem;margin-left:12px">·  min ${min.toFixed(1)}</span>
+      <span id="maxSpeed" style="color:#888;font-size:0.85rem;margin-left:4px">·  max ${max.toFixed(1)}</span>
     </div>`;
   })()}
 <h2>3D Field View</h2>
@@ -579,8 +586,10 @@ function speedColor(mph) {
 const speedLabelGroup = new THREE.Group();
 const speedSpheres = []; // { mesh, speedMat, defaultMat }
 let speedLabelsVisible = true;
+window._spheres = {};
+window._labels = {};
 
-detData.forEach(d => {
+detData.forEach((d, dIdx) => {
   if (!d.yz) return;
   const intPt = u2t(0, d.yz.y, d.yz.z);
   scene.add(new THREE.Line(
@@ -594,6 +603,7 @@ detData.forEach(d => {
   const sph = new THREE.Mesh(sphGeo, sMat || defMat);
   sph.position.copy(intPt);
   scene.add(sph);
+  window._spheres[dIdx] = sph;
   speedSpheres.push({ mesh: sph, speedMat: sMat, defaultMat: defMat });
   // Speed label sprite
   if (d.speed != null) {
@@ -613,6 +623,7 @@ detData.forEach(d => {
     spr.position.y += 0.3;
     spr.scale.set(1.2, 0.4, 1);
     speedLabelGroup.add(spr);
+    window._labels[dIdx] = spr;
   }
 });
 scene.add(speedLabelGroup);
@@ -685,7 +696,7 @@ window.addEventListener('resize', () => {
 <h2>Detections (${d.length} frames, ${detected.length} detected)</h2>
 <div style="max-height:400px;overflow:auto">
 <table>
-<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>dist(m)</th><th>dt(s)</th><th>mph</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
+<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>dist(m)</th><th>dt(s)</th><th>mph</th><th>angle°</th><th>ht(in)</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
 <tbody>${tableRows}</tbody>
 </table>
 </div>
@@ -769,6 +780,51 @@ if (pts.length > 0) {
 } else {
   ctx.fillStyle="#666";ctx.font="14px system-ui";ctx.fillText("No detected points to plot",W/2-80,H/2);
 }
+// Row exclusion — click a row to toggle it.
+const excluded = new Set();
+const MS_TO_MPH = 2.23694;
+const allData = ${JSON.stringify(withSpeed.map((r: any) => ({ yz: r.yzPlane, speed: r.speed, time: r.time })))};
+
+function recompute() {
+  // Recalculate speeds/angles for non-excluded rows.
+  const active = allData.map((d, i) => excluded.has(i) ? null : d).filter(Boolean);
+  const speeds = active.filter(d => d.speed != null).map(d => d.speed);
+  const avgEl = document.getElementById('avgSpeed');
+  const detailEl = document.getElementById('avgDetail');
+  const minEl = document.getElementById('minSpeed');
+  const maxEl = document.getElementById('maxSpeed');
+  if (avgEl && speeds.length > 0) {
+    const avg = speeds.reduce((a,b) => a+b, 0) / speeds.length;
+    avgEl.textContent = avg.toFixed(1) + ' mph';
+    detailEl.textContent = 'avg (' + speeds.length + ' frames)';
+    minEl.textContent = '·  min ' + Math.min(...speeds).toFixed(1);
+    maxEl.textContent = '·  max ' + Math.max(...speeds).toFixed(1);
+  } else if (avgEl) {
+    avgEl.textContent = '— mph';
+    detailEl.textContent = 'no data';
+    minEl.textContent = '';
+    maxEl.textContent = '';
+  }
+}
+
+document.querySelectorAll('tbody tr').forEach(function(tr) {
+  tr.addEventListener('click', function() {
+    const idx = parseInt(this.dataset.idx);
+    if (excluded.has(idx)) {
+      excluded.delete(idx);
+      this.classList.remove('excluded');
+      // Show sphere + label in 3D
+      if (window._spheres && window._spheres[idx]) window._spheres[idx].visible = true;
+      if (window._labels && window._labels[idx]) window._labels[idx].visible = true;
+    } else {
+      excluded.add(idx);
+      this.classList.add('excluded');
+      if (window._spheres && window._spheres[idx]) window._spheres[idx].visible = false;
+      if (window._labels && window._labels[idx]) window._labels[idx].visible = false;
+    }
+    recompute();
+  });
+});
 </script>
 </body></html>`;
 }
