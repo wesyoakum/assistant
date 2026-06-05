@@ -642,8 +642,8 @@ export function TrackerTab() {
   // against. Aligned 1:1 with result.frames.
   const interpolated = useMemo(() => {
     if (!result) return null;
-    return interpolateBoxes(result.frames);
-  }, [result]);
+    return interpolateBoxes(result.frames, box);
+  }, [result, box]);
 
   // Smooth Catmull-Rom path through every real detection center, up to and
   // including the current frame. Drawn over the image so the user sees a
@@ -1758,11 +1758,16 @@ function catmullRomPath(points: Array<{ x: number; y: number }>): string {
 // null. The `interpolated` flag distinguishes filled gaps from real boxes.
 function interpolateBoxes(
   frames: TrackedFrame[],
+  roi?: NormalizedBox | null,
 ): Array<{ box: NormalizedBox | null; interpolated: boolean }> {
   const out: Array<{ box: NormalizedBox | null; interpolated: boolean }> = frames.map((f) => ({
     box: f.box && !f.lost ? { ...f.box } : null,
     interpolated: false,
   }));
+  // Find first and last real detections for edge extrapolation.
+  let firstReal = -1, lastReal = -1;
+  for (let j = 0; j < out.length; j++) if (out[j]!.box && !out[j]!.interpolated) { if (firstReal < 0) firstReal = j; lastReal = j; }
+
   let i = 0;
   while (i < out.length) {
     if (out[i]!.box) { i++; continue; }
@@ -1794,5 +1799,47 @@ function interpolateBoxes(
     }
     i = next;
   }
+
+  // ROI edge extrapolation: extend the trajectory before the first and
+  // after the last real detection using the velocity from the nearest
+  // two real detections, until the center exits the ROI.
+  if (roi && firstReal >= 0 && lastReal > firstReal) {
+    // Velocity from first two real detections (for backward extrapolation).
+    const second = out.findIndex((o, j) => j > firstReal && o.box && !o.interpolated);
+    if (second > firstReal) {
+      const b0 = out[firstReal]!.box!, b1 = out[second]!.box!;
+      const dt0 = frames[second]!.timeSec - frames[firstReal]!.timeSec;
+      if (dt0 > 0) {
+        const vx = (b1.x + b1.width / 2 - b0.x - b0.width / 2) / dt0;
+        const vy = (b1.y + b1.height / 2 - b0.y - b0.height / 2) / dt0;
+        for (let k = firstReal - 1; k >= 0; k--) {
+          const dt = frames[k]!.timeSec - frames[firstReal]!.timeSec;
+          const cx = b0.x + b0.width / 2 + vx * dt;
+          const cy = b0.y + b0.height / 2 + vy * dt;
+          if (cx < roi.x || cx > roi.x + roi.width || cy < roi.y || cy > roi.y + roi.height) break;
+          out[k] = { box: { x: cx - b0.width / 2, y: cy - b0.height / 2, width: b0.width, height: b0.height }, interpolated: true };
+        }
+      }
+    }
+    // Velocity from last two real detections (for forward extrapolation).
+    let secondLast = -1;
+    for (let j = lastReal - 1; j >= 0; j--) { if (out[j]!.box && !out[j]!.interpolated) { secondLast = j; break; } }
+    if (secondLast >= 0) {
+      const bA = out[secondLast]!.box!, bB = out[lastReal]!.box!;
+      const dtN = frames[lastReal]!.timeSec - frames[secondLast]!.timeSec;
+      if (dtN > 0) {
+        const vx = (bB.x + bB.width / 2 - bA.x - bA.width / 2) / dtN;
+        const vy = (bB.y + bB.height / 2 - bA.y - bA.height / 2) / dtN;
+        for (let k = lastReal + 1; k < out.length; k++) {
+          const dt = frames[k]!.timeSec - frames[lastReal]!.timeSec;
+          const cx = bB.x + bB.width / 2 + vx * dt;
+          const cy = bB.y + bB.height / 2 + vy * dt;
+          if (cx < roi.x || cx > roi.x + roi.width || cy < roi.y || cy > roi.y + roi.height) break;
+          out[k] = { box: { x: cx - bB.width / 2, y: cy - bB.height / 2, width: bB.width, height: bB.height }, interpolated: true };
+        }
+      }
+    }
+  }
+
   return out;
 }
