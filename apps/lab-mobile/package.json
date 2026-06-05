@@ -36,6 +36,7 @@
     "expo-lidar": "workspace:*",
     "expo-linking": "~8.0.12",
     "expo-location": "~19.0.8",
+    "expo-media-library": "~18.2.1",
     "expo-network": "~8.0.8",
     "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.23",

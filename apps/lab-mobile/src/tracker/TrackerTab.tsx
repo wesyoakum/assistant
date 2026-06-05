@@ -969,6 +969,43 @@ export function TrackerTab() {
     }
   };
 
+  const handleExportVideo = async () => {
+    if (!result || !videoUri || !interpolated) return;
+    setBusy("exporting video…");
+    try {
+      // Build detection list: all frames with a box (real or interpolated),
+      // excluding rejected. Interpolated drawn same as real.
+      const dets: Array<{ timeSec: number; cx: number; cy: number }> = [];
+      for (let i = 0; i < result.frames.length; i++) {
+        const f = result.frames[i]!;
+        if ((f as any).rejected) continue;
+        const ip = interpolated[i];
+        const b = ip?.box ?? f.box;
+        if (!b) continue;
+        dets.push({
+          timeSec: f.timeSec,
+          cx: b.x + b.width / 2,
+          cy: b.y + b.height / 2,
+        });
+      }
+      const res = await VisionTracker.exportVideo(videoUri, dets, 4, [1, 0.8, 0]);
+      // Save to camera roll.
+      const { default: MediaLibrary } = await import("expo-media-library");
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (perm.granted) {
+        await MediaLibrary.saveToLibraryAsync(res.uri);
+        setCopyHint(`Exported ${res.frames} frames to camera roll`);
+      } else {
+        setCopyHint(`Exported to ${res.uri}`);
+      }
+      setTimeout(() => setCopyHint(null), 5000);
+    } catch (e) {
+      setErr(`Export failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleCopyPose = async () => {
     if (!cameraXYZ) return;
     const lines = [
@@ -1422,6 +1459,7 @@ export function TrackerTab() {
                 <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                 <Pill label="B&W" active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
                 <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
               </View>
               {savedViewUrl && (
@@ -1511,6 +1549,7 @@ export function TrackerTab() {
                   <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                   <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
                   <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                  <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
                 </View>
                 {savedViewUrl && (

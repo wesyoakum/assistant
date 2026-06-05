@@ -22,6 +22,152 @@ public final class VisionTrackerModule: Module {
       return try generateFrame(uri: uri, timeSec: timeSec, jpegQuality: jpegQuality)
     }
 
+    // Export video with detection overlay composited onto each frame.
+    // detections: array of {timeSec, cx, cy} (normalized center coords).
+    // All detections drawn identically as solid dots (no rejected/interpolated distinction).
+    AsyncFunction("exportVideo") { (uri: String, detections: [[String: Any]], dotRadius: Double, dotColor: [Double]) -> [String: Any] in
+      guard let url = resolveURL(uri) else { throw NSError.tracker("Could not resolve video URI") }
+      let asset = AVURLAsset(url: url)
+      guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+        throw NSError.tracker("No video track found")
+      }
+      let size = videoTrack.naturalSize
+      let transform = videoTrack.preferredTransform
+      let isPortrait = transform.a == 0
+      let renderSize = isPortrait ? CGSize(width: size.height, height: size.width) : size
+
+      // Parse detections into a lookup by frame time (rounded to 0.1ms).
+      struct Det { let cx: CGFloat; let cy: CGFloat }
+      var detsByTime: [Int: [Det]] = [:]
+      for d in detections {
+        guard let t = d["timeSec"] as? Double,
+              let cx = d["cx"] as? Double,
+              let cy = d["cy"] as? Double else { continue }
+        let key = Int(round(t * 10000))
+        detsByTime[key, default: []].append(Det(cx: CGFloat(cx), cy: CGFloat(cy)))
+      }
+
+      // Output file.
+      let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("tracking_export_\(Int(Date().timeIntervalSince1970)).mp4")
+      try? FileManager.default.removeItem(at: outURL)
+
+      let writer = try AVAssetWriter(url: outURL, fileType: .mp4)
+      let videoSettings: [String: Any] = [
+        AVVideoCodecKey: AVVideoCodecType.h264,
+        AVVideoWidthKey: Int(renderSize.width),
+        AVVideoHeightKey: Int(renderSize.height),
+      ]
+      let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+      writerInput.expectsMediaDataInRealTime = false
+      let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: writerInput, sourcePixelBufferAttributes: [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+        kCVPixelBufferWidthKey as String: Int(renderSize.width),
+        kCVPixelBufferHeightKey as String: Int(renderSize.height),
+      ])
+      writer.add(writerInput)
+      writer.startWriting()
+      writer.startSession(atSourceTime: .zero)
+
+      // Read source frames.
+      let reader = try AVAssetReader(asset: asset)
+      let readerOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+      ])
+      reader.add(readerOutput)
+      reader.startReading()
+
+      let ciCtx = CIContext()
+      let dotR = CGFloat(dotRadius)
+      let dColor = UIColor(red: CGFloat(dotColor.count > 0 ? dotColor[0] : 1),
+                           green: CGFloat(dotColor.count > 1 ? dotColor[1] : 0.8),
+                           blue: CGFloat(dotColor.count > 2 ? dotColor[2] : 0),
+                           alpha: 1.0)
+      let trailColor = UIColor(red: 0, green: 0.8, blue: 1, alpha: 0.9)
+
+      var frameCount = 0
+      while let sample = readerOutput.copyNextSampleBuffer() {
+        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+        let timeSec = CMTimeGetSeconds(pts)
+        let timeKey = Int(round(timeSec * 10000))
+
+        guard let pb = CMSampleBufferGetImageBuffer(sample) else { continue }
+        CVPixelBufferLockBaseAddress(pb, [])
+
+        // Draw the source frame + overlay into a new pixel buffer.
+        let w = CVPixelBufferGetWidth(pb)
+        let h = CVPixelBufferGetHeight(pb)
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: w, height: h), true, 1)
+        guard let ctx = UIGraphicsGetCurrentContext() else {
+          CVPixelBufferUnlockBaseAddress(pb, [])
+          continue
+        }
+
+        // Draw source frame.
+        let ciImage = CIImage(cvPixelBuffer: pb)
+        if let cgImg = ciCtx.createCGImage(ciImage, from: ciImage.extent) {
+          ctx.saveGState()
+          ctx.translateBy(x: 0, y: CGFloat(h))
+          ctx.scaleBy(x: 1, y: -1)
+          if isPortrait {
+            ctx.translateBy(x: CGFloat(h), y: 0)
+            ctx.rotate(by: .pi / 2)
+            ctx.draw(cgImg, in: CGRect(x: 0, y: 0, width: Int(size.width), height: Int(size.height)))
+          } else {
+            ctx.draw(cgImg, in: CGRect(x: 0, y: 0, width: w, height: h))
+          }
+          ctx.restoreGState()
+        }
+
+        // Draw all detections up to this time as dots.
+        ctx.setFillColor(dColor.cgColor)
+        for (tk, dets) in detsByTime {
+          if tk > timeKey { continue }
+          for det in dets {
+            let px = det.cx * CGFloat(renderSize.width)
+            let py = det.cy * CGFloat(renderSize.height)
+            ctx.fillEllipse(in: CGRect(x: px - dotR, y: py - dotR, width: dotR * 2, height: dotR * 2))
+          }
+        }
+
+        // Get composited image.
+        guard let composited = UIGraphicsGetImageFromCurrentImageContext()?.cgImage else {
+          UIGraphicsEndImageContext()
+          CVPixelBufferUnlockBaseAddress(pb, [])
+          continue
+        }
+        UIGraphicsEndImageContext()
+        CVPixelBufferUnlockBaseAddress(pb, [])
+
+        // Write to output.
+        while !writerInput.isReadyForMoreMediaData { Thread.sleep(forTimeInterval: 0.01) }
+        guard let outPB = adaptor.pixelBufferPool.flatMap({ pool -> CVPixelBuffer? in
+          var pb: CVPixelBuffer?
+          CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
+          return pb
+        }) else { continue }
+        CVPixelBufferLockBaseAddress(outPB, [])
+        let outCtx = CGContext(
+          data: CVPixelBufferGetBaseAddress(outPB),
+          width: Int(renderSize.width), height: Int(renderSize.height),
+          bitsPerComponent: 8, bytesPerRow: CVPixelBufferGetBytesPerRow(outPB),
+          space: CGColorSpaceCreateDeviceRGB(),
+          bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        )
+        outCtx?.draw(composited, in: CGRect(x: 0, y: 0, width: Int(renderSize.width), height: Int(renderSize.height)))
+        CVPixelBufferUnlockBaseAddress(outPB, [])
+        adaptor.append(outPB, withPresentationTime: pts)
+        frameCount += 1
+      }
+
+      writerInput.markAsFinished()
+      await writer.finishWriting()
+
+      return [
+        "uri": outURL.absoluteString,
+        "frames": frameCount,
+      ]
+    }
+
     // Preprocess a base64 JPEG: convert to grayscale and boost contrast.
     // Returns a new base64 JPEG. Used before YOLO detection for better results.
     AsyncFunction("preprocessFrame") { (base64: String, contrast: Double, jpegQuality: Double) -> String in

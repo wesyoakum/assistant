@@ -64,6 +64,7 @@ interface NativeModule {
     opts: TrackInVideoOptions,
   ): Promise<TrackInVideoResult>;
   trackBlobInVideo(uri: string, opts: BlobTrackOptions): Promise<TrackInVideoResult>;
+  exportVideo(uri: string, detections: Array<{ timeSec: number; cx: number; cy: number }>, dotRadius: number, dotColor: number[]): Promise<{ uri: string; frames: number }>;
 }
 
 /** Options for the classical bright-moving-blob ball tracker. */
@@ -116,5 +117,20 @@ export const VisionTracker = {
   trackBlobInVideo(uri: string, opts: BlobTrackOptions = {}): Promise<TrackInVideoResult> {
     if (!Native) return Promise.reject(new Error("expo-vision-tracker native module not in this build"));
     return Native.trackBlobInVideo(uri, opts);
+  },
+
+  /** Export video with detection dots composited onto each frame.
+   *  detections: [{timeSec, cx, cy}] — normalized center coords.
+   *  Returns {uri, frames} of the output video. */
+  exportVideo(
+    uri: string,
+    detections: Array<{ timeSec: number; cx: number; cy: number }>,
+    dotRadius = 4,
+    dotColor: [number, number, number] = [1, 0.8, 0],
+  ): Promise<{ uri: string; frames: number }> {
+    if (!Native || typeof Native.exportVideo !== "function") {
+      return Promise.reject(new Error("exportVideo not available in this build"));
+    }
+    return Native.exportVideo(uri, detections, dotRadius, dotColor);
   },
 };
