@@ -83,24 +83,21 @@ function AuthGate() {
 
 function VersionBadge() {
   const theme = useTheme();
-  const r = currentRelease();
-  const build = Constants.nativeBuildVersion;
-  const parts: string[] = [];
-  if (r) parts.push(r.version);
-  if (r?.pr) parts.push(`PR #${r.pr}`);
-  if (build) parts.push(`build ${build}`);
+  const appVersion = Constants.expoConfig?.version ?? "?";
+  const updateId = Updates.updateId;
+  const label = updateId ? `v${appVersion} (ota)` : `v${appVersion}`;
   return (
     <Text
       style={{
         position: "absolute",
         bottom: 4,
         alignSelf: "center",
-        fontSize: 11,
+        fontSize: 10,
         color: theme.textSubtle,
         fontWeight: "600",
       }}
     >
-      {parts.join(" · ")}
+      {label}
     </Text>
   );
 }
