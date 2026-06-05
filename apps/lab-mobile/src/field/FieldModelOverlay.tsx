@@ -390,7 +390,10 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               borderWidth: 2,
               borderColor: isActive ? ACTIVE_COLOR : PLACED_COLOR,
               backgroundColor: isActive ? "rgba(255,220,0,0.3)" : "rgba(0,255,100,0.2)",
-            }} />
+              alignItems: "center", justifyContent: "center",
+            }}>
+              <View style={{ width: 2, height: 2, borderRadius: 1, backgroundColor: isActive ? ACTIVE_COLOR : PLACED_COLOR }} />
+            </View>
           );
         })}
 
