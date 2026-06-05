@@ -1113,6 +1113,7 @@ export function TrackerTab() {
                     <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
                     <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
+                    <Pill label="Set Pose" active onPress={handleSetPose} small />
                   </>
                 )}
                 {showRoiOverlay && (
@@ -1182,6 +1183,7 @@ export function TrackerTab() {
                     <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
                     <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
+                    <Pill label="Set Pose" active onPress={handleSetPose} small />
                   </View>
                 )}
                 {err && (
@@ -1237,12 +1239,6 @@ export function TrackerTab() {
                   </>
                 )}
               </View>}
-            </View>
-          )}
-          {/* Set Pose: bottom-right, just above FieldModelOverlay's Model button */}
-          {showPoseOverlay && (
-            <View pointerEvents="box-none" style={{ position: "absolute", bottom: 52, right: 8 }}>
-              <Pill label="Set Pose" active onPress={handleSetPose} />
             </View>
           )}
         </SafeAreaView>
