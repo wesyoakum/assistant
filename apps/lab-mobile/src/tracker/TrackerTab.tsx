@@ -1072,7 +1072,7 @@ export function TrackerTab() {
         {/* Pill overlay */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <View style={{ flex: 1, justifyContent: "space-between" }} pointerEvents="box-none">
-            {/* Top: status indicators */}
+            {/* Top: status indicators + calibration controls */}
             <View pointerEvents="box-none" style={{ alignItems: "center", paddingTop: 8, gap: 4 }}>
               <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
                 <Text style={{ color: "#fff", fontSize: 11, fontVariant: ["tabular-nums"] }}>
@@ -1081,6 +1081,17 @@ export function TrackerTab() {
                   {vp.scale > 1.01 ? `  ·  ${vp.scale.toFixed(1)}×` : ""}
                 </Text>
               </View>
+              {showPoseOverlay && (
+                <>
+                  <View style={styles.pillRow}>
+                    <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
+                    <Pill label="Set Pose" active onPress={handleSetPose} small />
+                    <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
+                    <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
+                    <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} small />
+                  </View>
+                </>
+              )}
               {err && (
                 <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginHorizontal: 16 }}>
                   <Text style={{ color: "#fff", fontSize: 11 }} numberOfLines={2}>{err}</Text>
@@ -1110,17 +1121,9 @@ export function TrackerTab() {
             {/* Bottom: pill controls */}
             <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: isLandscape ? 8 : 16 }}>
               {showPoseOverlay ? (
-                <>
-                  <View style={styles.pillRow}>
-                    <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} />
-                    <Pill label="Set Pose" active onPress={handleSetPose} />
-                  </View>
-                  <View style={styles.pillRow}>
-                    <Pill label="Save Cal" onPress={handleSaveCal} disabled={!!busy} small />
-                    <Pill label="Load Cal" onPress={handleLoadCal} disabled={!!busy} small />
-                    <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} />
-                  </View>
-                </>
+                /* Calibration mode: bottom left = Place, bottom right = Model
+                   (handled by FieldModelOverlay — TrackerTab stays out of the way) */
+                null
               ) : showRoiOverlay ? (
                 <View style={styles.pillRow}>
                   <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />

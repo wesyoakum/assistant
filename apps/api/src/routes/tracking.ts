@@ -202,11 +202,10 @@ function viewerHTML(id: string, data: any): string {
   const img = data.imageSize || {};
   const H = data.homography || {};
 
-  // Compute speed (mph) between consecutive MPI points.
+  // Compute speed (mph), distance (m), and elapsed time between consecutive MPI points.
   const MS_TO_MPH = 2.23694;
   const withSpeed = d.map((r: any, i: number) => {
-    if (!r.yzPlane?.y || !r.yzPlane?.z) return { ...r, speed: null };
-    // Find previous frame with valid MPI
+    if (!r.yzPlane?.y || !r.yzPlane?.z) return { ...r, speed: null, segDist: null, segDt: null };
     for (let j = i - 1; j >= 0; j--) {
       const prev = d[j];
       if (!prev.yzPlane?.y || !prev.yzPlane?.z) continue;
@@ -214,15 +213,15 @@ function viewerHTML(id: string, data: any): string {
       const dz = r.yzPlane.z - prev.yzPlane.z;
       const dist = Math.sqrt(dd * dd + dz * dz);
       const dt = r.time - prev.time;
-      if (dt <= 0) return { ...r, speed: null };
-      return { ...r, speed: (dist / dt) * MS_TO_MPH };
+      if (dt <= 0) return { ...r, speed: null, segDist: null, segDt: null };
+      return { ...r, speed: (dist / dt) * MS_TO_MPH, segDist: dist, segDt: dt };
     }
-    return { ...r, speed: null };
+    return { ...r, speed: null, segDist: null, segDt: null };
   });
 
-  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,speed_mph,ray_dx,ray_dy,ray_dz";
+  const csvHeader = "frame,time,type,pixel_x,pixel_y,mid_d,mid_z,seg_dist_m,seg_dt_s,speed_mph,ray_dx,ray_dy,ray_dz";
   const csvRows = withSpeed.map((r: any) =>
-    `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.speed?.toFixed?.(1) ?? ""},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`
+    `${r.frame},${r.time},${r.type},${r.pixel?.x},${r.pixel?.y},${r.yzPlane?.y},${r.yzPlane?.z},${r.segDist?.toFixed?.(4) ?? ""},${r.segDt?.toFixed?.(4) ?? ""},${r.speed?.toFixed?.(1) ?? ""},${r.ray?.dx},${r.ray?.dy},${r.ray?.dz}`
   ).join("\\n");
 
   const tableRows = withSpeed.map((r: any) => `<tr class="${r.type}">
@@ -230,6 +229,8 @@ function viewerHTML(id: string, data: any): string {
     <td>${r.pixel?.x}</td><td>${r.pixel?.y}</td>
     <td>${r.yzPlane?.y?.toFixed?.(3) ?? r.yzPlane?.y}</td>
     <td>${r.yzPlane?.z?.toFixed?.(3) ?? r.yzPlane?.z}</td>
+    <td>${r.segDist?.toFixed?.(3) ?? ""}</td>
+    <td>${r.segDt?.toFixed?.(4) ?? ""}</td>
     <td style="color:#0f0;font-weight:600">${r.speed?.toFixed?.(1) ?? ""}</td>
     <td>${r.ray?.dx}</td><td>${r.ray?.dy}</td><td>${r.ray?.dz}</td>
   </tr>`).join("\n");
@@ -268,6 +269,19 @@ a{color:#0cf}
 <a class="btn" id="csvBtn" href="#">Download CSV</a>
 <a class="btn" href="/tracking/list/view">All Sessions</a>
 
+${(() => {
+    const speeds = withSpeed.filter((r: any) => r.speed != null).map((r: any) => r.speed as number);
+    if (speeds.length === 0) return "";
+    const avg = speeds.reduce((a: number, b: number) => a + b, 0) / speeds.length;
+    const min = Math.min(...speeds);
+    const max = Math.max(...speeds);
+    return `<div style="margin:16px 0;padding:12px 16px;background:#1a1a1a;border-radius:8px;border:1px solid #333;display:inline-block">
+      <span style="color:#0f8;font-size:1.6rem;font-weight:700">${avg.toFixed(1)} mph</span>
+      <span style="color:#888;font-size:0.85rem;margin-left:12px">avg (${speeds.length} frames)</span>
+      <span style="color:#888;font-size:0.85rem;margin-left:12px">·  min ${min.toFixed(1)}</span>
+      <span style="color:#888;font-size:0.85rem;margin-left:4px">·  max ${max.toFixed(1)}</span>
+    </div>`;
+  })()}
 <h2>3D Field View</h2>
 <div style="position:relative">
 <div id="scene3d-container" style="width:100%;max-width:800px;height:500px;position:relative;border-radius:8px;overflow:hidden;background:#0a0a0a">
@@ -275,6 +289,7 @@ a{color:#0cf}
 </div>
 <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px">
 <button id="toggleYZ" style="padding:4px 10px;border-radius:4px;border:1px solid #ffcc00;background:rgba(255,204,0,0.2);color:#ffcc00;font-size:12px;cursor:pointer">Mid Plane</button>
+<button id="toggleSpeed" style="padding:4px 10px;border-radius:4px;border:1px solid #0f8;background:rgba(0,255,136,0.2);color:#0f8;font-size:12px;cursor:pointer">Speed</button>
 <button id="viewOrtho" style="padding:4px 10px;border-radius:4px;border:1px solid #0cf;background:rgba(0,204,255,0.2);color:#0cf;font-size:12px;cursor:pointer">Ortho</button>
 <button id="viewCam" style="padding:4px 10px;border-radius:4px;border:1px solid #f33;background:rgba(255,51,51,0.2);color:#f33;font-size:12px;cursor:pointer">Cam View</button>
 <button id="viewOrbit" style="padding:4px 10px;border-radius:4px;border:1px solid #888;background:rgba(136,136,136,0.2);color:#888;font-size:12px;cursor:pointer">Orbit</button>
@@ -332,9 +347,20 @@ let activeCamera = perspCam;
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('scene3d'), antialias: true });
 renderer.setSize(W, H);
 renderer.setPixelRatio(window.devicePixelRatio);
-const controls = new OrbitControls(perspCam, renderer.domElement);
-controls.target.set(0, 1, 0);
-controls.update();
+
+// Orbit controls for perspective camera
+const perspControls = new OrbitControls(perspCam, renderer.domElement);
+perspControls.target.set(0, 1, 0);
+perspControls.update();
+
+// Ortho controls: pan + zoom only (no rotation)
+const orthoControls = new OrbitControls(orthoCam, renderer.domElement);
+orthoControls.enableRotate = false;
+orthoControls.target.set(0, 1.5, -8);
+orthoControls.update();
+orthoControls.enabled = false;
+
+let activeControls = perspControls;
 
 // Lighting
 scene.add(new THREE.AmbientLight(0x666666));
@@ -541,24 +567,42 @@ const detectSphMat = new THREE.MeshBasicMaterial({ color: 0x34c759 });
 const interpSphMat = new THREE.MeshBasicMaterial({ color: 0xff9500 });
 const sphGeo = new THREE.SphereGeometry(0.06, 8, 8);
 
+// Speed color: 40 mph = blue, 75 mph = red, linear gradient between.
+function speedColor(mph) {
+  const t = Math.max(0, Math.min(1, (mph - 40) / 35));
+  const r = Math.round(t * 255);
+  const b = Math.round((1 - t) * 255);
+  const g = Math.round((1 - Math.abs(t - 0.5) * 2) * 128);
+  return new THREE.Color(r / 255, g / 255, b / 255);
+}
+
+const speedLabelGroup = new THREE.Group();
+const speedSpheres = []; // { mesh, speedMat, defaultMat }
+let speedLabelsVisible = true;
+
 detData.forEach(d => {
   if (!d.yz) return;
   const intPt = u2t(0, d.yz.y, d.yz.z);
-  // Ray line from camera to intersection
   scene.add(new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([camPos3, intPt]),
     rayMat
   ));
-  // Intersection sphere
-  const sph = new THREE.Mesh(sphGeo, d.type === 'detect' ? detectSphMat : interpSphMat);
+  // Default sphere material (green=detect, orange=interp)
+  const defMat = d.type === 'detect' ? detectSphMat : interpSphMat;
+  // Speed-colored material (if speed available)
+  const sMat = d.speed != null ? new THREE.MeshBasicMaterial({ color: speedColor(d.speed) }) : null;
+  const sph = new THREE.Mesh(sphGeo, sMat || defMat);
   sph.position.copy(intPt);
   scene.add(sph);
-  // Speed label (sprite) next to the sphere
+  speedSpheres.push({ mesh: sph, speedMat: sMat, defaultMat: defMat });
+  // Speed label sprite
   if (d.speed != null) {
+    const col = speedColor(d.speed);
+    const hex = '#' + col.getHexString();
     const c = document.createElement('canvas');
     c.width = 96; c.height = 32;
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#00ff88';
+    ctx.fillStyle = hex;
     ctx.font = 'bold 20px system-ui';
     ctx.textAlign = 'center';
     ctx.fillText(d.speed.toFixed(0), 48, 22);
@@ -568,9 +612,10 @@ detData.forEach(d => {
     spr.position.copy(intPt);
     spr.position.y += 0.3;
     spr.scale.set(1.2, 0.4, 1);
-    scene.add(spr);
+    speedLabelGroup.add(spr);
   }
 });
+scene.add(speedLabelGroup);
 
 // Set up real camera pose (matches the physical camera used for tracking).
 {
@@ -591,10 +636,24 @@ document.getElementById('toggleYZ').addEventListener('click', function() {
   this.style.opacity = yzGroup.visible ? '1' : '0.4';
 });
 
+// Speed labels + color toggle
+document.getElementById('toggleSpeed').addEventListener('click', function() {
+  speedLabelsVisible = !speedLabelsVisible;
+  speedLabelGroup.visible = speedLabelsVisible;
+  speedSpheres.forEach(s => {
+    s.mesh.material = speedLabelsVisible && s.speedMat ? s.speedMat : s.defaultMat;
+  });
+  this.style.opacity = speedLabelsVisible ? '1' : '0.4';
+});
+
 // View switching
 function setView(cam) {
   activeCamera = cam;
-  controls.enabled = (cam === perspCam);
+  perspControls.enabled = false;
+  orthoControls.enabled = false;
+  if (cam === perspCam) { activeControls = perspControls; perspControls.enabled = true; }
+  else if (cam === orthoCam) { activeControls = orthoControls; orthoControls.enabled = true; }
+  else { activeControls = perspControls; } // realCam: no controls
   // Highlight active button
   ['viewOrtho','viewCam','viewOrbit'].forEach(id => {
     document.getElementById(id).style.opacity = '0.5';
@@ -606,7 +665,7 @@ document.getElementById('viewOrtho').addEventListener('click', () => setView(ort
 document.getElementById('viewCam').addEventListener('click', () => setView(realCam));
 document.getElementById('viewOrbit').addEventListener('click', () => setView(perspCam));
 
-function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, activeCamera); }
+function animate() { requestAnimationFrame(animate); activeControls.update(); renderer.render(scene, activeCamera); }
 animate();
 
 window.addEventListener('resize', () => {
@@ -626,7 +685,7 @@ window.addEventListener('resize', () => {
 <h2>Detections (${d.length} frames, ${detected.length} detected)</h2>
 <div style="max-height:400px;overflow:auto">
 <table>
-<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>mph</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
+<thead><tr><th>frame</th><th>time</th><th>type</th><th>px_x</th><th>px_y</th><th>mid_d</th><th>mid_z</th><th>dist(m)</th><th>dt(s)</th><th>mph</th><th>ray_dx</th><th>ray_dy</th><th>ray_dz</th></tr></thead>
 <tbody>${tableRows}</tbody>
 </table>
 </div>
