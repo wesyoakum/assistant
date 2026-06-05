@@ -1,10 +1,10 @@
 // 3D field model overlay — place anchors individually.
 //
-// 1. Pick a handle from the dropdown
+// 1. Pick a handle from the dropdown (placed or unplaced)
 // 2. Drag it to the matching spot on the video
-// 3. Repeat for 4+ handles
-// 4. 3D model overlays using the homography from placed anchors
-// 5. Tap any placed handle to select + nudge it
+// 3. Repeat for 4+ handles → 3D model overlays
+// 4. Tap any placed handle to select + nudge/drag it
+// 5. Opacity slider to adjust overlay transparency
 
 import React, {
   useCallback,
@@ -56,7 +56,6 @@ export interface FieldModelOverlayHandle {
 
 const PLACED_COLOR = "rgba(0,255,100,0.95)";
 const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
-const FREE_COLOR = "rgba(0,200,255,0.7)";
 const HANDLE_R = 8;
 
 // ── Component ───────────────────────────────────────────────────────────
@@ -74,24 +73,17 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     const [handles, setHandles] = useState<HandlePoint[]>([]);
     const [loadStatus, setLoadStatus] = useState<string>("loading…");
-
-    // ── Placed anchors: handle id → normalized screen position ────────
     const [placed, setPlaced] = useState<Record<string, { nx: number; ny: number }>>({});
     const placedRef = useRef(placed);
     placedRef.current = placed;
-
-    // ── Currently active handle (being placed or nudged) ──────────────
     const [activeId, setActiveId] = useState<string | null>(null);
     const activeIdRef = useRef(activeId);
     activeIdRef.current = activeId;
-
-    // ── Dropdown open state ───────────────────────────────────────────
     const [dropdownOpen, setDropdownOpen] = useState(false);
-
-    // ── Control mode ──────────────────────────────────────────────────
     const [controlMode, setControlMode] = useState<"model" | "video">("model");
+    const [opacity, setOpacity] = useState(0.35);
+    const [isDragging, setIsDragging] = useState(false);
 
-    // ── Field coord lookup ────────────────────────────────────────────
     const fieldById = useMemo(() => {
       const m: Record<string, { x: number; y: number }> = {};
       for (const h of handles) m[h.id] = { x: h.position.x, y: h.position.y };
@@ -130,14 +122,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
       const r1 = c0.map((v) => v / lambda);
       const r2 = c1.map((v) => v / lambda);
-      const t = c2.map((v) => v / lambda);
       const r3 = [
         r1[1]! * r2[2]! - r1[2]! * r2[1]!,
         r1[2]! * r2[0]! - r1[0]! * r2[2]!,
         r1[0]! * r2[1]! - r1[1]! * r2[0]!,
       ];
 
-      // Z column for height: lambda * K * r3
       const Kz0 = lambda * (K.fx * r3[0]! + K.cx * r3[2]!);
       const Kz1 = lambda * (K.fy * r3[1]! + K.cy * r3[2]!);
       const Kz2 = lambda * r3[2]!;
@@ -146,14 +136,12 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       const P00 = H[0]!, P01 = H[1]!, P02 = Kz0, P03 = H[2]!;
       const P10 = H[3]!, P11 = H[4]!, P12 = Kz1, P13 = H[5]!;
       const P20 = H[6]!, P21 = H[7]!, P22 = Kz2, P23 = H[8]!;
-
       const W = imageWidth, Hi = imageHeight;
 
       cam.matrixAutoUpdate = false;
       cam.matrix.identity();
       cam.matrixWorld.identity();
       cam.matrixWorldInverse.identity();
-
       cam.projectionMatrix.set(
         2*P00/W - P20,   2*P01/W - P21,   2*P02/W - P22,   2*P03/W - P23,
         P20 - 2*P10/Hi,  P21 - 2*P11/Hi,  P22 - 2*P12/Hi,  P23 - 2*P13/Hi,
@@ -162,6 +150,23 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       );
       cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
     }, [homography, imageWidth, imageHeight]);
+
+    // ── Model visibility + opacity ────────────────────────────────────
+    useEffect(() => {
+      if (!modelRef.current) return;
+      modelRef.current.scene.visible = !!homography;
+    }, [homography]);
+
+    useEffect(() => {
+      if (!modelRef.current) return;
+      modelRef.current.scene.traverse((node: any) => {
+        if (node.isMesh && node.material) {
+          for (const mat of (Array.isArray(node.material) ? node.material : [node.material])) {
+            mat.opacity = opacity;
+          }
+        }
+      });
+    }, [opacity]);
 
     // ── Coordinate transforms ─────────────────────────────────────────
     const imageToScreen = useCallback(
@@ -188,34 +193,26 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       [canvas, vp],
     );
 
-    // ── Touch handling ────────────────────────────────────────────────
-    const dragRef = useRef<{ id: string; offset: { dnx: number; dny: number } } | null>(null);
-    const didMoveRef = useRef(false);
-
     const screenPlaced = useMemo(() => {
       const result: Record<string, { x: number; y: number }> = {};
-      for (const [id, p] of Object.entries(placed)) {
-        result[id] = imageToScreen(p.nx, p.ny);
-      }
+      for (const [id, p] of Object.entries(placed)) result[id] = imageToScreen(p.nx, p.ny);
       return result;
     }, [placed, imageToScreen]);
     const screenPlacedRef = useRef(screenPlaced);
     screenPlacedRef.current = screenPlaced;
 
+    // ── Touch handling ────────────────────────────────────────────────
+    const dragRef = useRef<{ id: string; offset: { dnx: number; dny: number } } | null>(null);
+    const didMoveRef = useRef(false);
+
     const responder = useMemo(
       () =>
         PanResponder.create({
-          // Only claim the gesture if there's an active handle to place,
-          // or the touch is near a placed handle. Otherwise let the parent
-          // (video zoom/pan) handle it — prevents accidental anchor moves.
           onStartShouldSetPanResponder: (_, gs) => {
-            // Active handle waiting to be placed? Always claim.
             if (activeIdRef.current) return true;
-            // Near a placed handle? Claim.
             const lx = gs.x0 - canvasPageOffset.x;
             const ly = gs.y0 - canvasPageOffset.y;
-            const sp = screenPlacedRef.current;
-            for (const [, s] of Object.entries(sp)) {
+            for (const [, s] of Object.entries(screenPlacedRef.current)) {
               if (Math.hypot(lx - s.x, ly - s.y) < 40) return true;
             }
             return false;
@@ -224,29 +221,24 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           onPanResponderTerminationRequest: () => !dragRef.current,
           onPanResponderGrant: (_, gs) => {
             didMoveRef.current = false;
+            setIsDragging(true);
             const lx = gs.x0 - canvasPageOffset.x;
             const ly = gs.y0 - canvasPageOffset.y;
             const touchImg = screenToImage(lx, ly);
             const aid = activeIdRef.current;
 
             if (aid && placedRef.current[aid]) {
-              // Already active + placed: start dragging it
               const pos = placedRef.current[aid]!;
-              dragRef.current = {
-                id: aid,
-                offset: { dnx: pos.nx - touchImg.nx, dny: pos.ny - touchImg.ny },
-              };
+              dragRef.current = { id: aid, offset: { dnx: pos.nx - touchImg.nx, dny: pos.ny - touchImg.ny } };
               return;
             }
 
             if (aid && !placedRef.current[aid]) {
-              // New handle being placed: drop it at touch position
               setPlaced((prev) => ({ ...prev, [aid]: touchImg }));
               dragRef.current = { id: aid, offset: { dnx: 0, dny: 0 } };
               return;
             }
 
-            // No active: find nearest placed handle
             const sp = screenPlacedRef.current;
             let nearId = "";
             let nearDist = 40;
@@ -257,10 +249,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             if (nearId) {
               setActiveId(nearId);
               const pos = placedRef.current[nearId]!;
-              dragRef.current = {
-                id: nearId,
-                offset: { dnx: pos.nx - touchImg.nx, dny: pos.ny - touchImg.ny },
-              };
+              dragRef.current = { id: nearId, offset: { dnx: pos.nx - touchImg.nx, dny: pos.ny - touchImg.ny } };
             }
           },
           onPanResponderMove: (_, gs) => {
@@ -272,40 +261,31 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             const curImg = screenToImage(lx, ly);
             setPlaced((prev) => ({
               ...prev,
-              [drag.id]: {
-                nx: curImg.nx + drag.offset.dnx,
-                ny: curImg.ny + drag.offset.dny,
-              },
+              [drag.id]: { nx: curImg.nx + drag.offset.dnx, ny: curImg.ny + drag.offset.dny },
             }));
           },
           onPanResponderRelease: () => {
             dragRef.current = null;
+            setIsDragging(false);
           },
           onPanResponderTerminate: () => {
             dragRef.current = null;
+            setIsDragging(false);
           },
         }),
       [canvasPageOffset, screenToImage],
     );
 
-    // ── Select a handle from dropdown ─────────────────────────────────
     const selectHandle = useCallback((id: string) => {
       setActiveId(id);
       setDropdownOpen(false);
-      // If not already placed, it'll be placed on first touch
     }, []);
 
-    // ── Remove a placed handle ────────────────────────────────────────
     const removeHandle = useCallback((id: string) => {
-      setPlaced((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
+      setPlaced((prev) => { const n = { ...prev }; delete n[id]; return n; });
       if (activeId === id) setActiveId(null);
     }, [activeId]);
 
-    // ── Nudge active handle ───────────────────────────────────────────
     const nudge = useCallback((dx: number, dy: number) => {
       if (!activeId || !placed[activeId]) return;
       setPlaced((prev) => {
@@ -355,10 +335,11 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         model.scene.traverse((node: any) => {
           if (node.isMesh && node.material) {
             for (const mat of (Array.isArray(node.material) ? node.material : [node.material])) {
-              mat.transparent = true; mat.opacity = 0.35; mat.depthWrite = false;
+              mat.transparent = true; mat.opacity = opacity; mat.depthWrite = false;
             }
           }
         });
+        model.scene.visible = false;
         scene.add(model.scene);
         lh = model.handles;
         setLoadStatus(`${lh.length} handles`);
@@ -367,9 +348,6 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       }
       if (lh.length === 0) { lh = buildFallbackHandles(); setLoadStatus(`fallback (${lh.length})`); }
       setHandles(lh);
-
-      // Don't render the 3D model until homography is solved — start hidden
-      if (modelRef.current) modelRef.current.scene.visible = false;
 
       const render = () => {
         rafRef.current = requestAnimationFrame(render);
@@ -381,17 +359,15 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       render();
     }, []);
 
-    useEffect(() => {
-      if (modelRef.current) modelRef.current.scene.visible = !!homography;
-    }, [homography]);
-
     useEffect(() => () => { cancelAnimationFrame(rafRef.current); rendererRef.current?.dispose(); }, []);
 
-    // ── Available (not yet placed) handles for dropdown ───────────────
-    const availableHandles = useMemo(
-      () => handles.filter((h) => !placed[h.id]),
-      [handles, placed],
-    );
+    // ── All handles for dropdown (placed + unplaced) ──────────────────
+    const handleList = useMemo(() => {
+      return handles.map((h) => ({
+        id: h.id,
+        isPlaced: !!placed[h.id],
+      }));
+    }, [handles, placed]);
 
     // ── Render ────────────────────────────────────────────────────────
     return (
@@ -433,27 +409,45 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           );
         })}
 
-        {/* Touch surface — BEFORE controls so controls render on top */}
+        {/* Touch surface */}
         {controlMode === "model" && (
           <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
         )}
 
         {/* Status bar — top center */}
-        <View style={{ position: "absolute", top: 8, left: 0, right: 0, alignItems: "center" }} pointerEvents="none">
+        <View style={{ position: "absolute", top: 6, left: 0, right: 0, alignItems: "center" }} pointerEvents="none">
           <Text style={{
             color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: "500",
-            backgroundColor: "rgba(0,0,0,0.4)", paddingHorizontal: 10, paddingVertical: 4,
+            backgroundColor: "rgba(0,0,0,0.4)", paddingHorizontal: 10, paddingVertical: 3,
             borderRadius: 8, overflow: "hidden",
           }}>
-            {placedCount}/4 anchors{placedCount >= 4 ? " ✓" : ""}{activeId ? ` · ${activeId}` : ""}
+            {placedCount}/4{placedCount >= 4 ? ` ✓ RMS ${homography?.rmsPx.toFixed(1) ?? "?"}px` : ""}
+            {activeId ? ` · ${activeId}` : ""}
           </Text>
         </View>
 
-        {/* Controls — bottom, AR-style pills */}
+        {/* Controls — bottom */}
         <View style={{ position: "absolute", bottom: 0, left: 0, right: 0 }} pointerEvents="box-none">
-          {/* Nudge row (only when active handle is placed) */}
+          {/* Opacity slider (only when model is visible) */}
+          {placedCount >= 4 && (
+            <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 6, gap: 8 }} pointerEvents="box-none">
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10 }}>Opacity</Text>
+              <Pressable onPress={() => setOpacity((v) => Math.max(0.05, v - 0.1))} style={smallBtn}>
+                <Text style={smallBtnT}>−</Text>
+              </Pressable>
+              <View style={{ flex: 1, height: 3, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 2 }} />
+              <Pressable onPress={() => setOpacity((v) => Math.min(1, v + 0.1))} style={smallBtn}>
+                <Text style={smallBtnT}>+</Text>
+              </Pressable>
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, width: 28 }}>
+                {Math.round(opacity * 100)}%
+              </Text>
+            </View>
+          )}
+
+          {/* Nudge row */}
           {activeId && placed[activeId] && (
-            <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 8 }}>
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, marginBottom: 6 }}>
               <Pill label="◀" onPress={() => nudge(-1, 0)} small />
               <Pill label="▲" onPress={() => nudge(0, -1)} small />
               <Pill label="▼" onPress={() => nudge(0, 1)} small />
@@ -462,7 +456,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           )}
 
           {/* Main control row */}
-          <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingBottom: 16 }}>
+          <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingBottom: 14 }}>
             <Pill
               label={activeId ? activeId : "Place ▾"}
               active={dropdownOpen}
@@ -470,6 +464,9 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             />
             {activeId && placed[activeId] && (
               <Pill label="Remove" onPress={() => removeHandle(activeId)} />
+            )}
+            {activeId && (
+              <Pill label="Deselect" onPress={() => setActiveId(null)} />
             )}
             <Pill
               label={controlMode === "model" ? "Model" : "Video"}
@@ -479,31 +476,32 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           </View>
         </View>
 
-        {/* Dropdown list — above the control bar */}
+        {/* Dropdown list */}
         {dropdownOpen && (
           <View style={{
-            position: "absolute", bottom: 60, left: 12, right: 12,
-            maxHeight: 240, backgroundColor: "rgba(0,0,0,0.9)",
+            position: "absolute", bottom: 56, left: 12, right: 12,
+            maxHeight: 260, backgroundColor: "rgba(0,0,0,0.92)",
             borderRadius: 12, padding: 6,
           }}>
             <ScrollView>
-              {availableHandles.map((h) => (
+              {handleList.map((h) => (
                 <Pressable
                   key={h.id}
                   onPress={() => selectHandle(h.id)}
                   style={{
-                    paddingHorizontal: 14, paddingVertical: 10,
-                    borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.1)",
+                    flexDirection: "row", alignItems: "center", gap: 8,
+                    paddingHorizontal: 14, paddingVertical: 9,
+                    borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.08)",
+                    backgroundColor: activeId === h.id ? "rgba(255,220,0,0.15)" : "transparent",
                   }}
                 >
-                  <Text style={{ color: "#fff", fontSize: 14 }}>{h.id}</Text>
+                  <View style={{
+                    width: 8, height: 8, borderRadius: 4,
+                    backgroundColor: h.isPlaced ? PLACED_COLOR : "rgba(255,255,255,0.2)",
+                  }} />
+                  <Text style={{ color: h.isPlaced ? PLACED_COLOR : "#fff", fontSize: 13 }}>{h.id}</Text>
                 </Pressable>
               ))}
-              {availableHandles.length === 0 && (
-                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, padding: 10 }}>
-                  All handles placed
-                </Text>
-              )}
             </ScrollView>
           </View>
         )}
@@ -512,18 +510,17 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
   },
 );
 
-// ── Pill button (matches AR tab style) ───────────────────────────────────
+// ── Pill button (AR tab style) ──────────────────────────────────────────
 
 function Pill({ label, active, onPress, disabled, small }: {
   label: string; active?: boolean; onPress: () => void; disabled?: boolean; small?: boolean;
 }) {
   return (
     <Pressable
-      onPress={onPress}
-      disabled={disabled}
+      onPress={onPress} disabled={disabled}
       style={{
-        paddingHorizontal: small ? 12 : 18,
-        paddingVertical: small ? 6 : 10,
+        paddingHorizontal: small ? 12 : 16,
+        paddingVertical: small ? 5 : 8,
         borderRadius: small ? 14 : 20,
         backgroundColor: active ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.45)",
         borderWidth: 1,
@@ -533,12 +530,18 @@ function Pill({ label, active, onPress, disabled, small }: {
     >
       <Text style={{
         color: active ? "#000" : "rgba(255,255,255,0.9)",
-        fontSize: small ? 12 : 14,
-        fontWeight: "600",
+        fontSize: small ? 12 : 13, fontWeight: "600",
       }}>{label}</Text>
     </Pressable>
   );
 }
+
+const smallBtn = {
+  width: 24, height: 24, borderRadius: 12,
+  backgroundColor: "rgba(255,255,255,0.12)",
+  alignItems: "center" as const, justifyContent: "center" as const,
+};
+const smallBtnT = { color: "#fff", fontSize: 14, fontWeight: "600" as const };
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
