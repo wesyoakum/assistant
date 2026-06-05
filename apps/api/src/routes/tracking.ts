@@ -114,6 +114,46 @@ tracking.get("/:id/view", async (c) => {
   });
 });
 
+// ── Detection storage ─────────────────────────────────────────────
+
+// POST /tracking/detections — save detections only.
+tracking.post("/detections", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json();
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const key = `users/${userId}/detections/${id}.json`;
+  const payload = { id, userId, savedAt: new Date().toISOString(), ...body };
+  await c.env.FILES.put(key, JSON.stringify(payload, null, 2), {
+    httpMetadata: { contentType: "application/json" },
+  });
+  return c.json({ id });
+});
+
+// GET /tracking/detections — list saved detections.
+tracking.get("/detections", async (c) => {
+  const userId = c.get("userId");
+  const prefix = `users/${userId}/detections/`;
+  const list = await c.env.FILES.list({ prefix, limit: 50 });
+  const detections = list.objects
+    .filter((o) => o.key.endsWith(".json"))
+    .map((o) => ({
+      id: o.key.replace(prefix, "").replace(".json", ""),
+      uploaded: o.uploaded.toISOString(),
+    }))
+    .sort((a, b) => b.uploaded.localeCompare(a.uploaded));
+  return c.json({ detections });
+});
+
+// GET /tracking/detections/:id — retrieve detections.
+tracking.get("/detections/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+  const key = `users/${userId}/detections/${id}.json`;
+  const obj = await c.env.FILES.get(key);
+  if (!obj) return c.json({ error: "Not found" }, 404);
+  return c.json(await obj.json());
+});
+
 // ── Calibration storage ────────────────────────────────────────────
 
 // POST /tracking/calibrations — save a calibration.

@@ -1006,6 +1006,51 @@ export function TrackerTab() {
     }
   };
 
+  const handleSaveDetections = async () => {
+    if (!result || !interpolated) return;
+    setBusy("saving detections…");
+    try {
+      const ip = interpolated;
+      const dets = result.frames.map((f, i) => {
+        const p = ip[i];
+        const b = p?.box ?? f.box;
+        if (!b) return null;
+        return {
+          frame: i, time: Number(f.timeSec.toFixed(4)),
+          type: f.lost ? (p?.interpolated ? "interp" : "lost") : "detect",
+          cx: Number((b.x + b.width / 2).toFixed(5)),
+          cy: Number((b.y + b.height / 2).toFixed(5)),
+          rejected: !!(f as any).rejected,
+        };
+      }).filter(Boolean);
+      await apiFetch("/tracking/detections", { method: "POST", body: JSON.stringify({
+        trackerMode, videoWidth: result.videoWidth, videoHeight: result.videoHeight,
+        frameRate: result.frameRate, frameCount: result.frames.length, detections: dets,
+      }) });
+      setCopyHint("Detections saved");
+      setTimeout(() => setCopyHint(null), 3000);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  };
+
+  const handleLoadDetections = async () => {
+    setBusy("loading detections…");
+    try {
+      const res = await apiFetch<{ detections: { id: string; uploaded: string }[] }>("/tracking/detections");
+      if (!res.detections.length) { setErr("No saved detections"); setBusy(null); return; }
+      const latest = res.detections[0]!;
+      const data = await apiFetch<any>(`/tracking/detections/${latest.id}`);
+      setCopyHint(`Loaded detections ${latest.id}`);
+      setTimeout(() => setCopyHint(null), 3000);
+      // The detections are available but we'd need the video+result to display them.
+      // For now, copy the detection JSON to clipboard.
+      await Clipboard.setStringAsync(JSON.stringify(data.detections || [], null, 2));
+      setCopyHint(`Loaded ${(data.detections || []).length} detections to clipboard`);
+      setTimeout(() => setCopyHint(null), 3000);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(null); }
+  };
+
   const handleCopyPose = async () => {
     if (!cameraXYZ) return;
     const lines = [
@@ -1461,6 +1506,7 @@ export function TrackerTab() {
                 <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                 <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
+                <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
               </View>
               {savedViewUrl && (
                 <View pointerEvents="box-none" style={{ position: "absolute", bottom: 4, left: 0, right: 0, alignItems: "center" }}>
@@ -1551,6 +1597,7 @@ export function TrackerTab() {
                   <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                   <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
+                  <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
                 </View>
                 {savedViewUrl && (
                   <View style={styles.pillRow}>
