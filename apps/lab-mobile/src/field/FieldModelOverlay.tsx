@@ -58,6 +58,23 @@ const PLACED_COLOR = "rgba(0,255,100,0.95)";
 const ACTIVE_COLOR = "rgba(255,220,0,0.95)";
 const HANDLE_R = 8;
 
+// Short display names for handle IDs (≤6 chars).
+const HANDLE_LABEL: Record<string, string> = {
+  plate_apex: "Apex",
+  "1B": "1B",
+  "2B": "2B",
+  "3B": "3B",
+  right_BB_front_right: "RBfr",
+  right_BB_front_left: "RBfl",
+  right_BB_back_right: "RBbr",
+  right_BB_back_left: "RBbl",
+  left_BB_front_right: "LBfr",
+  left_BB_front_left: "LBfl",
+  left_BB_back_right: "LBbr",
+  left_BB_back_left: "LBbl",
+};
+function displayName(id: string) { return HANDLE_LABEL[id] ?? id.slice(0, 6); }
+
 // ── Component ───────────────────────────────────────────────────────────
 
 export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelOverlayProps>(
@@ -408,7 +425,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
               width: 60, textAlign: "center",
               color: isActive ? ACTIVE_COLOR : PLACED_COLOR,
               fontSize: 7, fontWeight: "700",
-            }}>{id}</Text>
+            }}>{displayName(id)}</Text>
           );
         })}
 
@@ -425,7 +442,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
             borderRadius: 8, overflow: "hidden",
           }}>
             {placedCount}/4{placedCount >= 4 ? ` ✓ RMS ${homography?.rmsPx.toFixed(1) ?? "?"}px` : ""}
-            {activeId ? ` · ${activeId}` : ""}
+            {activeId ? ` · ${displayName(activeId)}` : ""}
           </Text>
         </View>
 
@@ -461,7 +478,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           {/* Main control row */}
           <View style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 8, paddingHorizontal: 12, paddingBottom: 14 }}>
             <Pill
-              label={activeId ? activeId : "Place ▾"}
+              label={activeId ? displayName(activeId) : "Place ▾"}
               active={dropdownOpen}
               onPress={() => setDropdownOpen((v) => !v)}
             />
@@ -502,7 +519,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
                     width: 8, height: 8, borderRadius: 4,
                     backgroundColor: h.isPlaced ? PLACED_COLOR : "rgba(255,255,255,0.2)",
                   }} />
-                  <Text style={{ color: h.isPlaced ? PLACED_COLOR : "#fff", fontSize: 13 }}>{h.id}</Text>
+                  <Text style={{ color: h.isPlaced ? PLACED_COLOR : "#fff", fontSize: 13 }}>{displayName(h.id)}</Text>
                 </Pressable>
               ))}
             </ScrollView>

@@ -1069,6 +1069,21 @@ export function TrackerTab() {
           </View>
         </View>
 
+        {/* Transport bar — immediately below video, not overlaid */}
+        {!isLandscape && !showPoseOverlay && !showRoiOverlay && (
+          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.85)" }}>
+            <Pressable onPress={() => { if (frame) loadFrame(videoUri!, 0); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>⏮</Text></Pressable>
+            <Pressable onPress={() => { if (startTimeSec != null) loadFrame(videoUri!, startTimeSec); }} disabled={!!busy || startTimeSec == null} style={styles.transportBtn}><Text style={[styles.transportTxt, startTimeSec == null && { opacity: 0.3 }]}>▮</Text></Pressable>
+            <Pressable onPress={() => frameStep(-60 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>«60</Text></Pressable>
+            <Pressable onPress={() => frameStep(-30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>«30</Text></Pressable>
+            <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>‹</Text></Pressable>
+            <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>›</Text></Pressable>
+            <Pressable onPress={() => frameStep(30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>30»</Text></Pressable>
+            <Pressable onPress={() => frameStep(60 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>60»</Text></Pressable>
+            <Pressable onPress={() => { if (frame) loadFrame(videoUri!, frame.durationSec - frameStepSec); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>⏭</Text></Pressable>
+          </View>
+        )}
+
         {/* Pill overlay */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
           {isLandscape ? (
@@ -1189,9 +1204,9 @@ export function TrackerTab() {
                 )}
               </View>
 
-              {/* Bottom: pill controls */}
-              <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 16 }}>
-                {showPoseOverlay ? null : showRoiOverlay ? (
+              {/* Bottom: pill controls (hidden during calibration — FieldModelOverlay owns the bottom) */}
+              {showPoseOverlay ? null : <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 16 }}>
+                {showRoiOverlay ? (
                   <View style={styles.pillRow}>
                     <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />
                     <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} />
@@ -1199,15 +1214,6 @@ export function TrackerTab() {
                   </View>
                 ) : (
                   <>
-                    <View style={styles.pillRow}>
-                      <Pill label="«1s" onPress={() => frameStep(-1)} disabled={!!busy} small />
-                      <Pill label="‹" onPress={() => frameStep(-frameStepSec)} disabled={!!busy} small />
-                      <Pill label="›" onPress={() => frameStep(frameStepSec)} disabled={!!busy} small />
-                      <Pill label="1s»" onPress={() => frameStep(1)} disabled={!!busy} small />
-                      <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                      <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
-                      <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
-                    </View>
                     <View style={styles.pillRow}>
                       <Pill label={cameraPose ? "Pose ✓" : "Calibrate"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} />
                       <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} />
@@ -1224,7 +1230,7 @@ export function TrackerTab() {
                     </View>
                   </>
                 )}
-              </View>
+              </View>}
             </View>
           )}
         </SafeAreaView>
@@ -1329,6 +1335,21 @@ export function TrackerTab() {
             </View>
           )}
         </View>
+
+        {/* Transport bar for result review — below video */}
+        {!isLandscape && result && (
+          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.85)" }}>
+            <Pressable onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 60)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 30)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
+            <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 12 }]}><Text style={[styles.transportTxt, { fontSize: 14 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 30)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 60)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
+            <Pressable onPress={() => setReviewIdx(result.frames.length - 1)} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
+          </View>
+        )}
 
         {/* Overlaid controls */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1442,22 +1463,13 @@ export function TrackerTab() {
                 )}
               </View>
 
-              {/* Bottom: playback + action pills */}
+              {/* Bottom: speed + zoom + action pills */}
               <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 16 }}>
-                <View style={styles.pillRow}>
-                  <Pill label="⏮" onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} small />
-                  <Pill label="‹" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} small />
-                  <Pill label={isPlaying ? "⏸ Pause" : "▶ Play"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} />
-                  <Pill label="›" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} small />
-                </View>
                 <View style={styles.pillRow}>
                   {([1, 0.5, 0.25, 0.125] as const).map((s) => (
                     <Pill key={s} label={s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"} active={playSpeed === s} onPress={() => setPlaySpeed(s)} small />
                   ))}
-                </View>
-                <View style={styles.pillRow}>
                   <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                  <Pill label={vp.scale > 1.01 ? `${vp.scale.toFixed(1)}×` : "1×"} onPress={resetViewport} small />
                   <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
                 </View>
                 <View style={styles.pillRow}>
@@ -1592,6 +1604,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexWrap: "wrap",
     gap: 6,
+  },
+  transportBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  transportTxt: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
+    fontWeight: "600" as const,
   },
 });
 
