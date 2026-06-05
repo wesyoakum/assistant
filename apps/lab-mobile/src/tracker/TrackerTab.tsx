@@ -1099,8 +1099,8 @@ export function TrackerTab() {
             /* ── Landscape: top row + side columns ── */
             <View style={{ flex: 1 }} pointerEvents="box-none">
               {/* Top row */}
-              <View pointerEvents="box-none" style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 4, paddingTop: 4, paddingHorizontal: 8 }}>
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+              <View pointerEvents="box-none" style={{ flexDirection: "row", justifyContent: showPoseOverlay || showRoiOverlay ? "flex-end" : "center", flexWrap: "wrap", gap: 4, paddingTop: 4, paddingHorizontal: 8 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginRight: showPoseOverlay || showRoiOverlay ? "auto" : 0 }}>
                   <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
                     {frameTimeSec.toFixed(3)}s / {frame.durationSec.toFixed(2)}s
                     {frame.frameRate > 0 ? `  ·  ${frame.frameRate.toFixed(1)} fps` : ""}
@@ -1178,7 +1178,7 @@ export function TrackerTab() {
                   </Text>
                 </View>
                 {showPoseOverlay && (
-                  <View style={styles.pillRow}>
+                  <View style={[styles.pillRow, { justifyContent: "flex-end", paddingRight: 4 }]}>
                     <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
                     <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
