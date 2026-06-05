@@ -360,8 +360,6 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       const render = () => {
         rafRef.current = requestAnimationFrame(render);
         if (rendererRef.current && sceneRef.current && cameraRef.current) {
-          // Show model only when we have a homography
-          if (modelRef.current) modelRef.current.scene.visible = placedCount >= 4;
           rendererRef.current.render(sceneRef.current, cameraRef.current);
           gl.endFrameEXP();
         }
@@ -370,9 +368,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     }, []);
 
     useEffect(() => {
-      // Update model visibility when placedCount changes
-      if (modelRef.current) modelRef.current.scene.visible = placedCount >= 4;
-    }, [placedCount]);
+      if (modelRef.current) modelRef.current.scene.visible = !!homography;
+    }, [homography]);
 
     useEffect(() => () => { cancelAnimationFrame(rafRef.current); rendererRef.current?.dispose(); }, []);
 
