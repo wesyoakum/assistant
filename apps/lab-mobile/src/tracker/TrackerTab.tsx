@@ -1102,17 +1102,16 @@ export function TrackerTab() {
                 {showPoseOverlay && (
                   <>
                     <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
-                    <Pill label="Set Pose" active onPress={handleSetPose} small />
                     <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
-                    <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} small />
+                    <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
                   </>
                 )}
                 {showRoiOverlay && (
                   <>
                     <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} small />
                     <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} small />
-                    <Pill label="Hide" onPress={() => setShowRoiOverlay(false)} small />
+                    <Pill label="Back" onPress={() => setShowRoiOverlay(false)} small />
                   </>
                 )}
                 {!showPoseOverlay && !showRoiOverlay && (
@@ -1173,10 +1172,9 @@ export function TrackerTab() {
                 {showPoseOverlay && (
                   <View style={styles.pillRow}>
                     <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
-                    <Pill label="Set Pose" active onPress={handleSetPose} small />
                     <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
-                    <Pill label="Hide" onPress={() => setShowPoseOverlay(false)} small />
+                    <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
                   </View>
                 )}
                 {err && (
@@ -1211,7 +1209,7 @@ export function TrackerTab() {
                   <View style={styles.pillRow}>
                     <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />
                     <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} />
-                    <Pill label="Hide" onPress={() => setShowRoiOverlay(false)} />
+                    <Pill label="Back" onPress={() => setShowRoiOverlay(false)} />
                   </View>
                 ) : (
                   <>
@@ -1233,6 +1231,12 @@ export function TrackerTab() {
                   </>
                 )}
               </View>}
+            </View>
+          )}
+          {/* Set Pose: bottom-right, just above FieldModelOverlay's Model button */}
+          {showPoseOverlay && (
+            <View pointerEvents="box-none" style={{ position: "absolute", bottom: 52, right: 8 }}>
+              <Pill label="Set Pose" active onPress={handleSetPose} />
             </View>
           )}
         </SafeAreaView>
