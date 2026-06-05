@@ -422,99 +422,98 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
           );
         })}
 
-        {/* Status bar */}
-        <View style={{
-          position: "absolute", top: 6, left: 8, right: 8,
-          flexDirection: "row", alignItems: "center", gap: 6,
-        }}>
-          <Text pointerEvents="none" style={{
-            color: placedCount >= 4 ? PLACED_COLOR : "rgba(255,200,0,0.9)",
-            fontSize: 11, fontWeight: "600",
-          }}>
-            {placedCount}/4{placedCount >= 4 ? " ✓" : ""}
-          </Text>
-
-          {/* Dropdown trigger */}
-          <Pressable
-            onPress={() => setDropdownOpen((v) => !v)}
-            style={{
-              paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-              backgroundColor: "rgba(0,200,255,0.6)",
-            }}
-          >
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              {activeId ? activeId : "Place handle ▾"}
-            </Text>
-          </Pressable>
-
-          {/* Remove active */}
-          {activeId && placed[activeId] && (
-            <Pressable onPress={() => removeHandle(activeId)} style={{
-              paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
-              backgroundColor: "rgba(255,60,60,0.6)",
-            }}>
-              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>✕</Text>
-            </Pressable>
-          )}
-
-          {/* Nudge buttons */}
-          {activeId && placed[activeId] && (
-            <View style={{ flexDirection: "row", gap: 2 }}>
-              <Pressable onPress={() => nudge(-1, 0)} style={nudgeBtn}><Text style={nudgeT}>◀</Text></Pressable>
-              <Pressable onPress={() => nudge(0, -1)} style={nudgeBtn}><Text style={nudgeT}>▲</Text></Pressable>
-              <Pressable onPress={() => nudge(0, 1)} style={nudgeBtn}><Text style={nudgeT}>▼</Text></Pressable>
-              <Pressable onPress={() => nudge(1, 0)} style={nudgeBtn}><Text style={nudgeT}>▶</Text></Pressable>
-            </View>
-          )}
-
-          {/* Model/Video toggle */}
-          <Pressable
-            onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
-            style={{
-              marginLeft: "auto",
-              paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
-              backgroundColor: controlMode === "model" ? "rgba(0,200,255,0.6)" : "rgba(255,160,0,0.6)",
-            }}
-          >
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              {controlMode === "model" ? "Model" : "Video"}
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Dropdown list */}
-        {dropdownOpen && (
-          <View style={{
-            position: "absolute", top: 28, left: 8,
-            maxHeight: 200, backgroundColor: "rgba(0,0,0,0.85)",
-            borderRadius: 8, padding: 4, zIndex: 100,
-          }}>
-            <ScrollView>
-              {availableHandles.map((h) => (
-                <Pressable
-                  key={h.id}
-                  onPress={() => selectHandle(h.id)}
-                  style={{
-                    paddingHorizontal: 10, paddingVertical: 6,
-                    borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.1)",
-                  }}
-                >
-                  <Text style={{ color: FREE_COLOR, fontSize: 12 }}>{h.id}</Text>
-                </Pressable>
-              ))}
-              {availableHandles.length === 0 && (
-                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, padding: 8 }}>
-                  All handles placed
-                </Text>
-              )}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Touch surface — only in model mode */}
+        {/* Touch surface — BEFORE controls so controls render on top */}
         {controlMode === "model" && (
           <View {...responder.panHandlers} style={StyleSheet.absoluteFill} />
         )}
+
+        {/* Controls layer — rendered AFTER touch surface so taps work */}
+        <View style={{ position: "absolute", top: 6, left: 8, right: 8 }} pointerEvents="box-none">
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }} pointerEvents="box-none">
+            <Text pointerEvents="none" style={{
+              color: placedCount >= 4 ? PLACED_COLOR : "rgba(255,200,0,0.9)",
+              fontSize: 11, fontWeight: "600",
+            }}>
+              {placedCount}/4{placedCount >= 4 ? " ✓" : ""}
+            </Text>
+
+            {/* Dropdown trigger */}
+            <Pressable
+              onPress={() => setDropdownOpen((v) => !v)}
+              style={{
+                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+                backgroundColor: "rgba(0,200,255,0.6)",
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                {activeId ? activeId : "Place handle ▾"}
+              </Text>
+            </Pressable>
+
+            {/* Remove active */}
+            {activeId && placed[activeId] && (
+              <Pressable onPress={() => removeHandle(activeId)} style={{
+                paddingHorizontal: 6, paddingVertical: 3, borderRadius: 8,
+                backgroundColor: "rgba(255,60,60,0.6)",
+              }}>
+                <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>✕</Text>
+              </Pressable>
+            )}
+
+            {/* Nudge buttons */}
+            {activeId && placed[activeId] && (
+              <View style={{ flexDirection: "row", gap: 2 }}>
+                <Pressable onPress={() => nudge(-1, 0)} style={nudgeBtn}><Text style={nudgeT}>◀</Text></Pressable>
+                <Pressable onPress={() => nudge(0, -1)} style={nudgeBtn}><Text style={nudgeT}>▲</Text></Pressable>
+                <Pressable onPress={() => nudge(0, 1)} style={nudgeBtn}><Text style={nudgeT}>▼</Text></Pressable>
+                <Pressable onPress={() => nudge(1, 0)} style={nudgeBtn}><Text style={nudgeT}>▶</Text></Pressable>
+              </View>
+            )}
+
+            {/* Model/Video toggle */}
+            <Pressable
+              onPress={() => setControlMode((m) => m === "model" ? "video" : "model")}
+              style={{
+                marginLeft: "auto",
+                paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8,
+                backgroundColor: controlMode === "model" ? "rgba(0,200,255,0.6)" : "rgba(255,160,0,0.6)",
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
+                {controlMode === "model" ? "Model" : "Video"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Dropdown list */}
+          {dropdownOpen && (
+            <View style={{
+              marginTop: 4, maxHeight: 200,
+              backgroundColor: "rgba(0,0,0,0.9)",
+              borderRadius: 8, padding: 4,
+            }}>
+              <ScrollView>
+                {availableHandles.map((h) => (
+                  <Pressable
+                    key={h.id}
+                    onPress={() => selectHandle(h.id)}
+                    style={{
+                      paddingHorizontal: 10, paddingVertical: 8,
+                      borderBottomWidth: 0.5, borderBottomColor: "rgba(255,255,255,0.1)",
+                    }}
+                  >
+                    <Text style={{ color: FREE_COLOR, fontSize: 13 }}>{h.id}</Text>
+                  </Pressable>
+                ))}
+                {availableHandles.length === 0 && (
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, padding: 8 }}>
+                    All handles placed
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
+          )}
+        </View>
       </View>
     );
   },
