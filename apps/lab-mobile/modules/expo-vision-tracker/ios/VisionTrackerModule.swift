@@ -22,6 +22,61 @@ public final class VisionTrackerModule: Module {
       return try generateFrame(uri: uri, timeSec: timeSec, jpegQuality: jpegQuality)
     }
 
+    // Stitch multiple video segments into one continuous MP4.
+    AsyncFunction("stitchVideos") { (uris: [String]) -> [String: Any] in
+      guard uris.count > 0 else { throw NSError.tracker("No video URIs provided") }
+      if uris.count == 1 {
+        return ["uri": uris[0]]
+      }
+
+      let composition = AVMutableComposition()
+      guard let videoCompositionTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+            let audioCompositionTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+      else { throw NSError.tracker("Failed to create composition tracks") }
+
+      var insertTime = CMTime.zero
+      var preferredTransform = CGAffineTransform.identity
+
+      for uriStr in uris {
+        guard let url = resolveURL(uriStr) else { continue }
+        let asset = AVURLAsset(url: url)
+        let duration = asset.duration
+        let timeRange = CMTimeRange(start: .zero, duration: duration)
+
+        if let vTrack = asset.tracks(withMediaType: .video).first {
+          try videoCompositionTrack.insertTimeRange(timeRange, of: vTrack, at: insertTime)
+          if insertTime == .zero { preferredTransform = vTrack.preferredTransform }
+        }
+        if let aTrack = asset.tracks(withMediaType: .audio).first {
+          try? audioCompositionTrack.insertTimeRange(timeRange, of: aTrack, at: insertTime)
+        }
+        insertTime = CMTimeAdd(insertTime, duration)
+      }
+
+      videoCompositionTrack.preferredTransform = preferredTransform
+
+      let outURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("stitched_\(Int(Date().timeIntervalSince1970)).mp4")
+      try? FileManager.default.removeItem(at: outURL)
+
+      guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetPassthrough) else {
+        throw NSError.tracker("Failed to create export session")
+      }
+      exportSession.outputURL = outURL
+      exportSession.outputFileType = .mp4
+
+      await exportSession.export()
+
+      if let error = exportSession.error {
+        throw NSError.tracker("Export failed: \(error.localizedDescription)")
+      }
+      guard exportSession.status == .completed else {
+        throw NSError.tracker("Export status: \(exportSession.status.rawValue)")
+      }
+
+      return ["uri": outURL.absoluteString]
+    }
+
     // Export video with detection overlay composited onto each frame.
     // detections: array of {timeSec, cx, cy} (normalized center coords).
     // All detections drawn identically as solid dots (no rejected/interpolated distinction).

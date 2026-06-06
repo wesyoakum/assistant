@@ -22,6 +22,10 @@ export default {
       return html(segmentPage);
     }
 
+    if (url.pathname === "/lab") {
+      return html(labPage);
+    }
+
     if (url.pathname === "/api/trigger" && request.method === "POST") {
       return handleTriggerProxy(request);
     }
@@ -1169,5 +1173,69 @@ const segmentPage = `<!DOCTYPE html>
       return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
     }
   </script>
+</body>
+</html>`;
+
+const LAB_BUILD_URL = "https://expo.dev/accounts/wesyoakum/projects/whylab/builds/9504c7ee-c2f9-4a69-8dc0-46b854103808";
+const LAB_BUILD_VERSION = "1.19.0";
+const LAB_QR_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAeoAAAHqAQAAAADjFjCXAAAEpUlEQVR4nO1dUY6rOgx1XKT5BOkt4C6F7uAtafR2BkvpAkZqP69E5SvbcQK978sgUYrPB9NQjqDhyLEdJ5MIVmDENWyAoLuBfioj6G6gn8oIuhvopzKC7gb6qYygu4F+KiPoZ+66lNEAwKPRJoxy6J4pXfXaZwJ42KXXt3l4N9BPZQTdD2JAL3/uF/lDNLREAHYgogleLgFpDtHzbqCf+jH0RzZfKbFx+74D0PBo9JDt2oMtoRrGZuO7O4FeoiLoe3Vd8/epC6Wxu0Pq6ZkI2p9EY/cDNHaXze+OQT9l1zWvJ/rh2dB4TUDw6CDJFf3ti7IIt707Bv2UXQcvfh1Am324eiC6l+vCr/uM947vQB8lLu3Y1t2+KPtwdkhXHnWv6tc9NYSFN3p4L9DNFAR95QhL9cTYAQ+kk7aoNPO5djnIov/OjKCfs+vARk5pWFqEP2nmpH4xtBPIWFuvo8icnFQ2uInqBD2xrixfp1k6dvPyJezwiRzZuYPI1yGsAp6YDiYpk97MkMknCR8kfSemT4U5mToP/dsx6LuqjopdM/2JSYOlcTNbp0MvhepWAU9MB1NdNm4z1QlEcFlrNi02FFrYupPKBtfRoTptEi9k42YhxYubJ4Kb6w93fXgM+qFV14vnVk1fSQsL5Nu5OiliWAjNbyLa9C26kkqnDnTOX5WoFo6zxP1tOYWGK24NQV8BPDIdzLjleFVPSqgqbl75ZNVP1hTECHtS2eA6OmT5lEEzZ0lKgkQCWcsXa1OC2z5UB3u+OPyU2f9BmpIlsUNuSlWn1gbUSk8KW3da2eA2tg6WORSzdTUtPKtDiXzd8d87rotfB9Is063q6704d3nUvYStg2O/d3ybzAnpBIXli3UyopTbzeZhyzKKiCZOKhtcRwdVXZn4ssG1zMNahFF9vVzpyQjVnVQ2uBH9mWD8NZWViZyboykvWeSqztl1jBQrE3Gjnoez19dBLi3Jw6yFtLm+roQZUem0/4vDD8nXQZmMVSUK+ln4UNN3U/h1cOz3jrvSQVWXa4QZFjTMrV67yNeFX3f894670iGrbmHwatCQa4k1kCicGnAc+rdj0Pe3dTQshtQ8BaFfWH1dyasoQnV+4InpIOqpI2eeZK21nCWlUv26ulB2OPRvx6DvHcNerMhuFqpmM1fLPXPNU9i6DXoegw7t75QN3o2XWNueOunaTpC+b19q6yzM+B07iUHIZitbdyl161bQniPXUry+oFGMsH7gielAS5j07FsZa+u0bFlQAeHX4a4vDo9MhxxNKHKRyWwBbF0oW8OMyNcd/73jO9B7Ed9dFk9MvNkJGzzdNZHdvLpakUfd0VZVvMnDe4FupiDom+3VCaNtxKn606TdLSX6j3d8kr2KZ0t20H9nRtDP2XXN/57t712SXRM5pAXinZx018Tx359Gdu2kTe6OQT9l1zV/n5ItOS9Tmh94s7HHPyRbdyZo7x/x2zHoO3ddWxdPTOy0PZMmjXlctYBDSuskw/KMXRMhRLtdDAuK10qTUgIV+9cVhKl0I8V/r/MC3UxB0N1AP5URdDfQT2UE3Q30UxlBdwP9VEbQ3UA/FU5O/wPNLHGx1UnC0QAAAABJRU5ErkJggg==";
+
+const labPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WHY Lab — Install</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #111; color: #fff; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    .subtitle { font-size: 14px; color: #888; margin-bottom: 24px; }
+    .qr { margin-bottom: 16px; background: #fff; padding: 16px; border-radius: 16px; }
+    .qr img { display: block; width: 256px; height: 256px; image-rendering: pixelated; }
+    .build-info { font-size: 13px; color: #aaa; margin-bottom: 8px; text-align: center; }
+    a.build-link { color: #4285F4; text-decoration: none; font-size: 14px; display: block; text-align: center; }
+    a.build-link:hover { text-decoration: underline; }
+    nav { width: 100%; max-width: 400px; display: flex; justify-content: center; gap: 24px; padding: 16px 0; margin-bottom: 16px; }
+    nav a { font-size: 14px; color: #666; text-decoration: none; font-weight: 500; }
+    nav a:hover { color: #4285F4; }
+    nav a.active { color: #4285F4; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/">Home</a>
+    <a href="/lab" class="active">Lab</a>
+    <a href="/privacy">Privacy</a>
+  </nav>
+  <h1>WHY Lab</h1>
+  <p class="subtitle">Scan to install the latest build</p>
+  <div class="qr"><img src="data:image/png;base64,` + LAB_QR_BASE64 + `" alt="QR code" /></div>
+  <div class="build-info">v` + LAB_BUILD_VERSION + `</div>
+  <a class="build-link" href="` + LAB_BUILD_URL + `" target="_blank">Install &rarr;</a>
+
+  <div style="margin-top: 48px; border-top: 1px solid #333; padding-top: 32px; width: 100%; max-width: 400px; text-align: center;">
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">Remote Control</h2>
+    <p class="subtitle" style="margin-bottom: 16px;">Paste a session URL to generate a QR code</p>
+    <input id="rcUrl" type="text" placeholder="https://claude.ai/code/..." style="width: 100%; padding: 10px 12px; border: 1px solid #333; border-radius: 8px; font-size: 14px; background: #222; color: #fff; margin-bottom: 16px;" />
+    <div id="rcQr" style="display: none; background: #fff; padding: 16px; border-radius: 16px; display: inline-block;">
+      <img id="rcImg" style="display: block; width: 256px; height: 256px;" alt="QR code" />
+    </div>
+  </div>
+  <script>
+    var rcInput = document.getElementById("rcUrl");
+    var rcQr = document.getElementById("rcQr");
+    var rcImg = document.getElementById("rcImg");
+    rcQr.style.display = "none";
+    rcInput.addEventListener("input", function() {
+      var url = rcInput.value.trim();
+      if (url && url.startsWith("http")) {
+        rcImg.src = "https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=" + encodeURIComponent(url);
+        rcQr.style.display = "inline-block";
+      } else {
+        rcQr.style.display = "none";
+      }
+    });
+  <\/script>
 </body>
 </html>`;

@@ -22,7 +22,9 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
-import { TrackManager, type Track } from "./trackManager";
+const CameraCapture = React.lazy(() =>
+  import("./CameraCapture").then((m) => ({ default: m.CameraCapture })),
+);
 import type { FieldModelOverlayHandle } from "../field/FieldModelOverlay";
 const FieldModelOverlay = React.lazy(() =>
   import("../field/FieldModelOverlay").then((m) => ({ default: m.FieldModelOverlay })),
@@ -128,8 +130,6 @@ export function TrackerTab() {
   const [box, setBox] = useState<NormalizedBox | null>(null);
   const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number; mode: TrackerMode } | null>(null);
   const [reviewIdx, setReviewIdx] = useState(0);
-  const [tracks, setTracks] = useState<Track[] | null>(null);
-  const [selectedTrackIdx, setSelectedTrackIdx] = useState(0);
   const [trackerMode, setTrackerMode] = useState<TrackerMode>("yolo");
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -155,7 +155,6 @@ export function TrackerTab() {
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
   const videoRef = useRef<Video>(null);
-  const trackManagerRef = useRef<TrackManager | null>(null);
   const poseOverlayRef = useRef<FieldModelOverlayHandle>(null);
   const roiOverlayRef = useRef<RoiOverlayHandle>(null);
   // Refs so the PanResponder (memoized) can read overlay state without re-creating.
@@ -193,7 +192,11 @@ export function TrackerTab() {
 
   const gestureBase = useRef({ vp, pinchD: 0, pinchMid: { x: 0, y: 0 }, isPinch: false });
 
-  const pickVideo = async () => {
+  const [showSourcePicker, setShowSourcePicker] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+
+  const pickFromLibrary = async () => {
+    setShowSourcePicker(false);
     setErr(null);
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) { setErr("Photo library access denied"); return; }
@@ -207,6 +210,8 @@ export function TrackerTab() {
     const asset = res.assets[0]!;
     loadVideo(asset.uri);
   };
+
+  const pickVideo = () => setShowSourcePicker(true);
 
   const loadVideo = async (uri: string) => {
     setVideoUri(uri);
@@ -565,11 +570,8 @@ export function TrackerTab() {
               videoHeight: frame?.imageHeight ?? 0,
               frameRate: fps,
             };
-            trackManagerRef.current = new TrackManager({ frameRate: Math.min(fps, 30), r2Threshold: trackR2Threshold });
             detectionSubRef.current = Yolo.onDetection((f) => {
-              const tf = f as unknown as TrackedFrame;
-              streamingFramesRef.current.push(tf);
-              trackManagerRef.current?.addFrame(tf);
+              streamingFramesRef.current.push(f as unknown as TrackedFrame);
             });
             setIsDetecting(true);
             setReviewIdx(0);
@@ -651,20 +653,23 @@ export function TrackerTab() {
           confidenceCutoff: 0.15, searchPadding: 3, downsample: 2,
         });
       }
-      // Finalize tracks — if streaming was active, the TrackManager already
-      // has all frames. Otherwise, run batch processing.
-      const tm = trackManagerRef.current ?? new TrackManager({ frameRate: r.frameRate, r2Threshold: trackR2Threshold });
-      if (!trackManagerRef.current) {
-        // Non-streaming path (baseball fallback, etc.) — batch process.
-        tm.processFrames(r.frames);
+      // Outlier rejection (two-pass RANSAC + refit).
+      if (outlierRejection) {
+        const rej = rejectOutliers(r.frames, { inlierThreshold: outlierThreshold });
+        if (rej.applied) {
+          for (const label of rej.labels) {
+            if (!label.inlier && label.residual !== null) {
+              const f = r.frames[label.frameIndex] as any;
+              if (f && f.box) {
+                f.rejectedBox = { ...f.box };
+                f.box = null;
+                f.lost = true;
+                f.rejected = true;
+              }
+            }
+          }
+        }
       }
-      const finalTracks = tm.finalize();
-      setTracks(finalTracks.length > 0 ? finalTracks : null);
-      const primary = finalTracks
-        .filter((t) => t.state !== "candidate")
-        .sort((a, b) => b.detections.length - a.detections.length)[0];
-      setSelectedTrackIdx(primary ? finalTracks.indexOf(primary) : 0);
-      trackManagerRef.current = null;
 
       setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate, mode: trackerMode });
       setReviewIdx(0);
@@ -685,46 +690,19 @@ export function TrackerTab() {
       return clampViewport({ scale: newScale, tx: v.tx * k, ty: v.ty * k }, canvasRef.current);
     });
 
-  // Convert selected track's detections to a sparse TrackedFrame[] aligned
-  // with original frame indices. Non-track frames get box=null, lost=true.
-  const TRACK_COLORS = ["#00C8FF", "#FF9500", "#34C759", "#FF375F", "#BF5AF2", "#FF6B35", "#5AC8FA"];
-  const trackFrames = useMemo(() => {
-    if (!result) return null;
-    if (!tracks || tracks.length === 0) return result.frames;
-    const track = tracks[selectedTrackIdx];
-    if (!track) return result.frames;
-    const frames = result.frames.map((f) => ({
-      ...f,
-      box: null as { x: number; y: number; width: number; height: number } | null,
-      lost: true,
-      confidence: 0,
-    }));
-    for (const det of track.detections) {
-      const f = frames[det.frameIndex];
-      if (f) {
-        f.box = { x: det.x - det.width / 2, y: det.y - det.height / 2, width: det.width, height: det.height };
-        f.lost = false;
-        f.confidence = det.confidence;
-      }
-    }
-    return frames;
-  }, [result, tracks, selectedTrackIdx]);
-
-  // Per-frame box with gaps filled by interpolation — operates on the
-  // selected track's frames, not the global frames.
+  // Per-frame box with gaps filled by linear interpolation.
   const interpolated = useMemo(() => {
-    if (!result || !trackFrames) return null;
-    return interpolateBoxes(trackFrames, box);
-  }, [result, trackFrames, box]);
+    if (!result) return null;
+    return interpolateBoxes(result.frames, box);
+  }, [result, box]);
 
-  // Smooth Catmull-Rom path through every real detection center, up to and
-  // including the current frame.
+  // Smooth Catmull-Rom path through every real detection center.
   const splinePath = useMemo(() => {
-    if (!result || !interpolated || !trackFrames) return "";
+    if (!result || !interpolated) return "";
     const pts: Array<{ x: number; y: number }> = [];
-    const end = showAllDetections ? trackFrames.length - 1 : reviewIdx;
-    for (let i = 0; i <= end && i < trackFrames.length; i++) {
-      const f = trackFrames[i]!;
+    const end = showAllDetections ? result.frames.length - 1 : reviewIdx;
+    for (let i = 0; i <= end && i < result.frames.length; i++) {
+      const f = result.frames[i]!;
       if (!f.box || f.lost) continue;
       pts.push({
         x: f.box.x + f.box.width / 2,
@@ -732,9 +710,9 @@ export function TrackerTab() {
       });
     }
     return catmullRomPath(pts);
-  }, [result, interpolated, trackFrames, reviewIdx, showAllDetections]);
+  }, [result, interpolated, reviewIdx, showAllDetections]);
 
-  // While detection is streaming, copy accumulated frames + live tracks to state.
+  // While detection is streaming, copy accumulated frames to state.
   useEffect(() => {
     if (!isDetecting) return;
     const id = setInterval(() => {
@@ -749,18 +727,6 @@ export function TrackerTab() {
         frameRate: meta.frameRate,
         mode: trackerMode as TrackerMode,
       });
-      // Update live tracks from the streaming TrackManager.
-      const tm = trackManagerRef.current;
-      if (tm) {
-        const liveTracks = tm.getTracks();
-        setTracks(liveTracks.length > 0 ? liveTracks : null);
-        if (liveTracks.length > 0) {
-          const best = liveTracks
-            .filter((t) => t.state === "confirmed")
-            .sort((a, b) => b.detections.length - a.detections.length)[0];
-          if (best) setSelectedTrackIdx(liveTracks.indexOf(best));
-        }
-      }
     }, 50);
     return () => clearInterval(id);
   }, [isDetecting, trackerMode]);
@@ -782,11 +748,17 @@ export function TrackerTab() {
     if (status.didJustFinish && !isDetectingRef.current) setIsPlaying(false);
   }, [result]);
 
-  // Seek video to start when result first appears.
+  // Seek video when result changes or reviewIdx is reset to 0.
+  const resultRef = useRef(result);
   useEffect(() => {
     if (!result || !videoRef.current) return;
-    videoRef.current.setPositionAsync((result.frames[0]?.timeSec ?? 0) * 1000);
-  }, [!!result]);
+    // Seek when result first appears or when it changes (e.g., streaming → final).
+    if (resultRef.current !== result) {
+      resultRef.current = result;
+      const startMs = (result.frames[reviewIdx]?.timeSec ?? result.frames[0]?.timeSec ?? 0) * 1000;
+      videoRef.current.setPositionAsync(startMs);
+    }
+  }, [result, reviewIdx]);
 
   // Sync playback speed to video player.
   useEffect(() => {
@@ -863,19 +835,19 @@ export function TrackerTab() {
 
   // Ray info for all tracked frames (when pose is set).
   const allRayInfo = useMemo((): RayInfo[] | null => {
-    if (!cameraPose || !cameraXYZ || !result || !interpolated || !frame || !trackFrames) return null;
+    if (!cameraPose || !cameraXYZ || !result || !interpolated || !frame || !result.frames) return null;
     const K = intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0);
     const rays: RayInfo[] = [];
-    for (let i = 0; i < trackFrames.length; i++) {
+    for (let i = 0; i < result.frames.length; i++) {
       const ip = interpolated[i];
       if (!ip?.box) continue;
       const cx = ip.box.x + ip.box.width / 2;
       const cy = ip.box.y + ip.box.height / 2;
-      const r = computeRayInfo(cx, cy, result.videoWidth, result.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, ip.interpolated, i, trackFrames[i]!.timeSec);
+      const r = computeRayInfo(cx, cy, result.videoWidth, result.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, ip.interpolated, i, result.frames[i]!.timeSec);
       if (r) rays.push(r);
     }
     return rays.length > 0 ? rays : null;
-  }, [cameraPose, cameraXYZ, result, interpolated, frame, trackFrames]);
+  }, [cameraPose, cameraXYZ, result, interpolated, frame]);
 
   // Speed (mph) at the current review frame, computed from consecutive MPI points.
   const currentSpeedMph = useMemo((): number | null => {
@@ -1594,7 +1566,7 @@ export function TrackerTab() {
                 <Pill label="Copy" onPress={copyTrace} small />
                 <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                 <Pill label="B&W" active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
-                <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setTracks(null); setSelectedTrackIdx(0); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                 <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
                 <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
@@ -1624,29 +1596,11 @@ export function TrackerTab() {
                 <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
                   <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
                     {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected
-                    {tracks ? `  ·  ${tracks.length} track${tracks.length !== 1 ? "s" : ""}` : ""}
+                    {result.frames.filter((f: any) => f.rejected).length > 0 ? `  ·  ${result.frames.filter((f: any) => f.rejected).length} rejected` : ""}
                     {"  ·  "}{result.elapsedMs}ms
                     {result.frameRate > 0 ? `  ·  ${result.frameRate.toFixed(1)} fps` : ""}
                   </Text>
                 </View>
-                {tracks && tracks.length > 1 && (
-                  <View style={{ flexDirection: "row", gap: 4 }}>
-                    {tracks.map((tk, i) => (
-                      <Pressable
-                        key={tk.id}
-                        onPress={() => setSelectedTrackIdx(i)}
-                        style={{
-                          backgroundColor: i === selectedTrackIdx ? TRACK_COLORS[i % TRACK_COLORS.length] : "rgba(0,0,0,0.6)",
-                          paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
-                          borderWidth: 1, borderColor: TRACK_COLORS[i % TRACK_COLORS.length],
-                        }}
-                      >
-                        <Text style={{ color: i === selectedTrackIdx ? "#000" : TRACK_COLORS[i % TRACK_COLORS.length], fontSize: 9, fontWeight: "600" }}>
-                          T{i + 1} ({tk.detections.length})
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
                 )}
                 {currentBallDir && (
                   <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
@@ -1704,7 +1658,7 @@ export function TrackerTab() {
                   {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
                   <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                   <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
-                  <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setTracks(null); setSelectedTrackIdx(0); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                  <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                   <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
                   <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
@@ -1788,6 +1742,34 @@ export function TrackerTab() {
     </Modal>
 
     {/* Settings modal */}
+    {/* Source picker */}
+    <Modal visible={showSourcePicker} transparent animationType="fade" onRequestClose={() => setShowSourcePicker(false)}>
+      <Pressable onPress={() => setShowSourcePicker(false)} style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" }}>
+        <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: theme.surface, borderRadius: 16, padding: 20, width: 280, gap: 12 }}>
+          <Text style={{ color: theme.text, fontSize: 18, fontWeight: "700", textAlign: "center", marginBottom: 4 }}>Select Video</Text>
+          <Pressable onPress={pickFromLibrary} style={{ backgroundColor: theme.primary, paddingVertical: 14, borderRadius: 10, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>Library</Text>
+          </Pressable>
+          <Pressable onPress={() => { setShowSourcePicker(false); setShowCamera(true); }} style={{ backgroundColor: "#FF3B30", paddingVertical: 14, borderRadius: 10, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>Record / Buffer</Text>
+          </Pressable>
+          <Pressable onPress={() => setShowSourcePicker(false)} style={{ paddingVertical: 10, alignItems: "center" }}>
+            <Text style={{ color: theme.textMuted, fontSize: 14 }}>Cancel</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+
+    {/* Camera capture */}
+    <Modal visible={showCamera} animationType="slide" onRequestClose={() => setShowCamera(false)}>
+      <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}><ActivityIndicator color="#fff" /></View>}>
+        <CameraCapture
+          onCapture={(uri) => { setShowCamera(false); loadVideo(uri); }}
+          onCancel={() => setShowCamera(false)}
+        />
+      </React.Suspense>
+    </Modal>
+
     <Modal visible={showSettings} transparent animationType="fade" onRequestClose={() => setShowSettings(false)}>
       <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => setShowSettings(false)}>
         <Pressable style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 300 }} onPress={(e) => e.stopPropagation()}>
@@ -1838,9 +1820,9 @@ export function TrackerTab() {
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
               <Text style={{ color: theme.text, fontSize: 13 }}>Track R² threshold</Text>
               <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-                <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.max(0.5, +(trackR2Threshold - 0.05).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
+                <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.max(0.5, +(trackR2Threshold - 0.01).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
                 <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{trackR2Threshold.toFixed(2)}</Text>
-                <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.min(1.0, +(trackR2Threshold + 0.05).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
+                <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.min(1.0, +(trackR2Threshold + 0.01).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
               </View>
             </View>
           </View>
@@ -1900,14 +1882,15 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   transportBtn: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minWidth: 36,
     alignItems: "center" as const,
     justifyContent: "center" as const,
   },
   transportTxt: {
     color: "rgba(255,255,255,0.8)",
-    fontSize: 11,
+    fontSize: 13,
     fontWeight: "600" as const,
   },
 });

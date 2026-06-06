@@ -65,6 +65,7 @@ interface NativeModule {
   ): Promise<TrackInVideoResult>;
   trackBlobInVideo(uri: string, opts: BlobTrackOptions): Promise<TrackInVideoResult>;
   exportVideo(uri: string, detections: Array<{ timeSec: number; cx: number; cy: number }>, dotRadius: number, dotColor: number[]): Promise<{ uri: string; frames: number }>;
+  stitchVideos(uris: string[]): Promise<{ uri: string }>;
 }
 
 /** Options for the classical bright-moving-blob ball tracker. */
@@ -132,5 +133,11 @@ export const VisionTracker = {
       return Promise.reject(new Error("exportVideo not available in this build"));
     }
     return Native.exportVideo(uri, detections, dotRadius, dotColor);
+  },
+  stitchVideos(uris: string[]): Promise<{ uri: string }> {
+    if (!Native || typeof Native.stitchVideos !== "function") {
+      return Promise.reject(new Error("stitchVideos not available in this build"));
+    }
+    return Native.stitchVideos(uris);
   },
 };
