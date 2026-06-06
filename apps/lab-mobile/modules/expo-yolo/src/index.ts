@@ -1,4 +1,5 @@
 import { requireNativeModule } from "expo-modules-core";
+import type { EventSubscription } from "expo-modules-core";
 
 export interface YoloBox {
   x: number;
@@ -31,6 +32,34 @@ export interface YoloDetectOptions {
   roi?: { x: number; y: number; width: number; height: number };
 }
 
+export interface DetectInVideoOptions {
+  startTimeSec: number;
+  endTimeSec: number;
+  stepSec: number;
+  maxFrames?: number;
+  maxMisses?: number;
+  minConfidence?: number;
+  labelFilter?: string[];
+  roi?: YoloBox;
+  preprocess?: { grayscale: boolean; contrast: number };
+}
+
+export interface DetectInVideoFrame {
+  frameIndex: number;
+  timeSec: number;
+  box: YoloBox | null;
+  confidence: number;
+  lost: boolean;
+}
+
+export interface DetectInVideoResult {
+  frames: DetectInVideoFrame[];
+  videoWidth: number;
+  videoHeight: number;
+  frameRate: number;
+  elapsedMs: number;
+}
+
 interface NativeModule {
   isReady(): boolean;
   loadError(): string | null;
@@ -41,6 +70,8 @@ interface NativeModule {
   importModel(fileUri: string, name: string): Promise<string>;
   deleteModel(name: string): boolean;
   detect(uri: string, opts: YoloDetectOptions): Promise<YoloResult>;
+  detectInVideo(uri: string, opts: DetectInVideoOptions): Promise<DetectInVideoResult>;
+  addListener: (event: string, callback: (payload: DetectInVideoFrame) => void) => EventSubscription;
 }
 
 let Native: NativeModule | null = null;
@@ -87,5 +118,14 @@ export const Yolo = {
   detect(uri: string, opts: YoloDetectOptions = {}): Promise<YoloResult> {
     if (!Native) return Promise.reject(new Error("YOLO native module not in this build"));
     return Native.detect(uri, opts);
+  },
+  detectInVideo(uri: string, opts: DetectInVideoOptions): Promise<DetectInVideoResult> {
+    if (!Native || typeof Native.detectInVideo !== "function")
+      return Promise.reject(new Error("detectInVideo not available in this build"));
+    return Native.detectInVideo(uri, opts);
+  },
+  onDetection(cb: (frame: DetectInVideoFrame) => void): EventSubscription {
+    if (!Native) return { remove: () => {} } as EventSubscription;
+    return Native.addListener("onDetection", cb);
   },
 };

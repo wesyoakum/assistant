@@ -3,6 +3,8 @@ import Vision
 import CoreML
 import UIKit
 import AudioToolbox
+import AVFoundation
+import CoreImage
 
 public final class YoloModule: Module {
   private var visionModel: VNCoreMLModel?
@@ -16,6 +18,8 @@ public final class YoloModule: Module {
       AudioServicesDisposeSystemSoundID(1108)
       self.loadModel(name: "YOLO26n")
     }
+
+    Events("onDetection")
 
     Function("isReady") { () -> Bool in
       return self.visionModel != nil
@@ -135,6 +139,207 @@ public final class YoloModule: Module {
         "detections": detections,
       ]
     }
+
+    // Run YOLO detection on every frame of a video in a single native pass.
+    // Eliminates per-frame JPEG encode/decode and JS bridge round-trips.
+    AsyncFunction("detectInVideo") { (uri: String, opts: [String: Any]) -> [String: Any] in
+      guard let vModel = self.visionModel else {
+        throw YoloError.notReady(self.loadError ?? "model not loaded")
+      }
+      guard let url = resolveVideoURL(uri) else {
+        throw YoloError.notReady("Could not resolve video URI")
+      }
+
+      let startTimeSec = opts["startTimeSec"] as? Double ?? 0
+      let endTimeSec = opts["endTimeSec"] as? Double ?? Double.greatestFiniteMagnitude
+      let stepSec = opts["stepSec"] as? Double ?? (1.0 / 30.0)
+      let maxFrames = opts["maxFrames"] as? Int ?? 0
+      let maxMisses = opts["maxMisses"] as? Int ?? Int.max
+      let minConfidence = (opts["minConfidence"] as? Double).map { Float($0) } ?? 0.25
+      let labelFilter: Set<String>? = (opts["labelFilter"] as? [String]).map { Set($0) }
+
+      // Parse optional preprocessing (grayscale + contrast).
+      var doPreprocess = false
+      var contrastLevel: Double = 1.0
+      if let prep = opts["preprocess"] as? [String: Any] {
+        doPreprocess = prep["grayscale"] as? Bool ?? false
+        contrastLevel = prep["contrast"] as? Double ?? 1.0
+      }
+
+      // Open video and detect rotation.
+      let asset = AVURLAsset(url: url)
+      guard let videoTrack = asset.tracks(withMediaType: .video).first else {
+        throw YoloError.notReady("No video track found")
+      }
+      let fps = Double(videoTrack.nominalFrameRate)
+      let rawSize = videoTrack.naturalSize
+      let xform = videoTrack.preferredTransform
+      let transformed = rawSize.applying(xform)
+      let displayWidth = Int(abs(transformed.width))
+      let displayHeight = Int(abs(transformed.height))
+      let rotationAngle = atan2(xform.b, xform.a) // 0, π/2, π, -π/2
+      let durationSec = CMTimeGetSeconds(asset.duration)
+      let effectiveEnd = min(endTimeSec, durationSec)
+
+      // Parse optional ROI. JS sends display-space (top-left normalized).
+      // We must inverse-rotate to codec space, then flip to Vision bottom-left.
+      var roiRect: CGRect? = nil
+      if let roi = opts["roi"] as? [String: Any],
+         let rx = (roi["x"] as? Double).map({ CGFloat($0) }),
+         let ry = (roi["y"] as? Double).map({ CGFloat($0) }),
+         let rw = (roi["width"] as? Double).map({ CGFloat($0) }),
+         let rh = (roi["height"] as? Double).map({ CGFloat($0) }) {
+        var cx: CGFloat, cy: CGFloat, cw: CGFloat, ch: CGFloat
+        let pi = Double.pi
+        if abs(rotationAngle - pi / 2) < 0.01 {
+          cx = ry; cy = 1 - rx - rw; cw = rh; ch = rw
+        } else if abs(rotationAngle + pi / 2) < 0.01 {
+          cx = 1 - ry - rh; cy = rx; cw = rh; ch = rw
+        } else if abs(abs(rotationAngle) - pi) < 0.01 {
+          cx = 1 - rx - rw; cy = 1 - ry - rh; cw = rw; ch = rh
+        } else {
+          cx = rx; cy = ry; cw = rw; ch = rh
+        }
+        cx = max(0, min(1 - 0.001, cx))
+        cy = max(0, min(1 - 0.001, cy))
+        cw = max(0.001, min(1 - cx, cw))
+        ch = max(0.001, min(1 - cy, ch))
+        roiRect = CGRect(x: cx, y: 1.0 - cy - ch, width: cw, height: ch)
+      }
+
+      // Set up AVAssetReader.
+      let cmStart = CMTime(seconds: max(0, startTimeSec), preferredTimescale: 600)
+      let cmEnd = CMTime(seconds: effectiveEnd, preferredTimescale: 600)
+      let reader = try AVAssetReader(asset: asset)
+      reader.timeRange = CMTimeRange(start: cmStart, end: cmEnd)
+
+      let outputSettings: [String: Any] = [
+        kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA)
+      ]
+      let trackOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: outputSettings)
+      trackOutput.alwaysCopiesSampleData = false
+      guard reader.canAdd(trackOutput) else {
+        throw YoloError.notReady("Cannot add track output to reader")
+      }
+      reader.add(trackOutput)
+      guard reader.startReading() else {
+        throw YoloError.notReady("AVAssetReader failed to start: \(reader.error?.localizedDescription ?? "unknown")")
+      }
+
+      let sampleStride = max(1, Int(round(stepSec * fps)))
+      let ciContext = doPreprocess ? CIContext() : nil
+      let t0 = Date()
+      var results: [[String: Any]] = []
+      var rawIndex = -1
+      var outputIndex = 0
+      var misses = 0
+
+      while let sampleBuffer = trackOutput.copyNextSampleBuffer() {
+        rawIndex += 1
+        if sampleStride > 1 && rawIndex % sampleStride != 0 { continue }
+        if maxFrames > 0 && outputIndex >= maxFrames { break }
+
+        let timeSec = startTimeSec + Double(outputIndex) * stepSec
+
+        autoreleasepool {
+          guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            let entry: [String: Any] = [
+              "frameIndex": outputIndex, "timeSec": timeSec,
+              "box": NSNull(), "confidence": 0.0, "lost": true,
+            ]
+            results.append(entry)
+            self.sendEvent("onDetection", entry)
+            misses += 1
+            outputIndex += 1
+            return
+          }
+
+          // Build the image handler — either preprocessed or raw.
+          let handler: VNImageRequestHandler
+          if doPreprocess, let ctx = ciContext {
+            var ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+            let filter = CIFilter(name: "CIColorControls")!
+            filter.setValue(ciImage, forKey: kCIInputImageKey)
+            filter.setValue(NSNumber(value: 0.0), forKey: kCIInputSaturationKey)
+            filter.setValue(NSNumber(value: contrastLevel), forKey: kCIInputContrastKey)
+            if let output = filter.outputImage {
+              ciImage = output
+            }
+            handler = VNImageRequestHandler(ciImage: ciImage, orientation: .up, options: [:])
+          } else {
+            handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
+          }
+
+          // Run inference.
+          let request = VNCoreMLRequest(model: vModel)
+          request.imageCropAndScaleOption = .scaleFit
+          if let roi = roiRect {
+            request.regionOfInterest = roi
+          }
+
+          do {
+            try handler.perform([request])
+          } catch {
+            let entry: [String: Any] = [
+              "frameIndex": outputIndex, "timeSec": timeSec,
+              "box": NSNull(), "confidence": 0.0, "lost": true,
+            ]
+            results.append(entry)
+            self.sendEvent("onDetection", entry)
+            misses += 1
+            outputIndex += 1
+            return
+          }
+
+          // Pick best detection: highest confidence, smallest area on tie.
+          let observations = (request.results ?? []).compactMap { $0 as? VNRecognizedObjectObservation }
+          let candidates = observations.filter { obs in
+            guard let top = obs.labels.first, top.confidence >= minConfidence else { return false }
+            if let filter = labelFilter { return filter.contains(top.identifier) }
+            return true
+          }
+
+          let entry: [String: Any]
+          if let best = candidates.sorted(by: { a, b in
+            let confA = a.labels.first!.confidence
+            let confB = b.labels.first!.confidence
+            if abs(confB - confA) > 1e-3 { return confA > confB }
+            let areaA = a.boundingBox.width * a.boundingBox.height
+            let areaB = b.boundingBox.width * b.boundingBox.height
+            return areaA < areaB
+          }).first {
+            misses = 0
+            entry = [
+              "frameIndex": outputIndex, "timeSec": timeSec,
+              "box": rotateBox(flipBox(best.boundingBox), angle: rotationAngle),
+              "confidence": Double(best.labels.first!.confidence),
+              "lost": false,
+            ]
+          } else {
+            misses += 1
+            entry = [
+              "frameIndex": outputIndex, "timeSec": timeSec,
+              "box": NSNull(), "confidence": 0.0, "lost": true,
+            ]
+          }
+          results.append(entry)
+          self.sendEvent("onDetection", entry)
+          outputIndex += 1
+        } // autoreleasepool
+
+        if misses >= maxMisses { break }
+      }
+
+      reader.cancelReading()
+
+      return [
+        "frames": results,
+        "videoWidth": displayWidth,
+        "videoHeight": displayHeight,
+        "frameRate": fps,
+        "elapsedMs": Int(Date().timeIntervalSince(t0) * 1000),
+      ]
+    }
   }
 
   /// Directory for downloaded/imported models.
@@ -231,6 +436,31 @@ private func loadCGImage(uri: String) -> CGImage? {
   guard let data = try? Data(contentsOf: url), let img = UIImage(data: data) else { return nil }
   if let normalized = img.normalizedUpOrientation()?.cgImage { return normalized }
   return img.cgImage
+}
+
+/// Remap a normalized top-left-origin box from codec space to display space
+/// based on the video track's rotation angle (radians).
+private func rotateBox(_ box: [String: CGFloat], angle: Double) -> [String: CGFloat] {
+  let x = box["x"]!, y = box["y"]!, w = box["width"]!, h = box["height"]!
+  let pi = Double.pi
+  if abs(angle - pi / 2) < 0.01 {
+    // 90° CW (portrait, most common)
+    return ["x": 1 - y - h, "y": x, "width": h, "height": w]
+  } else if abs(angle + pi / 2) < 0.01 {
+    // 90° CCW (270° CW)
+    return ["x": y, "y": 1 - x - w, "width": h, "height": w]
+  } else if abs(abs(angle) - pi) < 0.01 {
+    // 180°
+    return ["x": 1 - x - w, "y": 1 - y - h, "width": w, "height": h]
+  }
+  // 0° — no rotation
+  return box
+}
+
+private func resolveVideoURL(_ uri: String) -> URL? {
+  if uri.hasPrefix("file://") { return URL(string: uri) }
+  if uri.hasPrefix("/") { return URL(fileURLWithPath: uri) }
+  return URL(string: uri)
 }
 
 private func flipBox(_ b: CGRect) -> [String: CGFloat] {

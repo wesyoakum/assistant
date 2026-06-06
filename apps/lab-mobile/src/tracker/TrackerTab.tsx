@@ -20,7 +20,9 @@ import { TemplateTracker } from "expo-template-tracker";
 import { TrackNet } from "expo-tracknet";
 import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
+import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
+import { TrackManager, type Track } from "./trackManager";
 import type { FieldModelOverlayHandle } from "../field/FieldModelOverlay";
 const FieldModelOverlay = React.lazy(() =>
   import("../field/FieldModelOverlay").then((m) => ({ default: m.FieldModelOverlay })),
@@ -126,6 +128,8 @@ export function TrackerTab() {
   const [box, setBox] = useState<NormalizedBox | null>(null);
   const [result, setResult] = useState<{ frames: TrackedFrame[]; elapsedMs: number; videoWidth: number; videoHeight: number; frameRate: number; mode: TrackerMode } | null>(null);
   const [reviewIdx, setReviewIdx] = useState(0);
+  const [tracks, setTracks] = useState<Track[] | null>(null);
+  const [selectedTrackIdx, setSelectedTrackIdx] = useState(0);
   const [trackerMode, setTrackerMode] = useState<TrackerMode>("yolo");
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -137,8 +141,12 @@ export function TrackerTab() {
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
   const [showAllDetections, setShowAllDetections] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
+  const streamingFramesRef = useRef<TrackedFrame[]>([]);
+  const streamingMetaRef = useRef<{ videoWidth: number; videoHeight: number; frameRate: number } | null>(null);
+  const detectionSubRef = useRef<{ remove: () => void } | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt, trackR2Threshold } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -146,6 +154,8 @@ export function TrackerTab() {
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
+  const videoRef = useRef<Video>(null);
+  const trackManagerRef = useRef<TrackManager | null>(null);
   const poseOverlayRef = useRef<FieldModelOverlayHandle>(null);
   const roiOverlayRef = useRef<RoiOverlayHandle>(null);
   // Refs so the PanResponder (memoized) can read overlay state without re-creating.
@@ -506,7 +516,7 @@ export function TrackerTab() {
   }, [box, vp, canvas]);
 
   const runTracker = async () => {
-    if (!videoUri) return;
+    if (!videoUri || isDetecting) return;
     // Detector modes (TrackNet/Blob/YOLO/Baseball) find the ball themselves — no
     // initial box required. Template/Vision need a user-drawn box.
     if (!box && !DETECTOR_MODES.includes(trackerMode)) return;
@@ -539,84 +549,123 @@ export function TrackerTab() {
         }
         const isYolo = trackerMode.startsWith("yolo");
         const roi = box ?? undefined;
-        const detect = async (uri: string): Promise<RawDetection[]> => {
-          let detectUri = uri;
-          if (preprocessBW) {
-            try {
-              const raw = uri.replace(/^data:image\/\w+;base64,/, "");
-              const processed = await VisionTracker.preprocessFrame(raw, contrastLevel, 0.85);
-              detectUri = `data:image/jpeg;base64,${processed}`;
-            } catch {}
-          }
-          const res = isYolo
-            ? await Yolo.detect(detectUri, { minConfidence: 0.10, roi })
-            : await Baseball.detect(detectUri, { minConfidence: 0.10 });
-          return res.detections.map((d) => {
-            let b = d.box;
-            // When ROI is set, Vision's regionOfInterest SHOULD return
-            // full-frame coords, but remap just in case: if the detection
-            // center falls outside the ROI in full-frame space, the native
-            // layer returned crop-relative coords — remap them.
-            if (roi) {
-              const cx = b.x + b.width / 2;
-              const cy = b.y + b.height / 2;
-              if (cx < roi.x || cx > roi.x + roi.width || cy < roi.y || cy > roi.y + roi.height) {
-                b = {
-                  x: roi.x + b.x * roi.width,
-                  y: roi.y + b.y * roi.height,
-                  width: b.width * roi.width,
-                  height: b.height * roi.height,
-                };
-              }
-            }
-            return { label: d.label, confidence: d.confidence, box: b };
-          });
-        };
         const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
         const walkStart = startTimeSec ?? frameTimeSec;
         const walkEnd = endTimeSec ?? frame?.durationSec ?? 9999;
-        r = await detectorWalk(
-          (t, q) => VisionTracker.frameAtTime(videoUri, t, q).then((f) => ({
-            imageBase64: f.imageBase64, imageWidth: f.imageWidth, imageHeight: f.imageHeight, frameRate: f.frameRate ?? 0,
-          })),
-          detect,
-          {
-            startTimeSec: walkStart,
-            stepSec: 1 / fps,
-            durationSec: walkEnd,
-            maxFrames: 0,
-            // Keep walking the whole clip even through long miss streaks —
-            // gaps get filled by interpolation downstream, and we don't want
-            // to truncate the result early.
-            maxMisses: Number.POSITIVE_INFINITY,
-            labelFilter: isYolo ? (l) => l === "sports ball" : undefined,
-          },
-        );
+
+        // Try native batch detection with streaming events — fall back to
+        // the JS detectorWalk loop for baseball-module mode or older builds.
+        let usedNativeBatch = false;
+        if (isYolo) {
+          try {
+            // Set up streaming: accumulate frames in ref, start playback immediately.
+            streamingFramesRef.current = [];
+            streamingMetaRef.current = {
+              videoWidth: frame?.imageWidth ?? 0,
+              videoHeight: frame?.imageHeight ?? 0,
+              frameRate: fps,
+            };
+            trackManagerRef.current = new TrackManager({ frameRate: Math.min(fps, 30), r2Threshold: trackR2Threshold });
+            detectionSubRef.current = Yolo.onDetection((f) => {
+              const tf = f as unknown as TrackedFrame;
+              streamingFramesRef.current.push(tf);
+              trackManagerRef.current?.addFrame(tf);
+            });
+            setIsDetecting(true);
+            setReviewIdx(0);
+            setIsPlaying(true);
+            setBusy(null);
+
+            r = await Yolo.detectInVideo(videoUri, {
+              startTimeSec: walkStart,
+              endTimeSec: walkEnd,
+              stepSec: 1 / Math.min(fps, 30),
+              maxFrames: 0,
+              maxMisses: Number.MAX_SAFE_INTEGER,
+              minConfidence: 0.10,
+              labelFilter: ["sports ball"],
+              roi,
+              preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
+            });
+
+            detectionSubRef.current?.remove();
+            detectionSubRef.current = null;
+            setIsDetecting(false);
+            usedNativeBatch = true;
+          } catch {
+            detectionSubRef.current?.remove();
+            detectionSubRef.current = null;
+            setIsDetecting(false);
+            // detectInVideo not available — fall through to JS loop.
+          }
+        }
+
+        if (!usedNativeBatch) {
+          const detect = async (uri: string): Promise<RawDetection[]> => {
+            let detectUri = uri;
+            if (preprocessBW) {
+              try {
+                const raw = uri.replace(/^data:image\/\w+;base64,/, "");
+                const processed = await VisionTracker.preprocessFrame(raw, contrastLevel, 0.85);
+                detectUri = `data:image/jpeg;base64,${processed}`;
+              } catch {}
+            }
+            const res = isYolo
+              ? await Yolo.detect(detectUri, { minConfidence: 0.10, roi })
+              : await Baseball.detect(detectUri, { minConfidence: 0.10 });
+            return res.detections.map((d) => {
+              let b = d.box;
+              if (roi) {
+                const cx = b.x + b.width / 2;
+                const cy = b.y + b.height / 2;
+                if (cx < roi.x || cx > roi.x + roi.width || cy < roi.y || cy > roi.y + roi.height) {
+                  b = {
+                    x: roi.x + b.x * roi.width,
+                    y: roi.y + b.y * roi.height,
+                    width: b.width * roi.width,
+                    height: b.height * roi.height,
+                  };
+                }
+              }
+              return { label: d.label, confidence: d.confidence, box: b };
+            });
+          };
+          r = await detectorWalk(
+            (t, q) => VisionTracker.frameAtTime(videoUri, t, q).then((f) => ({
+              imageBase64: f.imageBase64, imageWidth: f.imageWidth, imageHeight: f.imageHeight, frameRate: f.frameRate ?? 0,
+            })),
+            detect,
+            {
+              startTimeSec: walkStart,
+              stepSec: 1 / Math.min(fps, 30),
+              durationSec: walkEnd,
+              maxFrames: 0,
+              maxMisses: Number.POSITIVE_INFINITY,
+              labelFilter: isYolo ? (l) => l === "sports ball" : undefined,
+            },
+          );
+        }
       } else {
         r = await TemplateTracker.trackInVideo(videoUri, box!, {
           sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec,
           confidenceCutoff: 0.15, searchPadding: 3, downsample: 2,
         });
       }
-      // Outlier rejection (two-pass RANSAC + refit).
-      let rejectedCount = 0;
-      if (outlierRejection) {
-        const rej = rejectOutliers(r.frames, { inlierThreshold: outlierThreshold });
-        if (rej.applied) {
-          for (const label of rej.labels) {
-            if (!label.inlier && label.residual !== null) {
-              const f = r.frames[label.frameIndex] as any;
-              if (f && f.box) {
-                f.rejectedBox = { ...f.box };
-                f.box = null;
-                f.lost = true;
-                f.rejected = true;
-                rejectedCount++;
-              }
-            }
-          }
-        }
+      // Finalize tracks — if streaming was active, the TrackManager already
+      // has all frames. Otherwise, run batch processing.
+      const tm = trackManagerRef.current ?? new TrackManager({ frameRate: r.frameRate, r2Threshold: trackR2Threshold });
+      if (!trackManagerRef.current) {
+        // Non-streaming path (baseball fallback, etc.) — batch process.
+        tm.processFrames(r.frames);
       }
+      const finalTracks = tm.finalize();
+      setTracks(finalTracks.length > 0 ? finalTracks : null);
+      const primary = finalTracks
+        .filter((t) => t.state !== "candidate")
+        .sort((a, b) => b.detections.length - a.detections.length)[0];
+      setSelectedTrackIdx(primary ? finalTracks.indexOf(primary) : 0);
+      trackManagerRef.current = null;
+
       setResult({ frames: r.frames, elapsedMs: r.elapsedMs, videoWidth: r.videoWidth, videoHeight: r.videoHeight, frameRate: r.frameRate, mode: trackerMode });
       setReviewIdx(0);
     } catch (e) {
@@ -636,26 +685,46 @@ export function TrackerTab() {
       return clampViewport({ scale: newScale, tx: v.tx * k, ty: v.ty * k }, canvasRef.current);
     });
 
-  // Per-frame box with gaps (lost or null) filled by linear interpolation in
-  // time between the nearest real detections. Edges (before the first / after
-  // the last real detection) stay null since we have nothing to interpolate
-  // against. Aligned 1:1 with result.frames.
-  const interpolated = useMemo(() => {
+  // Convert selected track's detections to a sparse TrackedFrame[] aligned
+  // with original frame indices. Non-track frames get box=null, lost=true.
+  const TRACK_COLORS = ["#00C8FF", "#FF9500", "#34C759", "#FF375F", "#BF5AF2", "#FF6B35", "#5AC8FA"];
+  const trackFrames = useMemo(() => {
     if (!result) return null;
-    return interpolateBoxes(result.frames, box);
-  }, [result, box]);
+    if (!tracks || tracks.length === 0) return result.frames;
+    const track = tracks[selectedTrackIdx];
+    if (!track) return result.frames;
+    const frames = result.frames.map((f) => ({
+      ...f,
+      box: null as { x: number; y: number; width: number; height: number } | null,
+      lost: true,
+      confidence: 0,
+    }));
+    for (const det of track.detections) {
+      const f = frames[det.frameIndex];
+      if (f) {
+        f.box = { x: det.x - det.width / 2, y: det.y - det.height / 2, width: det.width, height: det.height };
+        f.lost = false;
+        f.confidence = det.confidence;
+      }
+    }
+    return frames;
+  }, [result, tracks, selectedTrackIdx]);
+
+  // Per-frame box with gaps filled by interpolation — operates on the
+  // selected track's frames, not the global frames.
+  const interpolated = useMemo(() => {
+    if (!result || !trackFrames) return null;
+    return interpolateBoxes(trackFrames, box);
+  }, [result, trackFrames, box]);
 
   // Smooth Catmull-Rom path through every real detection center, up to and
-  // including the current frame. Drawn over the image so the user sees a
-  // curve, not just a chain of dots. Interpolated frames are skipped here —
-  // the spline already smooths between real detections, which is what the
-  // interpolation was approximating anyway.
+  // including the current frame.
   const splinePath = useMemo(() => {
-    if (!result || !interpolated) return "";
+    if (!result || !interpolated || !trackFrames) return "";
     const pts: Array<{ x: number; y: number }> = [];
-    const end = showAllDetections ? result.frames.length - 1 : reviewIdx;
-    for (let i = 0; i <= end && i < result.frames.length; i++) {
-      const f = result.frames[i]!;
+    const end = showAllDetections ? trackFrames.length - 1 : reviewIdx;
+    for (let i = 0; i <= end && i < trackFrames.length; i++) {
+      const f = trackFrames[i]!;
       if (!f.box || f.lost) continue;
       pts.push({
         x: f.box.x + f.box.width / 2,
@@ -663,27 +732,75 @@ export function TrackerTab() {
       });
     }
     return catmullRomPath(pts);
-  }, [result, interpolated, reviewIdx, showAllDetections]);
+  }, [result, interpolated, trackFrames, reviewIdx, showAllDetections]);
 
-  // Track whether frame decode is in-flight (ref for use in playback timer).
-  const reviewLoadingRef = useRef(false);
+  // While detection is streaming, copy accumulated frames + live tracks to state.
   useEffect(() => {
-    if (!isPlaying || !result) return;
-    const sourceFrameMs = result.frameRate > 0 ? 1000 / result.frameRate : 33;
-    const intervalMs = Math.max(16, sourceFrameMs / playSpeed);
+    if (!isDetecting) return;
     const id = setInterval(() => {
-      // Skip this tick if the frame image hasn't loaded yet.
-      if (reviewLoadingRef.current) return;
-      setReviewIdx((i) => {
-        if (i + 1 >= result.frames.length) {
-          setIsPlaying(false);
-          return i;
-        }
-        return i + 1;
+      const frames = streamingFramesRef.current;
+      const meta = streamingMetaRef.current;
+      if (!frames.length || !meta) return;
+      setResult({
+        frames: [...frames],
+        elapsedMs: 0,
+        videoWidth: meta.videoWidth,
+        videoHeight: meta.videoHeight,
+        frameRate: meta.frameRate,
+        mode: trackerMode as TrackerMode,
       });
-    }, intervalMs);
+      // Update live tracks from the streaming TrackManager.
+      const tm = trackManagerRef.current;
+      if (tm) {
+        const liveTracks = tm.getTracks();
+        setTracks(liveTracks.length > 0 ? liveTracks : null);
+        if (liveTracks.length > 0) {
+          const best = liveTracks
+            .filter((t) => t.state === "confirmed")
+            .sort((a, b) => b.detections.length - a.detections.length)[0];
+          if (best) setSelectedTrackIdx(liveTracks.indexOf(best));
+        }
+      }
+    }, 50);
     return () => clearInterval(id);
-  }, [isPlaying, playSpeed, result]);
+  }, [isDetecting, trackerMode]);
+
+  const isDetectingRef = useRef(false);
+  useEffect(() => { isDetectingRef.current = isDetecting; }, [isDetecting]);
+
+  // Map video playback position → reviewIdx for overlay sync.
+  const onPlaybackStatus = useCallback((status: AVPlaybackStatus) => {
+    if (!status.isLoaded || !result) return;
+    const posSec = status.positionMillis / 1000;
+    const frames = result.frames;
+    let idx = 0;
+    for (let i = 0; i < frames.length; i++) {
+      if (frames[i].timeSec <= posSec) idx = i;
+      else break;
+    }
+    setReviewIdx(idx);
+    if (status.didJustFinish && !isDetectingRef.current) setIsPlaying(false);
+  }, [result]);
+
+  // Seek video to start when result first appears.
+  useEffect(() => {
+    if (!result || !videoRef.current) return;
+    videoRef.current.setPositionAsync((result.frames[0]?.timeSec ?? 0) * 1000);
+  }, [!!result]);
+
+  // Sync playback speed to video player.
+  useEffect(() => {
+    videoRef.current?.setRateAsync(playSpeed, false);
+  }, [playSpeed]);
+
+  // Seek the video to a specific frame index.
+  const seekToFrame = useCallback((idx: number) => {
+    if (!result || !videoRef.current) return;
+    videoRef.current.setPositionAsync(
+      (result.frames[idx]?.timeSec ?? 0) * 1000,
+      { toleranceMillisBefore: 0, toleranceAfterMillis: 0 },
+    );
+  }, [result]);
 
   const copyTrace = async () => {
     if (!result) return;
@@ -746,19 +863,19 @@ export function TrackerTab() {
 
   // Ray info for all tracked frames (when pose is set).
   const allRayInfo = useMemo((): RayInfo[] | null => {
-    if (!cameraPose || !cameraXYZ || !result || !interpolated || !frame) return null;
+    if (!cameraPose || !cameraXYZ || !result || !interpolated || !frame || !trackFrames) return null;
     const K = intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0);
     const rays: RayInfo[] = [];
-    for (let i = 0; i < result.frames.length; i++) {
+    for (let i = 0; i < trackFrames.length; i++) {
       const ip = interpolated[i];
       if (!ip?.box) continue;
       const cx = ip.box.x + ip.box.width / 2;
       const cy = ip.box.y + ip.box.height / 2;
-      const r = computeRayInfo(cx, cy, result.videoWidth, result.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, ip.interpolated, i, result.frames[i]!.timeSec);
+      const r = computeRayInfo(cx, cy, result.videoWidth, result.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, ip.interpolated, i, trackFrames[i]!.timeSec);
       if (r) rays.push(r);
     }
     return rays.length > 0 ? rays : null;
-  }, [cameraPose, cameraXYZ, result, interpolated, frame]);
+  }, [cameraPose, cameraXYZ, result, interpolated, frame, trackFrames]);
 
   // Speed (mph) at the current review frame, computed from consecutive MPI points.
   const currentSpeedMph = useMemo((): number | null => {
@@ -780,36 +897,20 @@ export function TrackerTab() {
     return null;
   }, [allRayInfo, reviewIdx]);
 
-  // Review section: load the actual frame at the reviewed timestamp instead
-  // of showing the initial still under every tracker result.
+  // B&W fallback: only decode JPEG when showProcessed is toggled on.
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
-  const [reviewLoading, setReviewLoading] = useState(false);
-  useEffect(() => { reviewLoadingRef.current = reviewLoading; }, [reviewLoading]);
-  const [reviewError, setReviewError] = useState<string | null>(null);
   useEffect(() => {
-    if (!result || !videoUri || !reviewedFrame) {
+    if (!showProcessed || !result || !videoUri || !reviewedFrame) {
       setReviewImage(null);
-      setReviewError(null);
       return;
     }
     const t = reviewedFrame.timeSec;
     let cancelled = false;
-    setReviewLoading(true);
-    setReviewError(null);
     VisionTracker.frameAtTime(videoUri, t, 0.75)
-      .then((f) => {
-        if (cancelled) return;
-        setReviewImage({ base64: f.imageBase64, timeSec: t });
-      })
-      .catch((e: Error) => {
-        if (cancelled) return;
-        setReviewError(`frameAtTime(${t.toFixed(3)}s) failed: ${e.message}`);
-      })
-      .finally(() => {
-        if (!cancelled) setReviewLoading(false);
-      });
+      .then((f) => { if (!cancelled) setReviewImage({ base64: f.imageBase64, timeSec: t }); })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [reviewIdx, result, videoUri, reviewedFrame?.timeSec]);
+  }, [showProcessed, reviewIdx, result, videoUri, reviewedFrame?.timeSec]);
 
   if (!VisionTracker.available()) {
     return (
@@ -944,7 +1045,7 @@ export function TrackerTab() {
         overlayAnchored: overlayState?.anchored ?? null,
         result: result ? { frames: result.frames, elapsedMs: result.elapsedMs, videoWidth: result.videoWidth, videoHeight: result.videoHeight, frameRate: result.frameRate, mode: result.mode } : null,
         reviewIdx,
-        settings: { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize: useTrackerSettings.getState().roiSize, basepathFt },
+        settings: { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, roiSize: useTrackerSettings.getState().roiSize, basepathFt, trackR2Threshold },
       };
       const payload = {
         session,
@@ -1374,15 +1475,19 @@ export function TrackerTab() {
                   transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }],
                 }}
               >
-                {reviewImage && showProcessed && (
+                {showProcessed && reviewImage ? (
                   <ProcessedImage base64={reviewImage.base64} />
-                )}
-                {reviewImage && !showProcessed && (
-                  <Image
-                    source={{ uri: `data:image/jpeg;base64,${reviewImage.base64}` }}
+                ) : (
+                  <Video
+                    ref={videoRef}
+                    source={{ uri: videoUri! }}
                     style={{ width: "100%", height: "100%" }}
-                    fadeDuration={0}
-                    resizeMode="cover"
+                    resizeMode={ResizeMode.COVER}
+                    shouldPlay={isPlaying && !showProcessed}
+                    rate={playSpeed}
+                    isMuted
+                    progressUpdateIntervalMillis={33}
+                    onPlaybackStatusUpdate={onPlaybackStatus}
                   />
                 )}
                 {splinePath !== "" && (
@@ -1427,33 +1532,18 @@ export function TrackerTab() {
                 })()}
               </View>
               {/* Fixed overlays (outside transform) */}
-              {reviewLoading && (
-                <View style={{ position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 }}>
-                  <Text style={{ color: "#fff", fontSize: 10 }}>loading t={reviewedFrame?.timeSec.toFixed(3)}s</Text>
-                </View>
-              )}
-              {reviewError && (
-                <View style={{ position: "absolute", top: 8, left: 8, right: 8, backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6 }}>
-                  <Text style={{ color: "#fff", fontSize: 10 }} numberOfLines={3}>{reviewError}</Text>
-                </View>
-              )}
-              {!reviewImage && !reviewLoading && !reviewError && reviewedFrame && (
-                <View style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: "#bbb", fontSize: 11 }}>(loading frame…)</Text>
-                </View>
-              )}
               {/* Transport bar — bottom edge of video canvas */}
               {!fullScreen && (
                 <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 3, backgroundColor: "rgba(0,0,0,0.7)" }}>
-                  <Pressable onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 60)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 30)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
-                  <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 10 }]}><Text style={[styles.transportTxt, { fontSize: 14 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 30)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 60)); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
-                  <Pressable onPress={() => setReviewIdx(result.frames.length - 1)} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = 0; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
+                  <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 10 }]}><Text style={[styles.transportTxt, { fontSize: 14 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
+                  <Pressable onPress={() => { setIsPlaying(false); const n = result.frames.length - 1; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
                 </View>
               )}
               {/* Fullscreen toggle — tap video to toggle */}
@@ -1471,9 +1561,10 @@ export function TrackerTab() {
             <View style={{ flex: 1 }} pointerEvents="box-none">
               {/* Top row: stats + speed */}
               <View pointerEvents="box-none" style={{ flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 4, paddingTop: 4, paddingHorizontal: 8 }}>
-                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  {isDetecting && <ActivityIndicator size="small" color="#0af" />}
                   <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
-                    {reviewIdx + 1}/{result.frames.length}  ·  t={reviewedFrame ? reviewedFrame.timeSec.toFixed(2) : "?"}s
+                    {reviewIdx + 1}/{result.frames.length}{isDetecting ? "…" : ""}  ·  t={reviewedFrame ? reviewedFrame.timeSec.toFixed(2) : "?"}s
                     {currentBallDir ? `  ·  az ${currentBallDir.azimuthDeg.toFixed(1)}°  el ${currentBallDir.elevationDeg.toFixed(1)}°` : ""}
                   </Text>
                 </View>
@@ -1491,10 +1582,10 @@ export function TrackerTab() {
               </View>
               {/* Left column: frame nav */}
               <View pointerEvents="box-none" style={{ position: "absolute", left: 6, top: "50%", transform: [{ translateY: -50 }], gap: 4, alignItems: "center" }}>
-                <Pill label="⏮" onPress={() => setReviewIdx(0)} disabled={reviewIdx === 0} small />
-                <Pill label="‹" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.max(0, i - 1)); }} disabled={reviewIdx === 0} small />
-                <Pill label={isPlaying ? "⏸" : "▶"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) setReviewIdx(0); setIsPlaying((p) => !p); }} small />
-                <Pill label="›" onPress={() => { setIsPlaying(false); setReviewIdx((i) => Math.min(result.frames.length - 1, i + 1)); }} disabled={reviewIdx >= result.frames.length - 1} small />
+                <Pill label="⏮" onPress={() => { setIsPlaying(false); setReviewIdx(0); seekToFrame(0); }} disabled={reviewIdx === 0} small />
+                <Pill label="‹" onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} small />
+                <Pill label={isPlaying ? "⏸" : "▶"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} small />
+                <Pill label="›" onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} small />
               </View>
               {/* Right column: zoom + actions */}
               <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -70 }], gap: 4, alignItems: "center" }}>
@@ -1503,7 +1594,7 @@ export function TrackerTab() {
                 <Pill label="Copy" onPress={copyTrace} small />
                 <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                 <Pill label="B&W" active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
-                <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setTracks(null); setSelectedTrackIdx(0); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                 <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
                 <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
@@ -1533,11 +1624,30 @@ export function TrackerTab() {
                 <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
                   <Text style={{ color: "#fff", fontSize: 9, fontVariant: ["tabular-nums"] }}>
                     {result.frames.length} frames  ·  {result.frames.filter((f) => f.box && !f.lost).length} detected
-                    {result.frames.filter((f: any) => f.rejected).length > 0 ? `  ·  ${result.frames.filter((f: any) => f.rejected).length} rejected` : ""}
+                    {tracks ? `  ·  ${tracks.length} track${tracks.length !== 1 ? "s" : ""}` : ""}
                     {"  ·  "}{result.elapsedMs}ms
                     {result.frameRate > 0 ? `  ·  ${result.frameRate.toFixed(1)} fps` : ""}
                   </Text>
                 </View>
+                {tracks && tracks.length > 1 && (
+                  <View style={{ flexDirection: "row", gap: 4 }}>
+                    {tracks.map((tk, i) => (
+                      <Pressable
+                        key={tk.id}
+                        onPress={() => setSelectedTrackIdx(i)}
+                        style={{
+                          backgroundColor: i === selectedTrackIdx ? TRACK_COLORS[i % TRACK_COLORS.length] : "rgba(0,0,0,0.6)",
+                          paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+                          borderWidth: 1, borderColor: TRACK_COLORS[i % TRACK_COLORS.length],
+                        }}
+                      >
+                        <Text style={{ color: i === selectedTrackIdx ? "#000" : TRACK_COLORS[i % TRACK_COLORS.length], fontSize: 9, fontWeight: "600" }}>
+                          T{i + 1} ({tk.detections.length})
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
                 {currentBallDir && (
                   <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 }}>
                     <Text style={{ color: currentBallDir.interpolated ? "#FF9500" : "#34C759", fontSize: 10 }}>
@@ -1594,7 +1704,7 @@ export function TrackerTab() {
                   {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
                   <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
                   <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
-                  <Pill label="New" onPress={() => { setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                  <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setTracks(null); setSelectedTrackIdx(0); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                   <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
                   <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
@@ -1722,6 +1832,15 @@ export function TrackerTab() {
                 <Pressable onPress={() => useTrackerSettings.getState().setBasepathFt(Math.max(30, basepathFt - 5))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
                 <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{basepathFt}</Text>
                 <Pressable onPress={() => useTrackerSettings.getState().setBasepathFt(Math.min(90, basepathFt + 5))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Track R² threshold</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.max(0.5, +(trackR2Threshold - 0.05).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
+                <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{trackR2Threshold.toFixed(2)}</Text>
+                <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.min(1.0, +(trackR2Threshold + 0.05).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
               </View>
             </View>
           </View>
