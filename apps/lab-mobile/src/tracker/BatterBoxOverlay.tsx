@@ -13,6 +13,8 @@
 import React, { useCallback, useMemo, useRef, useState, useImperativeHandle, forwardRef } from "react";
 import { View, StyleSheet, PanResponder } from "react-native";
 import Svg, { Polygon, Line, Circle, Text as SvgText } from "react-native-svg";
+import { FieldLinesOverlay } from "../field/FieldLinesOverlay";
+import { useTrackerSettings } from "../state/trackerSettings";
 import { allEightCorners, outerCorners, type CameraPose } from "../field/batterBox";
 import { fitHomography, fieldToImage, type Correspondence, type HomographyFit } from "../field/videoHomography";
 import { homePlateCorners } from "../field/homePlateGeometry";
@@ -506,8 +508,20 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
       },
     }), [homography, anchorCount, positions, anchored]);
 
+    const { basepathFt } = useTrackerSettings();
+
     return (
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+        {homography && (
+          <FieldLinesOverlay
+            H={homography.H}
+            imageWidth={imageWidth}
+            imageHeight={imageHeight}
+            basepathFt={basepathFt}
+            showField={true}
+            showZone={false}
+          />
+        )}
         <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
           {/* Projected filled geometry (≥4 anchors) — plate + base diamonds */}
           {projGeo && (

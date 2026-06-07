@@ -37,6 +37,7 @@ import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { apiFetch } from "../api/client";
 import type { TrackerSession } from "./session";
 import { rejectOutliers } from "./outlierRejection";
+import { FieldLinesOverlay } from "../field/FieldLinesOverlay";
 import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
@@ -47,6 +48,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
+const OTA_TIMESTAMP = "2026-06-07 3:38pm CDT";
 const BOX_COLOR_TEXT = "rgba(0,200,255,1)";
 
 interface ViewState {
@@ -55,7 +57,7 @@ interface ViewState {
   ty: number;
 }
 
-const MIN_SCALE = 1;
+const MIN_SCALE = 0.3;
 const MAX_SCALE = 8;
 
 /** Displays a preprocessed (grayscale + contrast) version of a frame. */
@@ -126,6 +128,8 @@ export function TrackerTab() {
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
   const [cameraAngles, setCameraAngles] = useState<{ panDeg: number; tiltDeg: number; rollDeg: number } | null>(null);
   const [showRoiOverlay, setShowRoiOverlay] = useState(false);
+  const [showFieldLines, setShowFieldLines] = useState(true);
+  const [showStrikeZone, setShowStrikeZone] = useState(true);
   const [startTimeSec, setStartTimeSec] = useState<number | null>(null);
   const [endTimeSec, setEndTimeSec] = useState<number | null>(null);
   const videoRef = useRef<Video>(null);
@@ -1047,7 +1051,8 @@ export function TrackerTab() {
     {/* ── Empty state: no video loaded ───────────────────────────────── */}
     {!frame && (
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background }}>
-        <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, textAlign: "center", marginBottom: 6 }}>Vision tracker</Text>
+        <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, textAlign: "center", marginBottom: 6 }}>Home</Text>
+        <Text style={{ fontSize: 11, color: theme.textSubtle, textAlign: "center", marginBottom: 12 }}>v{require("../../app.json").expo.version} · {OTA_TIMESTAMP}</Text>
         <Text style={{ fontSize: 12, color: theme.textSubtle, textAlign: "center", marginBottom: 20 }}>
           Pick a video, calibrate the field, set ROI and frame range, run the tracker.
         </Text>
@@ -1096,9 +1101,10 @@ export function TrackerTab() {
 
     {/* ── Video loaded, tracking setup: full-screen ──────────────────── */}
     {frame && !result && (
-      <View style={{ flex: 1, backgroundColor: "#000" }}>
+      <View style={{ flex: 1, backgroundColor: "#000", borderWidth: 2, borderColor: "red" }}>
+        <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", textAlign: "center", paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.9)" }}>Setup</Text>
         {/* Video fills available space, maintaining aspect ratio */}
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "lime" }}>
           <View
             ref={canvasRef2}
             {...responder.panHandlers}
@@ -1108,6 +1114,7 @@ export function TrackerTab() {
               width: "100%",
               maxHeight: "100%",
               overflow: "hidden",
+              borderWidth: 2, borderColor: "cyan",
             }}
           >
             <Image
@@ -1127,23 +1134,32 @@ export function TrackerTab() {
                 <FieldModelOverlay ref={poseOverlayRef} imageWidth={frame.imageWidth} imageHeight={frame.imageHeight} vp={vp} canvas={canvas} canvasPageOffset={canvasPageOffsetRef.current} />
               </React.Suspense>
             )}
+            {cameraPose && !showPoseOverlay && (
+              <FieldLinesOverlay
+                H={cameraPose.fit.H}
+                imageWidth={frame.imageWidth}
+                imageHeight={frame.imageHeight}
+                basepathFt={basepathFt}
+                showField={showFieldLines}
+                showZone={showStrikeZone}
+                K={intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0)}
+              />
+            )}
           </View>
+          {/* Transport bar — inside centering container, just below canvas (portrait only) */}
+          {!showPoseOverlay && !showRoiOverlay && !isLandscape && (
+            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 1, paddingVertical: 4, paddingHorizontal: 6, borderWidth: 2, borderColor: "yellow" }}>
+              <Pressable onPress={() => { if (frame) loadFrame(videoUri!, 0); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"|<<"}</Text></Pressable>
+              <Pressable onPress={() => frameStep(-30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<<"+"<"}</Text></Pressable>
+              <Pressable onPress={() => frameStep(-15 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<<"}</Text></Pressable>
+              <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<"}</Text></Pressable>
+              <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={[styles.transportBtn, { paddingHorizontal: 14 }]}><Text style={[styles.transportTxt, { fontSize: 15 }]}>{">"}</Text></Pressable>
+              <Pressable onPress={() => frameStep(15 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{">>"}</Text></Pressable>
+              <Pressable onPress={() => frameStep(30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{">>"+">"}</Text></Pressable>
+              <Pressable onPress={() => { if (frame) loadFrame(videoUri!, frame.durationSec - frameStepSec); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{">>"+"|"}</Text></Pressable>
+            </View>
+          )}
         </View>
-
-        {/* Transport bar — immediately below video, not overlaid */}
-        {!isLandscape && !showPoseOverlay && !showRoiOverlay && (
-          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.85)" }}>
-            <Pressable onPress={() => { if (frame) loadFrame(videoUri!, 0); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>⏮</Text></Pressable>
-            <Pressable onPress={() => { if (startTimeSec != null) loadFrame(videoUri!, startTimeSec); }} disabled={!!busy || startTimeSec == null} style={styles.transportBtn}><Text style={[styles.transportTxt, startTimeSec == null && { opacity: 0.3 }]}>▮</Text></Pressable>
-            <Pressable onPress={() => frameStep(-60 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>«60</Text></Pressable>
-            <Pressable onPress={() => frameStep(-30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>«30</Text></Pressable>
-            <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>‹</Text></Pressable>
-            <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>›</Text></Pressable>
-            <Pressable onPress={() => frameStep(30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>30»</Text></Pressable>
-            <Pressable onPress={() => frameStep(60 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>60»</Text></Pressable>
-            <Pressable onPress={() => { if (frame) loadFrame(videoUri!, frame.durationSec - frameStepSec); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>⏭</Text></Pressable>
-          </View>
-        )}
 
         {/* Pill overlay */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1175,37 +1191,36 @@ export function TrackerTab() {
                     <Pill label="Back" onPress={() => setShowRoiOverlay(false)} small />
                   </>
                 )}
-                {!showPoseOverlay && !showRoiOverlay && (
-                  <>
-                    <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} small />
-                    <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
-                    <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
-
-                    <Pill label="Back" onPress={pickVideo} disabled={!!busy} small />
-                    <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
-                  </>
-                )}
+                {!showPoseOverlay && !showRoiOverlay && null}
                 {err && <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }} numberOfLines={1}>{err}</Text></View>}
                 {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><ActivityIndicator color="#fff" size="small" /><Text style={{ color: "#fff", fontSize: 9 }}>{busy}</Text></View>}
                 {copyHint && <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }}>{copyHint}</Text></View>}
               </View>
-              {/* Right column: zoom + run + actions */}
+              {/* Right column: actions */}
               {!showPoseOverlay && !showRoiOverlay && (
-                <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -60 }], gap: 4, alignItems: "center" }}>
-                  <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                  <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
-                  <Pill label={busy?.startsWith("tracking") ? "…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} small />
-                  <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
+                <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -80 }], gap: 4, alignItems: "center" }}>
+                  <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
+                  <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} small />
+                  <Pill label={busy?.startsWith("tracking") ? "…" : "Run"} active onPress={runTracker} disabled={!!busy} small />
+                  <Pill label="Back" onPress={pickVideo} disabled={!!busy} small />
+                  {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
+                  {isSaved && <Pill label="✓" onPress={() => {}} disabled small />}
+                  <Pill label="⚙" onPress={() => setShowSettings(true)} small />
                 </View>
               )}
-              {/* Bottom: camera pose (if set) */}
-              {cameraXYZ && !showPoseOverlay && (
+              {/* Bottom: transport bar */}
+              {!showPoseOverlay && !showRoiOverlay && (
                 <View pointerEvents="box-none" style={{ position: "absolute", bottom: 4, left: 0, right: 0, alignItems: "center" }}>
-                  <Pressable onPress={handleCopyPose} style={{ backgroundColor: "rgba(0,200,255,0.15)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: "rgba(0,200,255,0.3)" }}>
-                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 8, fontFamily: "monospace" }}>
-                      pos {cameraXYZ.x.toFixed(2)} {cameraXYZ.y.toFixed(2)} {cameraXYZ.z.toFixed(2)}m
-                    </Text>
-                  </Pressable>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 1, paddingVertical: 3, paddingHorizontal: 6, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 8 }}>
+                    <Pressable onPress={() => { if (frame) loadFrame(videoUri!, 0); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"|<<"}</Text></Pressable>
+                    <Pressable onPress={() => frameStep(-30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<<"+"<"}</Text></Pressable>
+                    <Pressable onPress={() => frameStep(-15 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<<"}</Text></Pressable>
+                    <Pressable onPress={() => frameStep(-frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<"}</Text></Pressable>
+                    <Pressable onPress={() => frameStep(frameStepSec)} disabled={!!busy} style={[styles.transportBtn, { paddingHorizontal: 14 }]}><Text style={[styles.transportTxt, { fontSize: 15 }]}>{">"}</Text></Pressable>
+                    <Pressable onPress={() => frameStep(15 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{">>"}</Text></Pressable>
+                    <Pressable onPress={() => frameStep(30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{">>"+">"}</Text></Pressable>
+                    <Pressable onPress={() => { if (frame) loadFrame(videoUri!, frame.durationSec - frameStepSec); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{">>"+"|"}</Text></Pressable>
+                  </View>
                 </View>
               )}
             </View>
@@ -1267,19 +1282,15 @@ export function TrackerTab() {
                 ) : (
                   <>
                     <View style={styles.pillRow}>
+                      <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} />
                       <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} />
-                      <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
-                      <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
+                      <Pill label={busy?.startsWith("tracking") ? "Tracking…" : "Run"} active onPress={runTracker} disabled={!!busy} />
                     </View>
                     <View style={styles.pillRow}>
-  
-                      <Pill label={busy?.startsWith("tracking") ? "Tracking…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} />
-                      <Pill label="Back" onPress={pickVideo} disabled={!!busy} small />
-                      {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
-                      {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled small />}
-                      <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
-                      <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
-                      <Pill label="⚙" onPress={() => setShowSettings(true)} small />
+                      <Pill label="Back" onPress={pickVideo} disabled={!!busy} />
+                      {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} />}
+                      {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled />}
+                      <Pill label="⚙" onPress={() => setShowSettings(true)} />
                     </View>
                   </>
                 )}
@@ -1292,9 +1303,10 @@ export function TrackerTab() {
 
     {/* ── Result review: full-screen ─────────────────────────────────── */}
     {result && (
-      <View style={{ flex: 1, backgroundColor: "#000" }}>
+      <View style={{ flex: 1, backgroundColor: "#000", borderWidth: 2, borderColor: "red" }}>
+        <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", textAlign: "center", paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.9)" }}>Results</Text>
         {/* Review canvas fills available space */}
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "lime" }}>
           {reviewedFrame && (
             <View
               ref={canvasRef2}
@@ -1307,6 +1319,7 @@ export function TrackerTab() {
                 backgroundColor: "#111",
                 overflow: "hidden",
                 position: "relative",
+                borderWidth: 2, borderColor: "cyan",
               }}
             >
               {/* Transformed image + overlays */}
@@ -1373,24 +1386,35 @@ export function TrackerTab() {
                   );
                 })()}
               </View>
+                {cameraPose && (
+                  <FieldLinesOverlay
+                    H={cameraPose.fit.H}
+                    imageWidth={result.videoWidth}
+                    imageHeight={result.videoHeight}
+                    basepathFt={basepathFt}
+                    showField={showFieldLines}
+                    showZone={showStrikeZone}
+                    K={frame ? intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0) : null}
+                  />
+                )}
               {/* Fixed overlays (outside transform) */}
             </View>
           )}
+          {/* Transport bar — inside centering container, just below canvas */}
+          {!fullScreen && (
+            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 1, paddingVertical: 4, paddingHorizontal: 6, borderWidth: 2, borderColor: "yellow" }}>
+              <Pressable onPress={() => { setIsPlaying(false); const n = 0; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"|<<"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"<<"+"<"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 15); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"<<"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"<"}</Text></Pressable>
+              <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 14 }]}><Text style={[styles.transportTxt, { fontSize: 15 }]}>{isPlaying ? "||" : ">"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>{">"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 15); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>{">>"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>{">>"+">"}</Text></Pressable>
+              <Pressable onPress={() => { setIsPlaying(false); const n = result.frames.length - 1; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>{">>"+"|"}</Text></Pressable>
+            </View>
+          )}
         </View>
-        {/* Transport bar — below video, not overlaid */}
-        {!fullScreen && (
-          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.85)" }}>
-            <Pressable onPress={() => { setIsPlaying(false); const n = 0; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
-            <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 14 }]}><Text style={[styles.transportTxt, { fontSize: 16 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
-            <Pressable onPress={() => { setIsPlaying(false); const n = result.frames.length - 1; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
-          </View>
-        )}
 
         {/* Overlaid controls (hidden in fullscreen) */}
         {!fullScreen && <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1424,13 +1448,6 @@ export function TrackerTab() {
                 <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
               </View>
-              {savedViewUrl && (
-                <View pointerEvents="box-none" style={{ position: "absolute", bottom: 4, left: 0, right: 0, alignItems: "center" }}>
-                  <Pressable onPress={() => { import("expo-linking").then((L) => L.openURL(savedViewUrl!)).catch(() => {}); }}>
-                    <Text style={{ color: "rgba(0,200,255,1)", fontSize: 9, textDecorationLine: "underline" }}>{savedViewUrl}</Text>
-                  </Pressable>
-                </View>
-              )}
             </View>
           ) : (
             /* ── Portrait result review ── */

@@ -107,7 +107,6 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <AuthGate />
-        <VersionBadge />
       </QueryClientProvider>
     </GestureHandlerRootView>
   );
