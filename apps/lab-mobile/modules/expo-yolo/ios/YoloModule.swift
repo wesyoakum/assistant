@@ -157,6 +157,7 @@ public final class YoloModule: Module {
       let maxMisses = opts["maxMisses"] as? Int ?? Int.max
       let minConfidence = (opts["minConfidence"] as? Double).map { Float($0) } ?? 0.25
       let labelFilter: Set<String>? = (opts["labelFilter"] as? [String]).map { Set($0) }
+      let realTime = opts["realTime"] as? Bool ?? false
 
       // Parse optional preprocessing (grayscale + contrast).
       var doPreprocess = false
@@ -182,13 +183,15 @@ public final class YoloModule: Module {
       let effectiveEnd = min(endTimeSec, durationSec)
 
       // Parse optional ROI. JS sends display-space (top-left normalized).
-      // We must inverse-rotate to codec space, then flip to Vision bottom-left.
+      // Store display-space ROI for remapping detection results.
       var roiRect: CGRect? = nil
+      var roiDisplay: (x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)? = nil
       if let roi = opts["roi"] as? [String: Any],
          let rx = (roi["x"] as? Double).map({ CGFloat($0) }),
          let ry = (roi["y"] as? Double).map({ CGFloat($0) }),
          let rw = (roi["width"] as? Double).map({ CGFloat($0) }),
          let rh = (roi["height"] as? Double).map({ CGFloat($0) }) {
+        roiDisplay = (x: rx, y: ry, w: rw, h: rh)
         var cx: CGFloat, cy: CGFloat, cw: CGFloat, ch: CGFloat
         let pi = Double.pi
         if abs(rotationAngle - pi / 2) < 0.01 {
@@ -311,7 +314,7 @@ public final class YoloModule: Module {
             misses = 0
             entry = [
               "frameIndex": outputIndex, "timeSec": timeSec,
-              "box": rotateBox(flipBox(best.boundingBox), angle: rotationAngle),
+              "box": remapToFullFrame(rotateBox(flipBox(best.boundingBox), angle: rotationAngle), roi: roiDisplay),
               "confidence": Double(best.labels.first!.confidence),
               "lost": false,
             ]
@@ -324,6 +327,17 @@ public final class YoloModule: Module {
           }
           results.append(entry)
           self.sendEvent("onDetection", entry)
+
+          // Real-time pacing: sleep to match video frame rate.
+          if realTime {
+            let elapsed = Date().timeIntervalSince(t0) - Double(outputIndex) * stepSec
+            let target = Double(outputIndex + 1) * stepSec
+            let sleepTime = target - Date().timeIntervalSince(t0)
+            if sleepTime > 0 {
+              Thread.sleep(forTimeInterval: sleepTime)
+            }
+          }
+
           outputIndex += 1
         } // autoreleasepool
 
@@ -436,6 +450,18 @@ private func loadCGImage(uri: String) -> CGImage? {
   guard let data = try? Data(contentsOf: url), let img = UIImage(data: data) else { return nil }
   if let normalized = img.normalizedUpOrientation()?.cgImage { return normalized }
   return img.cgImage
+}
+
+/// Remap ROI-relative detection coordinates to full-frame display space.
+/// Vision's regionOfInterest returns coords relative to the ROI crop, not full-frame.
+private func remapToFullFrame(_ box: [String: CGFloat], roi: (x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat)?) -> [String: CGFloat] {
+  guard let roi = roi else { return box }
+  return [
+    "x": roi.x + box["x"]! * roi.w,
+    "y": roi.y + box["y"]! * roi.h,
+    "width": box["width"]! * roi.w,
+    "height": box["height"]! * roi.h,
+  ]
 }
 
 /// Remap a normalized top-left-origin box from codec space to display space

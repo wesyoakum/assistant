@@ -10,10 +10,27 @@ import {
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as FileSystem from "expo-file-system";
+import * as MediaLibrary from "expo-media-library";
 import { VisionTracker } from "expo-vision-tracker";
 
 type CaptureMode = "record" | "buffer";
 type FacingType = "front" | "back";
+
+function lensLabel(id: string): string {
+  const lower = id.toLowerCase();
+  if (lower.includes("ultrawide") || lower.includes("ultra_wide") || lower.includes("ultra wide")) return "0.5x";
+  if (lower.includes("telephoto")) return "5x";
+  if (lower.includes("wide") || lower === "back") return "1x";
+  // Strip common prefixes for unknown lenses.
+  return id.replace(/^builtIn/i, "").replace(/^back/i, "").replace(/Camera$/i, "").trim() || id;
+}
+
+// Filter out compound cameras and LiDAR — keep individual physical lenses.
+function isPhysicalLens(id: string): boolean {
+  const lower = id.toLowerCase();
+  if (lower.includes("dual") || lower.includes("triple") || lower.includes("lidar")) return false;
+  return true;
+}
 
 interface Props {
   onCapture: (uri: string) => void;
@@ -25,20 +42,44 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
   const cameraRef = useRef<CameraView>(null);
   const [mode, setMode] = useState<CaptureMode>("record");
   const [facing, setFacing] = useState<FacingType>("back");
+  const [lens, setLens] = useState<string>("builtInWideAngleCamera");
+  const [availableLenses, setAvailableLenses] = useState<string[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [bufferSeconds, setBufferSeconds] = useState(5);
   const [busy, setBusy] = useState<string | null>(null);
   const [segmentCount, setSegmentCount] = useState(0);
 
+  // Save to camera roll then pass to tracker.
+  const saveAndCapture = useCallback(async (uri: string) => {
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status === "granted") {
+        await MediaLibrary.saveToLibraryAsync(uri);
+      }
+    } catch {}
+    onCapture(uri);
+  }, [onCapture]);
+
   // Buffer mode: ring buffer of segment URIs.
   const segmentsRef = useRef<string[]>([]);
   const bufferActiveRef = useRef(false);
-  const segmentDuration = 2; // seconds per segment
+  const segmentDuration = 1; // seconds per segment
 
   // Request permission on mount.
   useEffect(() => {
     if (!permission?.granted) requestPermission();
   }, [permission]);
+
+  // Query available lenses when camera is ready.
+  const onCameraReady = useCallback(async () => {
+    try {
+      const lenses = await cameraRef.current?.getAvailableLensesAsync?.();
+      if (lenses && lenses.length > 0) {
+        setAvailableLenses(lenses);
+        if (!lenses.includes(lens)) setLens(lenses[0]!);
+      }
+    } catch {}
+  }, [lens]);
 
   // Clean up segments on unmount.
   useEffect(() => {
@@ -57,12 +98,12 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
     setIsRecording(true);
     cameraRef.current.recordAsync().then((result) => {
       setIsRecording(false);
-      if (result?.uri) onCapture(result.uri);
+      if (result?.uri) saveAndCapture(result.uri);
     }).catch((e: any) => {
       setIsRecording(false);
       Alert.alert("Recording failed", e?.message ?? "Unknown error");
     });
-  }, [isRecording, onCapture]);
+  }, [isRecording, saveAndCapture]);
 
   const stopRecording = useCallback(() => {
     cameraRef.current?.stopRecording();
@@ -91,6 +132,9 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
     });
   }, []);
 
+  // Resolves when the buffer loop has stopped and all segments are collected.
+  const bufferDoneRef = useRef<((segments: string[]) => void) | null>(null);
+
   const startBuffering = useCallback(async () => {
     if (!cameraRef.current || bufferActiveRef.current) return;
     bufferActiveRef.current = true;
@@ -98,7 +142,6 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
     setSegmentCount(0);
     setIsRecording(true);
 
-    // Tick the display every second.
     bufferTimerRef.current = setInterval(() => {
       setSegmentCount(segmentsRef.current.length);
     }, 500);
@@ -106,7 +149,6 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
     // Record segments in a loop.
     while (bufferActiveRef.current) {
       const uri = await recordOneSegment();
-      if (!bufferActiveRef.current) break;
       if (uri) {
         segmentsRef.current.push(uri);
         const maxSegments = Math.ceil(bufferSeconds / segmentDuration);
@@ -116,23 +158,35 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
         }
         setSegmentCount(segmentsRef.current.length);
       }
+      // Check if capture was requested — if so, the current segment just
+      // finished naturally (stopRecording wasn't called mid-segment).
+      if (!bufferActiveRef.current) break;
     }
     if (bufferTimerRef.current) clearInterval(bufferTimerRef.current);
+    // Signal that the loop is done with the final segment list.
+    if (bufferDoneRef.current) {
+      bufferDoneRef.current([...segmentsRef.current]);
+      bufferDoneRef.current = null;
+    }
   }, [bufferSeconds, recordOneSegment]);
 
   const captureBuffer = useCallback(async () => {
-    bufferActiveRef.current = false;
-    try { cameraRef.current?.stopRecording(); } catch {}
-    if (bufferTimerRef.current) clearInterval(bufferTimerRef.current);
+    // Signal the loop to stop after the current segment finishes.
+    setBusy("finishing segment…");
+    const segments = await new Promise<string[]>((resolve) => {
+      bufferDoneRef.current = resolve;
+      bufferActiveRef.current = false;
+      // Don't call stopRecording — let the current segment's setTimeout
+      // finish it naturally.
+    });
     setIsRecording(false);
-
-    const segments = [...segmentsRef.current];
+    if (bufferTimerRef.current) clearInterval(bufferTimerRef.current);
     if (segments.length === 0) {
       Alert.alert("No buffer", "No video segments captured yet. Try waiting a few seconds.");
       return;
     }
     if (segments.length === 1) {
-      onCapture(segments[0]!);
+      saveAndCapture(segments[0]!);
       return;
     }
     // Stitch multiple segments into one video.
@@ -140,14 +194,13 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
     try {
       const result = await VisionTracker.stitchVideos(segments);
       setBusy(null);
-      onCapture(result.uri);
+      saveAndCapture(result.uri);
     } catch (e: any) {
       setBusy(null);
-      // Fallback to most recent segment.
       Alert.alert("Stitch failed", e?.message ?? "Using last segment instead.");
-      onCapture(segments[segments.length - 1]!);
+      saveAndCapture(segments[segments.length - 1]!);
     }
-  }, [onCapture]);
+  }, [saveAndCapture]);
 
   if (!permission) {
     return (
@@ -179,6 +232,8 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
         mode="video"
         videoQuality="1080p"
         mute
+        {...(facing === "back" ? { selectedLens: lens } : {})}
+        onCameraReady={onCameraReady}
       />
 
       <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -210,6 +265,26 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
             <Text style={styles.pillTxt}>Flip</Text>
           </Pressable>
         </View>
+
+        {/* Lens picker (back camera only, shows available lenses) */}
+        {facing === "back" && !isRecording && (() => {
+          const physical = availableLenses.filter(isPhysicalLens);
+          return physical.length > 1 ? (
+            <View style={{ flexDirection: "row", justifyContent: "center", gap: 6, marginTop: 8 }}>
+              {physical.map((l) => (
+                <Pressable
+                  key={l}
+                  onPress={() => setLens(l)}
+                  style={[styles.pill, { paddingHorizontal: 14, paddingVertical: 8 }, lens === l && styles.pillActive]}
+                >
+                  <Text style={[styles.pillTxt, { fontSize: 14 }, lens === l && styles.pillTxtActive]}>
+                    {lensLabel(l)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null;
+        })()}
 
         {/* Buffer duration control */}
         {mode === "buffer" && !isRecording && (

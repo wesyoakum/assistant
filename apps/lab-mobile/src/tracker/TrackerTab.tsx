@@ -44,34 +44,9 @@ import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
 import { useTheme } from "../theme";
 
-type TrackerMode = "vision" | "template" | "tracknet" | "blob" | "yolo" | "yolo-s" | "yolo-m" | "yolo-l" | "yolo-x" | "baseball";
-
-// Modes that detect the ball themselves (no user-drawn box required).
-const DETECTOR_MODES: TrackerMode[] = ["tracknet", "blob", "yolo", "yolo-s", "yolo-m", "yolo-l", "yolo-x", "baseball"];
-
-const MODE_LABEL: Record<TrackerMode, string> = {
-  template: "Template",
-  vision: "Apple Vision",
-  tracknet: "TrackNet",
-  blob: "Blob",
-  yolo: "YOLO26n",
-  "yolo-s": "YOLO26s",
-  "yolo-m": "YOLO26m",
-  "yolo-l": "YOLO26l",
-  "yolo-x": "YOLO26x",
-  baseball: "Baseball",
-};
-
-const YOLO_MODEL_NAME: Record<string, string> = {
-  "yolo": "YOLO26n",
-  "yolo-s": "YOLO26s",
-  "yolo-m": "YOLO26m",
-  "yolo-l": "YOLO26l",
-  "yolo-x": "YOLO26x",
-};
-
-// All modes available for selection.
-const ALL_MODES: TrackerMode[] = ["yolo", "yolo-s", "yolo-m", "yolo-l", "yolo-x", "baseball", "blob", "tracknet", "vision", "template"];
+type TrackerMode = "yolo";
+const DETECTOR_MODES: TrackerMode[] = ["yolo"];
+const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
 const BOX_COLOR_TEXT = "rgba(0,200,255,1)";
 
 interface ViewState {
@@ -136,7 +111,6 @@ export function TrackerTab() {
   const [playSpeed, setPlaySpeed] = useState<1 | 0.5 | 0.25 | 0.125>(1);
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
-  const [showModelPicker, setShowModelPicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
@@ -522,137 +496,46 @@ export function TrackerTab() {
 
   const runTracker = async () => {
     if (!videoUri || isDetecting) return;
-    // Detector modes (TrackNet/Blob/YOLO/Baseball) find the ball themselves — no
-    // initial box required. Template/Vision need a user-drawn box.
-    if (!box && !DETECTOR_MODES.includes(trackerMode)) return;
-    setBusy(`tracking (${trackerMode})…`);
+    setBusy("tracking…");
     setErr(null);
     try {
+      const roi = box ?? undefined;
+      const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
+      const walkStart = startTimeSec ?? frameTimeSec;
+      const walkEnd = endTimeSec ?? frame?.durationSec ?? 9999;
+
+      // Set up streaming: accumulate frames in ref, start playback immediately.
+      streamingFramesRef.current = [];
+      streamingMetaRef.current = {
+        videoWidth: frame?.imageWidth ?? 0,
+        videoHeight: frame?.imageHeight ?? 0,
+        frameRate: fps,
+      };
+      detectionSubRef.current = Yolo.onDetection((f) => {
+        streamingFramesRef.current.push(f as unknown as TrackedFrame);
+      });
+      setIsDetecting(true);
+      setReviewIdx(0);
+      setIsPlaying(true);
+      setBusy(null);
+
       let r: { frames: TrackedFrame[]; videoWidth: number; videoHeight: number; frameRate: number; elapsedMs: number };
-      if (trackerMode === "vision") {
-        r = await VisionTracker.trackInVideo(videoUri, box!, {
-          sampleStride: 1, maxFrames: 0, confidenceCutoff: 0.05, startTimeSec: frameTimeSec,
-        });
-      } else if (trackerMode === "tracknet") {
-        r = await TrackNet.trackInVideo(videoUri, {
-          sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec, confidenceCutoff: 0.10,
-        });
-      } else if (trackerMode === "blob") {
-        r = await VisionTracker.trackBlobInVideo(videoUri, {
-          sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec, downsample: 2,
-        });
-      } else if (trackerMode.startsWith("yolo") || trackerMode === "baseball") {
-        // Switch YOLO model if needed.
-        const yoloModelName = YOLO_MODEL_NAME[trackerMode];
-        if (yoloModelName) {
-          const current = Yolo.currentModel();
-          if (current && current !== yoloModelName) {
-            setBusy(`loading ${yoloModelName}…`);
-            const ok = await Yolo.switchModel(yoloModelName).catch(() => false);
-            if (!ok) { setErr(`Failed to load ${yoloModelName} — model may not be bundled`); setBusy(null); return; }
-          }
-        }
-        const isYolo = trackerMode.startsWith("yolo");
-        const roi = box ?? undefined;
-        const fps = frame && frame.frameRate > 0 ? frame.frameRate : 30;
-        const walkStart = startTimeSec ?? frameTimeSec;
-        const walkEnd = endTimeSec ?? frame?.durationSec ?? 9999;
+      r = await Yolo.detectInVideo(videoUri, {
+        startTimeSec: walkStart,
+        endTimeSec: walkEnd,
+        stepSec: 1 / Math.min(fps, 30),
+        maxFrames: 0,
+        maxMisses: Number.MAX_SAFE_INTEGER,
+        minConfidence: 0.10,
+        labelFilter: ["sports ball"],
+        roi,
+        preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
+        realTime: true,
+      });
 
-        // Try native batch detection with streaming events — fall back to
-        // the JS detectorWalk loop for baseball-module mode or older builds.
-        let usedNativeBatch = false;
-        if (isYolo) {
-          try {
-            // Set up streaming: accumulate frames in ref, start playback immediately.
-            streamingFramesRef.current = [];
-            streamingMetaRef.current = {
-              videoWidth: frame?.imageWidth ?? 0,
-              videoHeight: frame?.imageHeight ?? 0,
-              frameRate: fps,
-            };
-            detectionSubRef.current = Yolo.onDetection((f) => {
-              streamingFramesRef.current.push(f as unknown as TrackedFrame);
-            });
-            setIsDetecting(true);
-            setReviewIdx(0);
-            setIsPlaying(true);
-            setBusy(null);
-
-            r = await Yolo.detectInVideo(videoUri, {
-              startTimeSec: walkStart,
-              endTimeSec: walkEnd,
-              stepSec: 1 / Math.min(fps, 30),
-              maxFrames: 0,
-              maxMisses: Number.MAX_SAFE_INTEGER,
-              minConfidence: 0.10,
-              labelFilter: ["sports ball"],
-              roi,
-              preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
-            });
-
-            detectionSubRef.current?.remove();
-            detectionSubRef.current = null;
-            setIsDetecting(false);
-            usedNativeBatch = true;
-          } catch {
-            detectionSubRef.current?.remove();
-            detectionSubRef.current = null;
-            setIsDetecting(false);
-            // detectInVideo not available — fall through to JS loop.
-          }
-        }
-
-        if (!usedNativeBatch) {
-          const detect = async (uri: string): Promise<RawDetection[]> => {
-            let detectUri = uri;
-            if (preprocessBW) {
-              try {
-                const raw = uri.replace(/^data:image\/\w+;base64,/, "");
-                const processed = await VisionTracker.preprocessFrame(raw, contrastLevel, 0.85);
-                detectUri = `data:image/jpeg;base64,${processed}`;
-              } catch {}
-            }
-            const res = isYolo
-              ? await Yolo.detect(detectUri, { minConfidence: 0.10, roi })
-              : await Baseball.detect(detectUri, { minConfidence: 0.10 });
-            return res.detections.map((d) => {
-              let b = d.box;
-              if (roi) {
-                const cx = b.x + b.width / 2;
-                const cy = b.y + b.height / 2;
-                if (cx < roi.x || cx > roi.x + roi.width || cy < roi.y || cy > roi.y + roi.height) {
-                  b = {
-                    x: roi.x + b.x * roi.width,
-                    y: roi.y + b.y * roi.height,
-                    width: b.width * roi.width,
-                    height: b.height * roi.height,
-                  };
-                }
-              }
-              return { label: d.label, confidence: d.confidence, box: b };
-            });
-          };
-          r = await detectorWalk(
-            (t, q) => VisionTracker.frameAtTime(videoUri, t, q).then((f) => ({
-              imageBase64: f.imageBase64, imageWidth: f.imageWidth, imageHeight: f.imageHeight, frameRate: f.frameRate ?? 0,
-            })),
-            detect,
-            {
-              startTimeSec: walkStart,
-              stepSec: 1 / Math.min(fps, 30),
-              durationSec: walkEnd,
-              maxFrames: 0,
-              maxMisses: Number.POSITIVE_INFINITY,
-              labelFilter: isYolo ? (l) => l === "sports ball" : undefined,
-            },
-          );
-        }
-      } else {
-        r = await TemplateTracker.trackInVideo(videoUri, box!, {
-          sampleStride: 1, maxFrames: 0, startTimeSec: frameTimeSec,
-          confidenceCutoff: 0.15, searchPadding: 3, downsample: 2,
-        });
-      }
+      detectionSubRef.current?.remove();
+      detectionSubRef.current = null;
+      setIsDetecting(false);
       // Outlier rejection (two-pass RANSAC + refit).
       if (outlierRejection) {
         const rej = rejectOutliers(r.frames, { inlierThreshold: outlierThreshold });
@@ -1230,7 +1113,7 @@ export function TrackerTab() {
             <Image
               source={{ uri: `data:image/jpeg;base64,${frame.imageBase64}` }}
               style={{ width: "100%", height: "100%", transform: [{ translateX: vp.tx }, { translateY: vp.ty }, { scale: vp.scale }] }}
-              resizeMode="cover"
+              resizeMode="stretch"
               fadeDuration={0}
             />
             {committedBoxScreen && (
@@ -1264,12 +1147,6 @@ export function TrackerTab() {
 
         {/* Pill overlay */}
         <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          {/* Calibrate/Pose button — top-right corner, always visible when not in overlay */}
-          {!showPoseOverlay && !showRoiOverlay && (
-            <View pointerEvents="box-none" style={{ position: "absolute", top: 8, right: 8, zIndex: 10 }}>
-              <Pill label={cameraPose ? "Pose ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
-            </View>
-          )}
           {isLandscape ? (
             /* ── Landscape: top row + side columns ── */
             <View style={{ flex: 1 }} pointerEvents="box-none">
@@ -1303,23 +1180,15 @@ export function TrackerTab() {
                     <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={() => { if (box && !showRoiOverlay) setBox(null); else { setShowRoiOverlay(true); setShowPoseOverlay(false); } }} disabled={!!busy} small />
                     <Pill label={startTimeSec != null ? `S:${startTimeSec.toFixed(1)}` : "Start"} active={startTimeSec != null} onPress={() => { startTimeSec != null ? setStartTimeSec(null) : setStartTimeSec(frameTimeSec); }} disabled={!!busy} small />
                     <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
-                    <Pill label={`${MODE_LABEL[trackerMode]} ▾`} onPress={() => setShowModelPicker(true)} small />
-                    <Pill label="Pick" onPress={pickVideo} disabled={!!busy} small />
+
+                    <Pill label="Back" onPress={pickVideo} disabled={!!busy} small />
+                    <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
                   </>
                 )}
                 {err && <View style={{ backgroundColor: "rgba(180,30,30,0.85)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }} numberOfLines={1}>{err}</Text></View>}
                 {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><ActivityIndicator color="#fff" size="small" /><Text style={{ color: "#fff", fontSize: 9 }}>{busy}</Text></View>}
                 {copyHint && <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }}>{copyHint}</Text></View>}
               </View>
-              {/* Left column: frame stepping */}
-              {!showPoseOverlay && !showRoiOverlay && (
-                <View pointerEvents="box-none" style={{ position: "absolute", left: 6, top: "50%", transform: [{ translateY: -60 }], gap: 4, alignItems: "center" }}>
-                  <Pill label="«" onPress={() => frameStep(-1)} disabled={!!busy} small />
-                  <Pill label="‹" onPress={() => frameStep(-frameStepSec)} disabled={!!busy} small />
-                  <Pill label="›" onPress={() => frameStep(frameStepSec)} disabled={!!busy} small />
-                  <Pill label="»" onPress={() => frameStep(1)} disabled={!!busy} small />
-                </View>
-              )}
               {/* Right column: zoom + run + actions */}
               {!showPoseOverlay && !showRoiOverlay && (
                 <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -60 }], gap: 4, alignItems: "center" }}>
@@ -1403,11 +1272,12 @@ export function TrackerTab() {
                       <Pill label={endTimeSec != null ? `E:${endTimeSec.toFixed(1)}` : "End"} active={endTimeSec != null} onPress={() => { endTimeSec != null ? setEndTimeSec(null) : setEndTimeSec(frameTimeSec); }} disabled={!!busy} small />
                     </View>
                     <View style={styles.pillRow}>
-                      <Pill label={`${MODE_LABEL[trackerMode]} ▾`} onPress={() => setShowModelPicker(true)} small />
+  
                       <Pill label={busy?.startsWith("tracking") ? "Tracking…" : "Run"} active onPress={runTracker} disabled={(!box && !DETECTOR_MODES.includes(trackerMode)) || !!busy} />
-                      <Pill label="Pick" onPress={pickVideo} disabled={!!busy} small />
+                      <Pill label="Back" onPress={pickVideo} disabled={!!busy} small />
                       {videoUri && !isSaved && <Pill label="Save" onPress={handleSaveVideoLocal} disabled={!!busy} small />}
                       {isSaved && <Pill label="Saved ✓" onPress={() => {}} disabled small />}
+                      <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => { setShowPoseOverlay(true); setShowRoiOverlay(false); }} disabled={!!busy} small />
                       <Pill label="Clear" onPress={handleClearAll} disabled={!box && !cameraPose} small />
                       <Pill label="⚙" onPress={() => setShowSettings(true)} small />
                     </View>
@@ -1504,27 +1374,23 @@ export function TrackerTab() {
                 })()}
               </View>
               {/* Fixed overlays (outside transform) */}
-              {/* Transport bar — bottom edge of video canvas */}
-              {!fullScreen && (
-                <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 3, backgroundColor: "rgba(0,0,0,0.7)" }}>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = 0; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
-                  <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 10 }]}><Text style={[styles.transportTxt, { fontSize: 14 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
-                  <Pressable onPress={() => { setIsPlaying(false); const n = result.frames.length - 1; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
-                </View>
-              )}
-              {/* Fullscreen toggle — tap video to toggle */}
-              <Pressable onPress={() => setFullScreen((f) => !f)} style={{ position: "absolute", top: 4, right: 4, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 4 }}>
-                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10 }}>{fullScreen ? "▣" : "▢"}</Text>
-              </Pressable>
             </View>
           )}
         </View>
+        {/* Transport bar — below video, not overlaid */}
+        {!fullScreen && (
+          <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 2, paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.85)" }}>
+            <Pressable onPress={() => { setIsPlaying(false); const n = 0; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>⏮</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«60</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>«30</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>‹</Text></Pressable>
+            <Pressable onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} style={[styles.transportBtn, { paddingHorizontal: 14 }]}><Text style={[styles.transportTxt, { fontSize: 16 }]}>{isPlaying ? "⏸" : "▶"}</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>›</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>30»</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 60); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>60»</Text></Pressable>
+            <Pressable onPress={() => { setIsPlaying(false); const n = result.frames.length - 1; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx >= result.frames.length - 1 && { opacity: 0.3 }]}>⏭</Text></Pressable>
+          </View>
+        )}
 
         {/* Overlaid controls (hidden in fullscreen) */}
         {!fullScreen && <SafeAreaView style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -1552,24 +1418,11 @@ export function TrackerTab() {
                 {busy && <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><ActivityIndicator color="#fff" size="small" /><Text style={{ color: "#fff", fontSize: 9 }}>{busy}</Text></View>}
                 {copyHint && <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}><Text style={{ color: "#fff", fontSize: 9 }}>{copyHint}</Text></View>}
               </View>
-              {/* Left column: frame nav */}
-              <View pointerEvents="box-none" style={{ position: "absolute", left: 6, top: "50%", transform: [{ translateY: -50 }], gap: 4, alignItems: "center" }}>
-                <Pill label="⏮" onPress={() => { setIsPlaying(false); setReviewIdx(0); seekToFrame(0); }} disabled={reviewIdx === 0} small />
-                <Pill label="‹" onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} small />
-                <Pill label={isPlaying ? "⏸" : "▶"} active onPress={() => { if (reviewIdx >= result.frames.length - 1) { setReviewIdx(0); seekToFrame(0); } setIsPlaying((p) => !p); }} small />
-                <Pill label="›" onPress={() => { setIsPlaying(false); const n = Math.min(result.frames.length - 1, reviewIdx + 1); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx >= result.frames.length - 1} small />
-              </View>
-              {/* Right column: zoom + actions */}
-              <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -70 }], gap: 4, alignItems: "center" }}>
-                <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
-                <Pill label="Copy" onPress={copyTrace} small />
-                <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
-                <Pill label="B&W" active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
-                <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+              {/* Right column: actions */}
+              <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -40 }], gap: 4, alignItems: "center" }}>
+                <Pill label="Back" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                 <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
-                <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
               </View>
               {savedViewUrl && (
                 <View pointerEvents="box-none" style={{ position: "absolute", bottom: 4, left: 0, right: 0, alignItems: "center" }}>
@@ -1643,25 +1496,15 @@ export function TrackerTab() {
                 )}
               </View>
 
-              {/* Bottom: speed + zoom + action pills */}
+              {/* Bottom: speed + action pills */}
               <View style={{ gap: 6, paddingHorizontal: 10, paddingBottom: 16 }}>
                 <View style={styles.pillRow}>
                   {([1, 0.5, 0.25, 0.125] as const).map((s) => (
                     <Pill key={s} label={s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"} active={playSpeed === s} onPress={() => setPlaySpeed(s)} small />
                   ))}
-                  <Pill label="−" onPress={() => zoomBy(1 / 1.5)} disabled={vp.scale <= MIN_SCALE + 0.001} small />
-                  <Pill label="+" onPress={() => zoomBy(1.5)} disabled={vp.scale >= MAX_SCALE - 0.001} small />
-                </View>
-                <View style={styles.pillRow}>
-                  <Pill label="Copy" onPress={copyTrace} small />
-                  {cameraXYZ && <Pill label="Pose" onPress={handleCopyPose} small />}
-                  {allRayInfo && <Pill label="Data" onPress={handleCopyDetections} small />}
-                  <Pill label="All" active={showAllDetections} onPress={() => setShowAllDetections((v) => !v)} small />
-                  <Pill label={showProcessed ? "B&W ✓" : "B&W"} active={showProcessed} onPress={() => setShowProcessed((v) => !v)} small />
-                  <Pill label="New" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                  <Pill label="Back" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                   <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
-                  <Pill label="SaveDet" onPress={handleSaveDetections} disabled={!!busy} small />
                 </View>
                 {savedViewUrl && (
                   <View style={styles.pillRow}>
@@ -1676,70 +1519,6 @@ export function TrackerTab() {
         </SafeAreaView>}
       </View>
     )}
-
-    {/* Model picker modal */}
-    <Modal visible={showModelPicker} transparent animationType="fade" onRequestClose={() => setShowModelPicker(false)}>
-      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => setShowModelPicker(false)}>
-        <View style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 300, maxHeight: "80%" }}>
-          <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15, marginBottom: 12 }}>Tracker Model</Text>
-          <ScrollView>
-            {ALL_MODES.map((m) => (
-              <Pressable
-                key={m}
-                onPress={() => { setTrackerMode(m); setShowModelPicker(false); }}
-                style={{ paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 4, backgroundColor: trackerMode === m ? theme.primary : "transparent" }}
-              >
-                <Text style={{ color: trackerMode === m ? "#fff" : theme.text, fontWeight: trackerMode === m ? "700" : "400", fontSize: 14 }}>
-                  {MODE_LABEL[m]}
-                </Text>
-                <Text style={{ color: trackerMode === m ? "rgba(255,255,255,0.7)" : theme.textSubtle, fontSize: 11 }}>
-                  {m === "yolo" ? "Nano — fastest, ~6MB (bundled)" :
-                   m === "yolo-s" ? "Small — better accuracy, ~22MB" :
-                   m === "yolo-m" ? "Medium — balanced, ~52MB" :
-                   m === "yolo-l" ? "Large — high accuracy, ~90MB" :
-                   m === "yolo-x" ? "Extra-large — best accuracy, ~130MB" :
-                   m === "baseball" ? "Custom baseball detector" :
-                   m === "blob" ? "Classical bright-blob detector (no model)" :
-                   m === "tracknet" ? "TrackNet ML ball tracker" :
-                   m === "vision" ? "Apple Vision object tracker (needs box)" :
-                   "Template matching tracker (needs box)"}
-                </Text>
-              </Pressable>
-            ))}
-
-            {/* Download from server */}
-            <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, marginTop: 8, paddingTop: 8 }}>
-              <Text style={{ color: theme.textSubtle, fontSize: 11, marginBottom: 6 }}>Download from whyapp.us:</Text>
-              <Pressable
-                onPress={async () => {
-                  try {
-                    setBusy("fetching model list…");
-                    setShowModelPicker(false);
-                    const res = await apiFetch<{ models: { name: string; size: number }[] }>("/tracking/models");
-                    if (!res.models.length) { setErr("No models on server"); setBusy(null); return; }
-                    // Download the first one not already available.
-                    const local = Yolo.availableModels();
-                    const toDownload = res.models.find((m) => !local.includes(m.name));
-                    if (!toDownload) { setCopyHint("All server models already downloaded"); setBusy(null); setTimeout(() => setCopyHint(null), 3000); return; }
-                    setBusy(`downloading ${toDownload.name} (${(toDownload.size / 1024 / 1024).toFixed(1)}MB)…`);
-                    await Yolo.downloadModel(`https://api.whyapp.us/tracking/models/${toDownload.name}`, toDownload.name);
-                    setCopyHint(`Downloaded ${toDownload.name}`);
-                    setTimeout(() => setCopyHint(null), 3000);
-                  } catch (e) { setErr((e as Error).message); }
-                  finally { setBusy(null); }
-                }}
-                style={[styles.btn, { backgroundColor: theme.surfaceAlt }]}
-              >
-                <Text style={[styles.btnText, { color: theme.text, fontSize: 12 }]}>Check for models</Text>
-              </Pressable>
-              <Text style={{ color: theme.textSubtle, fontSize: 9, marginTop: 4 }}>
-                Available: {Yolo.availableModels().join(", ") || "loading…"}
-              </Text>
-            </View>
-          </ScrollView>
-        </View>
-      </Pressable>
-    </Modal>
 
     {/* Settings modal */}
     {/* Source picker */}

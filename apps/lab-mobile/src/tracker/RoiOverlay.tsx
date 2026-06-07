@@ -44,30 +44,57 @@ export const RoiOverlay = forwardRef<RoiOverlayHandle, RoiOverlayProps>(
     const boxRef = useRef(box);
     boxRef.current = box;
 
+    // Compute the actual image display area within the canvas, accounting for
+    // aspect ratio mismatch (letterboxing or pillarboxing with resizeMode cover/stretch).
+    const imageArea = useMemo(() => {
+      const canvasAR = canvas.width / canvas.height;
+      const imageAR = imageWidth / imageHeight;
+      let w = canvas.width, h = canvas.height, ox = 0, oy = 0;
+      if (Math.abs(canvasAR - imageAR) > 0.01) {
+        // Canvas doesn't match image AR — compute fitted area.
+        if (imageAR > canvasAR) {
+          // Image is wider: full width, letterbox top/bottom.
+          w = canvas.width;
+          h = canvas.width / imageAR;
+          oy = (canvas.height - h) / 2;
+        } else {
+          // Image is taller: full height, pillarbox left/right.
+          h = canvas.height;
+          w = canvas.height * imageAR;
+          ox = (canvas.width - w) / 2;
+        }
+      }
+      return { w, h, ox, oy };
+    }, [canvas, imageWidth, imageHeight]);
+
     const imageToScreen = useCallback(
       (nx: number, ny: number) => {
+        const { w, h, ox, oy } = imageArea;
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
+        const px = ox + nx * w;
+        const py = oy + ny * h;
         return {
-          x: (nx * canvas.width - cx) * vp.scale + cx + vp.tx,
-          y: (ny * canvas.height - cy) * vp.scale + cy + vp.ty,
+          x: (px - cx) * vp.scale + cx + vp.tx,
+          y: (py - cy) * vp.scale + cy + vp.ty,
         };
       },
-      [canvas, vp],
+      [canvas, imageArea, vp],
     );
 
     const screenToImage = useCallback(
       (sx: number, sy: number) => {
+        const { w, h, ox, oy } = imageArea;
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
         const ix = (sx - cx - vp.tx) / vp.scale + cx;
         const iy = (sy - cy - vp.ty) / vp.scale + cy;
         return {
-          nx: Math.max(0, Math.min(1, ix / canvas.width)),
-          ny: Math.max(0, Math.min(1, iy / canvas.height)),
+          nx: Math.max(0, Math.min(1, (ix - ox) / w)),
+          ny: Math.max(0, Math.min(1, (iy - oy) / h)),
         };
       },
-      [canvas, vp],
+      [canvas, imageArea, vp],
     );
 
     const screenBox = useMemo(() => {

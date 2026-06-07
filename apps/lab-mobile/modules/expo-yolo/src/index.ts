@@ -42,6 +42,7 @@ export interface DetectInVideoOptions {
   labelFilter?: string[];
   roi?: YoloBox;
   preprocess?: { grayscale: boolean; contrast: number };
+  realTime?: boolean;
 }
 
 export interface DetectInVideoFrame {
