@@ -49,6 +49,7 @@ import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
 import { listCalibrations, saveCalibration, deleteCalibration, renameCalibration, type SavedCalibration } from "./savedCalibrations";
+import { listRois, saveRoi, deleteRoi, renameRoi, type SavedRoi } from "./savedRois";
 import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
 import { useTheme } from "../theme";
@@ -148,6 +149,10 @@ export function TrackerTab() {
   const [savedCals, setSavedCals] = useState<SavedCalibration[]>([]);
   const [renamingCalId, setRenamingCalId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
+  const [showRoiPicker, setShowRoiPicker] = useState(false);
+  const [savedRois, setSavedRois] = useState<SavedRoi[]>([]);
+  const [renamingRoiId, setRenamingRoiId] = useState<string | null>(null);
+  const [renameRoiText, setRenameRoiText] = useState("");
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
   const [showAllDetections, setShowAllDetections] = useState(false);
@@ -179,6 +184,7 @@ export function TrackerTab() {
   // Load saved videos and calibrations on mount.
   useEffect(() => { listSavedVideos().then(setSavedVideos).catch(() => {}); }, []);
   useEffect(() => { listCalibrations().then(setSavedCals).catch(() => {}); }, []);
+  useEffect(() => { listRois().then(setSavedRois).catch(() => {}); }, []);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -1020,6 +1026,51 @@ export function TrackerTab() {
     setRenameText("");
   };
 
+  const handleSaveRoi = async () => {
+    const roi = roiOverlayRef.current?.getBox() ?? box;
+    if (!roi) return;
+    try {
+      await saveRoi({ name: new Date().toLocaleString(), box: roi });
+      setSavedRois(await listRois());
+      setCopyHint("ROI saved");
+      setTimeout(() => setCopyHint(null), 3000);
+    } catch (e) { setErr((e as Error).message); }
+  };
+
+  const handleLoadRoi = () => {
+    listRois().then((rois) => {
+      setSavedRois(rois);
+      if (!rois.length) { setErr("No saved ROIs"); return; }
+      setShowRoiPicker(true);
+    }).catch(() => setErr("Failed to load ROIs"));
+  };
+
+  const applyRoi = (roi: SavedRoi) => {
+    setBox(roi.box);
+    setShowRoiPicker(false);
+    setShowRoiOverlay(false);
+    setCopyHint(`Loaded: ${roi.name}`);
+    setTimeout(() => setCopyHint(null), 3000);
+  };
+
+  const handleDeleteRoi = (id: string, name: string) => {
+    Alert.alert("Delete ROI", `Delete "${name}"?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        await deleteRoi(id);
+        setSavedRois(await listRois());
+      }},
+    ]);
+  };
+
+  const handleRenameRoi = async (id: string) => {
+    if (!renameRoiText.trim()) return;
+    await renameRoi(id, renameRoiText.trim());
+    setSavedRois(await listRois());
+    setRenamingRoiId(null);
+    setRenameRoiText("");
+  };
+
   const handleSaveSession = async () => {
     if (!result) return;
     setBusy("saving session…");
@@ -1343,6 +1394,8 @@ export function TrackerTab() {
                 {showRoiOverlay && (
                   <>
                     <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} small />
+                    <Pill label="Save" onPress={handleSaveRoi} small />
+                    <Pill label="Load" onPress={handleLoadRoi} small />
                     <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} small />
                     <Pill label="Back" onPress={() => setShowRoiOverlay(false)} small />
                   </>
@@ -1434,6 +1487,8 @@ export function TrackerTab() {
                 {showRoiOverlay ? (
                   <View style={styles.pillRow}>
                     <Pill label="Reset" onPress={() => roiOverlayRef.current?.reset()} />
+                    <Pill label="Save" onPress={handleSaveRoi} />
+                    <Pill label="Load" onPress={handleLoadRoi} />
                     <Pill label="Set ROI" active onPress={() => { const roi = roiOverlayRef.current?.getBox(); if (roi) { setBox(roi); setShowRoiOverlay(false); } }} />
                     <Pill label="Back" onPress={() => setShowRoiOverlay(false)} />
                   </View>
@@ -1912,6 +1967,65 @@ export function TrackerTab() {
             ))}
           </ScrollView>
           <Pressable onPress={() => { setShowCalPicker(false); setRenamingCalId(null); }} style={{ marginTop: 12, paddingVertical: 10, backgroundColor: theme.primary, borderRadius: 8, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Close</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+
+    {/* ── ROI picker modal ── */}
+    <Modal visible={showRoiPicker} transparent animationType="fade" onRequestClose={() => setShowRoiPicker(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => { setShowRoiPicker(false); setRenamingRoiId(null); }}>
+        <Pressable style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 320, maxHeight: 480 }} onPress={(e) => e.stopPropagation()}>
+          <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15, marginBottom: 12 }}>Saved ROIs</Text>
+          <ScrollView style={{ maxHeight: 380 }}>
+            {savedRois.length === 0 && (
+              <Text style={{ color: theme.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 20 }}>No saved ROIs</Text>
+            )}
+            {savedRois.map((roi) => (
+              <View key={roi.id} style={{ marginBottom: 8, backgroundColor: theme.surfaceAlt, borderRadius: 8, padding: 10 }}>
+                {renamingRoiId === roi.id ? (
+                  <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                    <TextInput
+                      style={{ flex: 1, color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.primary, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}
+                      value={renameRoiText}
+                      onChangeText={setRenameRoiText}
+                      autoFocus
+                      onSubmitEditing={() => handleRenameRoi(roi.id)}
+                    />
+                    <Pressable onPress={() => handleRenameRoi(roi.id)} style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: theme.primary, borderRadius: 4 }}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>OK</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setRenamingRoiId(null)} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+                      <Text style={{ color: theme.textMuted, fontSize: 11 }}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <Pressable onPress={() => applyRoi(roi)}>
+                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{roi.name}</Text>
+                      <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 2 }}>
+                        {new Date(roi.savedAt).toLocaleString()}
+                        {`  ·  x:${roi.box.x.toFixed(2)} y:${roi.box.y.toFixed(2)} w:${roi.box.width.toFixed(2)} h:${roi.box.height.toFixed(2)}`}
+                      </Text>
+                    </Pressable>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                      <Pressable onPress={() => applyRoi(roi)} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.primary, borderRadius: 4 }}>
+                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Load</Text>
+                      </Pressable>
+                      <Pressable onPress={() => { setRenamingRoiId(roi.id); setRenameRoiText(roi.name); }} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.surfaceAlt, borderRadius: 4, borderWidth: 1, borderColor: theme.border }}>
+                        <Text style={{ color: theme.text, fontSize: 11 }}>Rename</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handleDeleteRoi(roi.id, roi.name)} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.surfaceAlt, borderRadius: 4, borderWidth: 1, borderColor: theme.border }}>
+                        <Text style={{ color: "#cc3333", fontSize: 11 }}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+          <Pressable onPress={() => { setShowRoiPicker(false); setRenamingRoiId(null); }} style={{ marginTop: 12, paddingVertical: 10, backgroundColor: theme.primary, borderRadius: 8, alignItems: "center" }}>
             <Text style={{ color: "#fff", fontWeight: "600" }}>Close</Text>
           </Pressable>
         </Pressable>
