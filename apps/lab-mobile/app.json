@@ -2,7 +2,7 @@
   "expo": {
     "name": "WHY Lab",
     "slug": "whylab",
-    "version": "1.23.2",
+    "version": "1.24.0",
     "scheme": "whylab",
     "orientation": "default",
     "icon": "./assets/icon.png",
@@ -55,7 +55,7 @@
       }
     },
     "owner": "wesyoakum",
-    "runtimeVersion": "1.23.2",
+    "runtimeVersion": "1.24.0",
     "updates": {
       "url": "https://u.expo.dev/e8f6c9f4-f31e-4035-b606-8874142399e0",
       "requestHeaders": {
