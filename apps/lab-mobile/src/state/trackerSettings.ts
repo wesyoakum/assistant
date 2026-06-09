@@ -8,6 +8,7 @@ export interface TrackerSettings {
   roiSize: number;
   basepathFt: number;
   trackR2Threshold: number;
+  cameraFovDeg: number;
   setPreprocessBW: (v: boolean) => void;
   setContrastLevel: (v: number) => void;
   setOutlierRejection: (v: boolean) => void;
@@ -15,6 +16,7 @@ export interface TrackerSettings {
   setRoiSize: (v: number) => void;
   setBasepathFt: (v: number) => void;
   setTrackR2Threshold: (v: number) => void;
+  setCameraFovDeg: (v: number) => void;
 }
 
 export const useTrackerSettings = create<TrackerSettings>((set) => ({
@@ -25,6 +27,7 @@ export const useTrackerSettings = create<TrackerSettings>((set) => ({
   roiSize: 640,
   basepathFt: 60,
   trackR2Threshold: 0.95,
+  cameraFovDeg: 72,
   setPreprocessBW: (v) => set({ preprocessBW: v }),
   setContrastLevel: (v) => set({ contrastLevel: v }),
   setOutlierRejection: (v) => set({ outlierRejection: v }),
@@ -32,4 +35,5 @@ export const useTrackerSettings = create<TrackerSettings>((set) => ({
   setRoiSize: (v) => set({ roiSize: v }),
   setBasepathFt: (v) => set({ basepathFt: v }),
   setTrackR2Threshold: (v) => set({ trackR2Threshold: v }),
+  setCameraFovDeg: (v) => set({ cameraFovDeg: v }),
 }));

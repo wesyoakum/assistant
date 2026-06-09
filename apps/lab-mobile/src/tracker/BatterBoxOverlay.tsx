@@ -301,12 +301,19 @@ export const BatterBoxOverlay = forwardRef<BatterBoxOverlayHandle, BatterBoxOver
 
     // Homography from anchored points.
     const homography = useMemo((): HomographyFit | null => {
-      if (anchorCount < 4) return null;
       const corr: Correspondence[] = anchoredIds.map((id) => ({
         field: FIELD_BY_ID[id]!,
         image: { u: positions[id]!.nx * imageWidth, v: positions[id]!.ny * imageHeight },
       }));
-      return fitHomography(corr);
+      if (anchorCount >= 4) return fitHomography(corr);
+      if (anchorCount >= 3) {
+        const { fitHomographyP3P } = require("../field/p3pHomography");
+        const { intrinsicsFromFov } = require("../field/cameraPoseDecompose");
+        const { useTrackerSettings } = require("../state/trackerSettings");
+        const K = intrinsicsFromFov(imageWidth, imageHeight, useTrackerSettings.getState().cameraFovDeg || 72);
+        return fitHomographyP3P(corr, K);
+      }
+      return null;
     }, [anchored, positions, anchorCount, anchoredIds, imageWidth, imageHeight]);
 
     // Screen positions for all handles.

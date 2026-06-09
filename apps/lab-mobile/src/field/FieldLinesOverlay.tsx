@@ -20,12 +20,13 @@ interface Props {
   showZone: boolean;
   strikeZoneTopIn?: number;
   strikeZoneBottomIn?: number;
+  strikeZoneWidthIn?: number;
   K?: CameraIntrinsics | null;
 }
 
 export function FieldLinesOverlay({
   H, imageWidth, imageHeight, basepathFt, showField, showZone,
-  strikeZoneTopIn = 42, strikeZoneBottomIn = 20, K,
+  strikeZoneTopIn = 41, strikeZoneBottomIn = 15, strikeZoneWidthIn = 21, K,
 }: Props) {
   // Project a ground-plane user-space point (meters) to normalized image coords (0-1).
   const proj = (ux: number, uy: number): { x: number; y: number } | null => {
@@ -95,7 +96,7 @@ export function FieldLinesOverlay({
     // In user coords, plate front center is along the (1,1)/sqrt(2) direction.
     const D = Math.SQRT1_2;
     const plateFrontFt = 17 / 12;
-    const halfWidthFt = 8.5 / 12;
+    const halfWidthFt = (strikeZoneWidthIn / 2) / 12;
     const topFt = strikeZoneTopIn / 12;
     const botFt = strikeZoneBottomIn / 12;
 

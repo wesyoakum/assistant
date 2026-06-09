@@ -37,7 +37,11 @@ import { computeBallDirection, type BallDirection } from "../field/ballAngles";
 import { apiFetch } from "../api/client";
 import type { TrackerSession } from "./session";
 import { rejectOutliers } from "./outlierRejection";
+import { BallisticTracker } from "./ballisticTracker";
 import { FieldLinesOverlay } from "../field/FieldLinesOverlay";
+const FieldModelView = React.lazy(() =>
+  import("../field/FieldModelView").then((m) => ({ default: m.FieldModelView })),
+);
 import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
@@ -48,7 +52,29 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const OTA_TIMESTAMP = "2026-06-07 3:38pm CDT";
+const OTA_TIMESTAMP = "2026-06-07 6:30pm CDT";
+
+/** Draggable number input — drag horizontally to change value, like Blender. */
+function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
+  value: number; onChange: (v: number) => void; min: number; max: number; label: string; suffix?: string;
+}) {
+  const startRef = React.useRef({ x: 0, val: 0 });
+  const responder = React.useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: (_, gs) => { startRef.current = { x: gs.x0, val: value }; },
+    onPanResponderMove: (_, gs) => {
+      const delta = (gs.moveX - startRef.current.x) * 0.3;
+      const newVal = Math.round(Math.max(min, Math.min(max, startRef.current.val + delta)));
+      if (newVal !== value) onChange(newVal);
+    },
+  }), [value, onChange, min, max]);
+  return (
+    <View {...responder.panHandlers} style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" }}>
+      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>{label} {value}{suffix}</Text>
+    </View>
+  );
+}
 const BOX_COLOR_TEXT = "rgba(0,200,255,1)";
 
 interface ViewState {
@@ -122,7 +148,7 @@ export function TrackerTab() {
   const streamingMetaRef = useRef<{ videoWidth: number; videoHeight: number; frameRate: number } | null>(null);
   const detectionSubRef = useRef<{ remove: () => void } | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
-  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt, trackR2Threshold } = useTrackerSettings();
+  const { preprocessBW, contrastLevel, outlierRejection, outlierThreshold, basepathFt, trackR2Threshold, cameraFovDeg } = useTrackerSettings();
   const [showPoseOverlay, setShowPoseOverlay] = useState(false);
   const [cameraPose, setCameraPose] = useState<CameraPose | null>(null);
   const [cameraXYZ, setCameraXYZ] = useState<{ x: number; y: number; z: number } | null>(null);
@@ -540,8 +566,39 @@ export function TrackerTab() {
       detectionSubRef.current?.remove();
       detectionSubRef.current = null;
       setIsDetecting(false);
-      // Outlier rejection (two-pass RANSAC + refit).
-      if (outlierRejection) {
+      // Ballistic flight tracker (3D) or 2D outlier rejection fallback.
+      if (cameraPose && cameraXYZ && frame) {
+        // 3D ballistic tracking via ray-plane intersection.
+        const K = intrinsicsFromFov(r.videoWidth, r.videoHeight, frame.hFovDeg ?? 0);
+        const bt = new BallisticTracker({ frameRate: r.frameRate, r2Threshold: trackR2Threshold });
+        for (const f of r.frames) {
+          if (!f.box || f.lost) { bt.tick(f.frameIndex); continue; }
+          const cx = f.box.x + f.box.width / 2;
+          const cy = f.box.y + f.box.height / 2;
+          const ray = computeRayInfo(cx, cy, r.videoWidth, r.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, false, f.frameIndex, f.timeSec);
+          if (ray && ray.yzY != null && ray.yzZ != null) {
+            bt.addObservation({
+              frameIndex: f.frameIndex, timeSec: f.timeSec,
+              yzY: ray.yzY, yzZ: ray.yzZ,
+              pixelX: cx, pixelY: cy,
+              confidence: f.confidence,
+              rayDir: { x: ray.rayDirX, y: ray.rayDirY, z: ray.rayDirZ },
+            });
+          } else {
+            bt.tick(f.frameIndex);
+          }
+        }
+        const activeFrames = bt.getFilteredFrameIndices();
+        for (const f of r.frames) {
+          if (f.box && !f.lost && !activeFrames.has(f.frameIndex)) {
+            (f as any).rejectedBox = { ...f.box };
+            f.box = null;
+            f.lost = true;
+            (f as any).rejected = true;
+          }
+        }
+      } else if (outlierRejection) {
+        // Fallback: 2D RANSAC outlier rejection (no camera pose).
         const rej = rejectOutliers(r.frames, { inlierThreshold: outlierThreshold });
         if (rej.applied) {
           for (const label of rej.labels) {
@@ -1101,10 +1158,10 @@ export function TrackerTab() {
 
     {/* ── Video loaded, tracking setup: full-screen ──────────────────── */}
     {frame && !result && (
-      <View style={{ flex: 1, backgroundColor: "#000", borderWidth: 2, borderColor: "red" }}>
+      <View style={{ flex: 1, backgroundColor: "#000", }}>
         <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", textAlign: "center", paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.9)" }}>Setup</Text>
         {/* Video fills available space, maintaining aspect ratio */}
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "lime" }}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", }}>
           <View
             ref={canvasRef2}
             {...responder.panHandlers}
@@ -1114,7 +1171,6 @@ export function TrackerTab() {
               width: "100%",
               maxHeight: "100%",
               overflow: "hidden",
-              borderWidth: 2, borderColor: "cyan",
             }}
           >
             <Image
@@ -1134,21 +1190,24 @@ export function TrackerTab() {
                 <FieldModelOverlay ref={poseOverlayRef} imageWidth={frame.imageWidth} imageHeight={frame.imageHeight} vp={vp} canvas={canvas} canvasPageOffset={canvasPageOffsetRef.current} />
               </React.Suspense>
             )}
-            {cameraPose && !showPoseOverlay && (
-              <FieldLinesOverlay
-                H={cameraPose.fit.H}
-                imageWidth={frame.imageWidth}
-                imageHeight={frame.imageHeight}
-                basepathFt={basepathFt}
-                showField={showFieldLines}
-                showZone={showStrikeZone}
-                K={intrinsicsFromFov(frame.imageWidth, frame.imageHeight, frame.hFovDeg ?? 0)}
-              />
+            {cameraPose && !showPoseOverlay && showFieldLines && canvas.width > 10 && (
+              <React.Suspense fallback={null}>
+                <FieldModelView
+                  key={`fmv-${Math.round(canvas.width)}-${Math.round(canvas.height)}`}
+                  H={cameraPose.fit.H}
+                  K={intrinsicsFromFov(frame.imageWidth, frame.imageHeight, cameraFovDeg || 72)}
+                  imageWidth={frame.imageWidth}
+                  imageHeight={frame.imageHeight}
+                  canvasWidth={canvas.width}
+                  canvasHeight={canvas.height}
+                  opacity={0.5}
+                />
+              </React.Suspense>
             )}
           </View>
           {/* Transport bar — inside centering container, just below canvas (portrait only) */}
           {!showPoseOverlay && !showRoiOverlay && !isLandscape && (
-            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 1, paddingVertical: 4, paddingHorizontal: 6, borderWidth: 2, borderColor: "yellow" }}>
+            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 1, paddingVertical: 4, paddingHorizontal: 6, }}>
               <Pressable onPress={() => { if (frame) loadFrame(videoUri!, 0); }} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"|<<"}</Text></Pressable>
               <Pressable onPress={() => frameStep(-30 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<<"+"<"}</Text></Pressable>
               <Pressable onPress={() => frameStep(-15 * frameStepSec)} disabled={!!busy} style={styles.transportBtn}><Text style={styles.transportTxt}>{"<<"}</Text></Pressable>
@@ -1182,6 +1241,8 @@ export function TrackerTab() {
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
                     <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
                     <Pill label="Set Pose" active onPress={handleSetPose} small />
+                    <DragNumber value={cameraFovDeg} onChange={(v) => useTrackerSettings.getState().setCameraFovDeg(v)} min={20} max={120} label="FOV" suffix="°" />
+                    <Pill label="1:1" onPress={() => setVp({ scale: 1, tx: 0, ty: 0 })} small />
                   </>
                 )}
                 {showRoiOverlay && (
@@ -1237,12 +1298,14 @@ export function TrackerTab() {
                   </Text>
                 </View>
                 {showPoseOverlay && (
-                  <View style={[styles.pillRow, { justifyContent: "flex-end", paddingRight: 4 }]}>
+                  <View style={[styles.pillRow, { justifyContent: "flex-end", paddingRight: 4, flexWrap: "wrap" }]}>
                     <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
                     <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
                     <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
                     <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
                     <Pill label="Set Pose" active onPress={handleSetPose} small />
+                    <DragNumber value={cameraFovDeg} onChange={(v) => useTrackerSettings.getState().setCameraFovDeg(v)} min={20} max={120} label="FOV" suffix="°" />
+                    <Pill label="1:1" onPress={() => setVp({ scale: 1, tx: 0, ty: 0 })} small />
                   </View>
                 )}
                 {err && (
@@ -1303,10 +1366,10 @@ export function TrackerTab() {
 
     {/* ── Result review: full-screen ─────────────────────────────────── */}
     {result && (
-      <View style={{ flex: 1, backgroundColor: "#000", borderWidth: 2, borderColor: "red" }}>
+      <View style={{ flex: 1, backgroundColor: "#000", }}>
         <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", textAlign: "center", paddingVertical: 4, backgroundColor: "rgba(0,0,0,0.9)" }}>Results</Text>
         {/* Review canvas fills available space */}
-        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "lime" }}>
+        <View style={{ flex: 1, justifyContent: "center", alignItems: "center", }}>
           {reviewedFrame && (
             <View
               ref={canvasRef2}
@@ -1319,8 +1382,7 @@ export function TrackerTab() {
                 backgroundColor: "#111",
                 overflow: "hidden",
                 position: "relative",
-                borderWidth: 2, borderColor: "cyan",
-              }}
+                }}
             >
               {/* Transformed image + overlays */}
               <View
@@ -1385,24 +1447,26 @@ export function TrackerTab() {
                     <View pointerEvents="none" style={{ position: "absolute", left: `${cur.box.x * 100}%`, top: `${cur.box.y * 100}%`, width: `${cur.box.width * 100}%`, height: `${cur.box.height * 100}%`, borderWidth: 2, borderColor: isInterp ? "#FF9500" : "#34C759", borderStyle: isInterp ? "dashed" : "solid" }} />
                   );
                 })()}
-              </View>
-                {cameraPose && (
-                  <FieldLinesOverlay
-                    H={cameraPose.fit.H}
-                    imageWidth={result.videoWidth}
-                    imageHeight={result.videoHeight}
-                    basepathFt={basepathFt}
-                    showField={showFieldLines}
-                    showZone={showStrikeZone}
-                    K={frame ? intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0) : null}
-                  />
+                {cameraPose && showFieldLines && frame && (
+                  <React.Suspense fallback={null}>
+                    <FieldModelView
+                      H={cameraPose.fit.H}
+                      K={intrinsicsFromFov(result.videoWidth, result.videoHeight, frame.hFovDeg ?? 0)}
+                      imageWidth={result.videoWidth}
+                      imageHeight={result.videoHeight}
+                      canvasWidth={canvas.width}
+                      canvasHeight={canvas.height}
+                      opacity={0.5}
+                    />
+                  </React.Suspense>
                 )}
+              </View>
               {/* Fixed overlays (outside transform) */}
             </View>
           )}
           {/* Transport bar — inside centering container, just below canvas */}
           {!fullScreen && (
-            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 1, paddingVertical: 4, paddingHorizontal: 6, borderWidth: 2, borderColor: "yellow" }}>
+            <View style={{ flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 1, paddingVertical: 4, paddingHorizontal: 6, }}>
               <Pressable onPress={() => { setIsPlaying(false); const n = 0; setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"|<<"}</Text></Pressable>
               <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 30); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"<<"+"<"}</Text></Pressable>
               <Pressable onPress={() => { setIsPlaying(false); const n = Math.max(0, reviewIdx - 15); setReviewIdx(n); seekToFrame(n); }} disabled={reviewIdx === 0} style={styles.transportBtn}><Text style={[styles.transportTxt, reviewIdx === 0 && { opacity: 0.3 }]}>{"<<"}</Text></Pressable>
@@ -1619,6 +1683,15 @@ export function TrackerTab() {
                 <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.max(0.5, +(trackR2Threshold - 0.01).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
                 <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{trackR2Threshold.toFixed(2)}</Text>
                 <Pressable onPress={() => useTrackerSettings.getState().setTrackR2Threshold(Math.min(1.0, +(trackR2Threshold + 0.01).toFixed(2)))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              <Text style={{ color: theme.text, fontSize: 13 }}>Camera FOV (°)</Text>
+              <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                <Pressable onPress={() => useTrackerSettings.getState().setCameraFovDeg(Math.max(20, cameraFovDeg - 1))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>−</Text></Pressable>
+                <Text style={{ color: theme.text, fontSize: 12, width: 36, textAlign: "center" }}>{cameraFovDeg}</Text>
+                <Pressable onPress={() => useTrackerSettings.getState().setCameraFovDeg(Math.min(120, cameraFovDeg + 1))} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, backgroundColor: theme.surfaceAlt }}><Text style={{ color: theme.text }}>+</Text></Pressable>
               </View>
             </View>
           </View>

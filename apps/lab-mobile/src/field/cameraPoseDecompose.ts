@@ -93,15 +93,21 @@ export function projectFieldPoint3D(
   const c1 = [M[1]!, M[4]!, M[7]!];
   const c2 = [M[2]!, M[5]!, M[8]!];
 
-  let lambda = Math.sqrt(c0[0]! * c0[0]! + c0[1]! * c0[1]! + c0[2]! * c0[2]!);
-  if (lambda < 1e-10) return null;
+  const lambda1 = Math.sqrt(c0[0]! * c0[0]! + c0[1]! * c0[1]! + c0[2]! * c0[2]!);
+  const lambda2 = Math.sqrt(c1[0]! * c1[0]! + c1[1]! * c1[1]! + c1[2]! * c1[2]!);
+  if (lambda1 < 1e-10 || lambda2 < 1e-10) return null;
+  let lambda = lambda1;
   const t2check = c2[2]! / lambda;
   if (t2check < 0) lambda = -lambda;
+  const sign = lambda < 0 ? -1 : 1;
 
   const r1 = c0.map((v) => v / lambda);
-  const r2 = c1.map((v) => v / lambda);
+  const r2 = c1.map((v) => v / (sign * lambda2));
   const t = c2.map((v) => v / lambda);
-  const r3 = cross3(r1, r2);
+  const r3raw = cross3(r1, r2);
+  // Normalize r3 to ensure unit length (compensates for numerical error in homography).
+  const r3len = Math.sqrt(r3raw[0]! * r3raw[0]! + r3raw[1]! * r3raw[1]! + r3raw[2]! * r3raw[2]!);
+  const r3 = r3len > 1e-10 ? r3raw.map((v) => v / r3len) : r3raw;
 
   // H maps user ground (x,y). Column 0 = user X, column 1 = user Y, r3 = user Z.
   // cam = R * [pt.x, pt.y, pt.z] + t

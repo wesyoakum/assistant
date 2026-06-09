@@ -111,12 +111,19 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     // ── Homography from placed anchors ────────────────────────────────
     const homography = useMemo((): HomographyFit | null => {
-      if (placedCount < 4) return null;
       const corr: Correspondence[] = Object.entries(placed).map(([id, p]) => ({
         field: fieldById[id]!,
         image: { u: p.nx * imageWidth, v: p.ny * imageHeight },
       }));
-      return fitHomography(corr);
+      if (placedCount >= 4) return fitHomography(corr);
+      // P3P: 3 points + known intrinsics → orthonormal rotation.
+      if (placedCount >= 3) {
+        const { fitHomographyP3P } = require("./p3pHomography");
+        const { useTrackerSettings } = require("../state/trackerSettings");
+        const K = intrinsicsFromFov(imageWidth, imageHeight, useTrackerSettings.getState().cameraFovDeg || 72);
+        return fitHomographyP3P(corr, K);
+      }
+      return null;
     }, [placed, fieldById, imageWidth, imageHeight, placedCount]);
 
     // ── Sync 3D camera when homography is available ───────────────────
@@ -124,7 +131,8 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       const cam = cameraRef.current;
       if (!cam || !homography) return;
 
-      const hFovDeg = 69;
+      const { useTrackerSettings } = require("../state/trackerSettings");
+      const hFovDeg = useTrackerSettings.getState().cameraFovDeg || 72;
       const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
       const ifx = 1 / K.fx, ify = 1 / K.fy;
       const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
@@ -380,10 +388,10 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
 
     // ── All handles for dropdown (placed + unplaced) ──────────────────
     const handleList = useMemo(() => {
-      return handles.map((h) => ({
+      return sortHandles(handles.map((h) => ({
         id: h.id,
         isPlaced: !!placed[h.id],
-      }));
+      })));
     }, [handles, placed]);
 
     // ── Render ────────────────────────────────────────────────────────
@@ -608,15 +616,46 @@ function mul3x3(A: number[], B: number[]): number[] {
 
 // ── Fallback handles ────────────────────────────────────────────────────
 
+// Preferred handle order for the dropdown.
+const HANDLE_ORDER = [
+  "plate_apex", "1B", "2B", "3B",
+  "right_BB_front_right", "right_BB_front_left",
+  "plate_FR", "plate_FL",
+  "right_BB_back_right", "right_BB_back_left",
+  "left_BB_front_right", "left_BB_front_left",
+  "left_BB_back_right", "left_BB_back_left",
+];
+
+function sortHandles<T extends { id: string }>(handles: T[]): T[] {
+  return [...handles].sort((a, b) => {
+    const ai = HANDLE_ORDER.indexOf(a.id);
+    const bi = HANDLE_ORDER.indexOf(b.id);
+    if (ai >= 0 && bi >= 0) return ai - bi;
+    if (ai >= 0) return -1;
+    if (bi >= 0) return 1;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 function buildFallbackHandles(): HandlePoint[] {
+  const D = Math.SQRT1_2;
+  const FT = 0.3048;
   const h = (id: string, x: number, y: number, z: number = 0) => ({
     id, position: new THREE.Vector3(x, y, z),
   });
-  return [
+  // Plate front center: 17/12 ft along (1,1)/sqrt(2) from apex
+  const plateFrontFt = 17 / 12;
+  const halfWFt = 8.5 / 12;
+  const fcx = plateFrontFt * D * FT;
+  const fcy = plateFrontFt * D * FT;
+  const rx = D * FT, ry = -D * FT; // right direction
+  return sortHandles([
     h("plate_apex", 0, 0),
     h("1B", 18.288, 0),
     h("2B", 18.288, 18.288),
     h("3B", 0, 18.288),
+    h("plate_FR", fcx + halfWFt * rx, fcy + halfWFt * ry),
+    h("plate_FL", fcx - halfWFt * rx, fcy - halfWFt * ry),
     h("right_BB_front_right", 1.922, -0.323),
     h("right_BB_front_left", 1.060, 0.539),
     h("right_BB_back_right", 0.629, -1.616),
@@ -625,5 +664,5 @@ function buildFallbackHandles(): HandlePoint[] {
     h("left_BB_front_left", -0.323, 1.922),
     h("left_BB_back_right", -0.754, -0.234),
     h("left_BB_back_left", -1.616, 0.628),
-  ];
+  ]);
 }
