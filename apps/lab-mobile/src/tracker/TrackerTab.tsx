@@ -182,6 +182,16 @@ export function TrackerTab() {
   // Load saved videos and calibrations on mount.
   useEffect(() => { listSavedVideos().then(setSavedVideos).catch(() => {}); }, []);
   useEffect(() => { listCalibrations().then(setSavedCals).catch(() => {}); }, []);
+
+  // Prune expired live dots every 100ms (visible for 2s, fade over 1s, gone at 3s).
+  useEffect(() => {
+    if (!liveRecording && liveDots.length === 0) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setLiveDots((prev) => prev.filter((d) => now - d.t < 3000));
+    }, 100);
+    return () => clearInterval(id);
+  }, [liveRecording, liveDots.length > 0]);
   useEffect(() => { listRois().then(setSavedRois).catch(() => {}); }, []);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
@@ -218,6 +228,7 @@ export function TrackerTab() {
   const liveCameraRef = useRef<CameraCaptureHandle>(null);
   const liveFrameOffsetRef = useRef(0);
   const liveProcessingChainRef = useRef<Promise<void>>(Promise.resolve());
+  const [liveDots, setLiveDots] = useState<{ nx: number; ny: number; t: number }[]>([]);
 
   const pickFromLibrary = async () => {
     setShowSourcePicker(false);
@@ -1137,20 +1148,20 @@ export function TrackerTab() {
     detectionSubRef.current?.remove();
     const baseOffsetRef = liveFrameOffsetRef; // capture ref
     detectionSubRef.current = Yolo.onDetection((frame) => {
-      // The native module emits frameIndex starting at 0 per detectInVideo call.
-      // We need the global offset, but since segments are processed sequentially,
-      // the offset is set before each segment's detectInVideo call.
-      // However, the offset was already advanced by the time events fire.
-      // We need to track the per-segment base offset.
-      // For simplicity, just push with the raw index — the streaming poller
-      // creates the result from the full array in order.
       streamingFramesRef.current.push({
         ...frame,
         frameIndex: streamingFramesRef.current.length,
         timeSec: streamingFramesRef.current.length / 30,
       });
+      // Push dot for live overlay (only if detected).
+      if (frame.box && !frame.lost) {
+        const cx = frame.box.x + frame.box.width / 2;
+        const cy = frame.box.y + frame.box.height / 2;
+        setLiveDots((prev) => [...prev, { nx: cx, ny: cy, t: Date.now() }]);
+      }
     });
 
+    setLiveDots([]);
     setIsDetecting(true);
     setLiveRecording(true);
     setLiveSnapshot(null); // Switch back to camera preview while recording.
@@ -1444,6 +1455,31 @@ export function TrackerTab() {
               onCancel={() => {}}
               onSegmentReady={liveRecording ? onLiveSegmentReady : undefined}
             />
+            {/* Live detection dots overlay */}
+            {liveDots.length > 0 && (
+              <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                {liveDots.map((d, i) => {
+                  const age = (Date.now() - d.t) / 1000;
+                  const opacity = age < 2 ? 1 : Math.max(0, 1 - (age - 2));
+                  return (
+                    <View
+                      key={`${d.t}-${i}`}
+                      style={{
+                        position: "absolute",
+                        left: `${d.nx * 100}%`,
+                        top: `${d.ny * 100}%`,
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: `rgba(0,255,100,${opacity})`,
+                        marginLeft: -4,
+                        marginTop: -4,
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            )}
             {/* Status + controls overlay */}
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
               <View style={{ alignItems: "center", paddingTop: 50 }}>
