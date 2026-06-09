@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
   Modal,
   type LayoutChangeEvent,
+  TextInput,
+  Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as Clipboard from "expo-clipboard";
@@ -46,6 +48,7 @@ const FieldModelView = React.lazy(() =>
 import { useTrackerSettings } from "../state/trackerSettings";
 import { computeRayInfo, type RayInfo } from "../field/rayTrace";
 import { listSavedVideos, saveVideo, deleteSavedVideo, type SavedVideo } from "./savedVideos";
+import { listCalibrations, saveCalibration, deleteCalibration, renameCalibration, type SavedCalibration } from "./savedCalibrations";
 import { useOrientation } from "../hooks/useOrientation";
 import { useNavigation } from "expo-router";
 import { useTheme } from "../theme";
@@ -141,6 +144,10 @@ export function TrackerTab() {
   const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showCalPicker, setShowCalPicker] = useState(false);
+  const [savedCals, setSavedCals] = useState<SavedCalibration[]>([]);
+  const [renamingCalId, setRenamingCalId] = useState<string | null>(null);
+  const [renameText, setRenameText] = useState("");
   const [savedViewUrl, setSavedViewUrl] = useState<string | null>(null);
   const [showProcessed, setShowProcessed] = useState(false);
   const [showAllDetections, setShowAllDetections] = useState(false);
@@ -169,8 +176,9 @@ export function TrackerTab() {
 
   useEffect(() => { showRoiOverlayRef.current = showRoiOverlay; }, [showRoiOverlay]);
 
-  // Load saved videos on mount.
+  // Load saved videos and calibrations on mount.
   useEffect(() => { listSavedVideos().then(setSavedVideos).catch(() => {}); }, []);
+  useEffect(() => { listCalibrations().then(setSavedCals).catch(() => {}); }, []);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
   const [scrollEnabled, setScrollEnabled] = useState(true);
@@ -955,7 +963,7 @@ export function TrackerTab() {
     setBusy("saving calibration…");
     try {
       const pose = poseOverlayRef.current?.solve();
-      const payload = {
+      await saveCalibration({
         name: new Date().toLocaleString(),
         positions: state.positions,
         anchored: state.anchored,
@@ -963,33 +971,53 @@ export function TrackerTab() {
         cameraXYZ,
         cameraAngles,
         basepathFt,
-      };
-      await apiFetch("/tracking/calibrations", { method: "POST", body: JSON.stringify(payload) });
+        fovDeg: cameraFovDeg,
+      });
+      setSavedCals(await listCalibrations());
       setCopyHint("Calibration saved");
       setTimeout(() => setCopyHint(null), 3000);
     } catch (e) { setErr((e as Error).message); }
     finally { setBusy(null); }
   };
 
-  const handleLoadCal = async () => {
-    setBusy("loading calibrations…");
-    try {
-      const res = await apiFetch<{ calibrations: { id: string; uploaded: string }[] }>("/tracking/calibrations");
-      if (!res.calibrations.length) { setErr("No saved calibrations"); setBusy(null); return; }
-      const latest = res.calibrations[0]!;
-      setBusy(`loading ${latest.id}…`);
-      const cal = await apiFetch<any>(`/tracking/calibrations/${latest.id}`);
-      if (cal.positions && cal.anchored) {
-        poseOverlayRef.current?.setState?.({ positions: cal.positions, anchored: cal.anchored });
-      }
-      if (cal.cameraPose) setCameraPose({ fit: cal.cameraPose as any, sides: ["left", "right"] });
-      if (cal.cameraXYZ) setCameraXYZ(cal.cameraXYZ);
-      if (cal.cameraAngles) setCameraAngles(cal.cameraAngles);
-      if (cal.basepathFt) useTrackerSettings.getState().setBasepathFt(cal.basepathFt);
-      setCopyHint("Calibration loaded");
-      setTimeout(() => setCopyHint(null), 3000);
-    } catch (e) { setErr((e as Error).message); }
-    finally { setBusy(null); }
+  const handleLoadCal = () => {
+    listCalibrations().then((cals) => {
+      setSavedCals(cals);
+      if (!cals.length) { setErr("No saved calibrations"); return; }
+      setShowCalPicker(true);
+    }).catch(() => setErr("Failed to load calibrations"));
+  };
+
+  const applyCalibration = (cal: SavedCalibration) => {
+    if (cal.positions && cal.anchored) {
+      poseOverlayRef.current?.setState?.({ positions: cal.positions, anchored: cal.anchored });
+    }
+    if (cal.cameraPose) setCameraPose({ fit: cal.cameraPose as any, sides: ["left", "right"] });
+    if (cal.cameraXYZ) setCameraXYZ(cal.cameraXYZ);
+    if (cal.cameraAngles) setCameraAngles(cal.cameraAngles);
+    if (cal.basepathFt) useTrackerSettings.getState().setBasepathFt(cal.basepathFt);
+    if (cal.fovDeg) useTrackerSettings.getState().setCameraFovDeg(cal.fovDeg);
+    setShowCalPicker(false);
+    setCopyHint(`Loaded: ${cal.name}`);
+    setTimeout(() => setCopyHint(null), 3000);
+  };
+
+  const handleDeleteCal = (id: string, name: string) => {
+    Alert.alert("Delete Calibration", `Delete "${name}"?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: async () => {
+        await deleteCalibration(id);
+        setSavedCals(await listCalibrations());
+      }},
+    ]);
+  };
+
+  const handleRenameCal = async (id: string) => {
+    if (!renameText.trim()) return;
+    await renameCalibration(id, renameText.trim());
+    setSavedCals(await listCalibrations());
+    setRenamingCalId(null);
+    setRenameText("");
   };
 
   const handleSaveSession = async () => {
@@ -1824,6 +1852,67 @@ export function TrackerTab() {
 
           <Pressable onPress={() => setShowSettings(false)} style={{ marginTop: 16, paddingVertical: 10, backgroundColor: theme.primary, borderRadius: 8, alignItems: "center" }}>
             <Text style={{ color: "#fff", fontWeight: "600" }}>Done</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+
+    {/* ── Calibration picker modal ── */}
+    <Modal visible={showCalPicker} transparent animationType="fade" onRequestClose={() => setShowCalPicker(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }} onPress={() => { setShowCalPicker(false); setRenamingCalId(null); }}>
+        <Pressable style={{ backgroundColor: theme.background, borderRadius: 12, padding: 16, width: 320, maxHeight: 480 }} onPress={(e) => e.stopPropagation()}>
+          <Text style={{ color: theme.text, fontWeight: "700", fontSize: 15, marginBottom: 12 }}>Calibrations</Text>
+          <ScrollView style={{ maxHeight: 380 }}>
+            {savedCals.length === 0 && (
+              <Text style={{ color: theme.textMuted, fontSize: 13, textAlign: "center", paddingVertical: 20 }}>No saved calibrations</Text>
+            )}
+            {savedCals.map((cal) => (
+              <View key={cal.id} style={{ marginBottom: 8, backgroundColor: theme.surfaceAlt, borderRadius: 8, padding: 10 }}>
+                {renamingCalId === cal.id ? (
+                  <View style={{ flexDirection: "row", gap: 6, alignItems: "center", marginBottom: 6 }}>
+                    <TextInput
+                      style={{ flex: 1, color: theme.text, fontSize: 13, borderWidth: 1, borderColor: theme.primary, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}
+                      value={renameText}
+                      onChangeText={setRenameText}
+                      autoFocus
+                      onSubmitEditing={() => handleRenameCal(cal.id)}
+                    />
+                    <Pressable onPress={() => handleRenameCal(cal.id)} style={{ paddingHorizontal: 8, paddingVertical: 4, backgroundColor: theme.primary, borderRadius: 4 }}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>OK</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setRenamingCalId(null)} style={{ paddingHorizontal: 6, paddingVertical: 4 }}>
+                      <Text style={{ color: theme.textMuted, fontSize: 11 }}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <>
+                    <Pressable onPress={() => applyCalibration(cal)}>
+                      <Text style={{ color: theme.text, fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{cal.name}</Text>
+                      <Text style={{ color: theme.textMuted, fontSize: 10, marginTop: 2 }}>
+                        {new Date(cal.savedAt).toLocaleString()}
+                        {cal.cameraPose ? `  ·  ${cal.cameraPose.count} pts  ·  ${cal.cameraPose.rmsPx.toFixed(1)}px RMS` : "  ·  no pose"}
+                        {cal.fovDeg ? `  ·  ${cal.fovDeg}° FOV` : ""}
+                        {`  ·  ${cal.basepathFt}ft`}
+                      </Text>
+                    </Pressable>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                      <Pressable onPress={() => applyCalibration(cal)} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.primary, borderRadius: 4 }}>
+                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "600" }}>Load</Text>
+                      </Pressable>
+                      <Pressable onPress={() => { setRenamingCalId(cal.id); setRenameText(cal.name); }} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.surfaceAlt, borderRadius: 4, borderWidth: 1, borderColor: theme.border }}>
+                        <Text style={{ color: theme.text, fontSize: 11 }}>Rename</Text>
+                      </Pressable>
+                      <Pressable onPress={() => handleDeleteCal(cal.id, cal.name)} style={{ paddingHorizontal: 10, paddingVertical: 4, backgroundColor: theme.surfaceAlt, borderRadius: 4, borderWidth: 1, borderColor: theme.border }}>
+                        <Text style={{ color: "#cc3333", fontSize: 11 }}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+          <Pressable onPress={() => { setShowCalPicker(false); setRenamingCalId(null); }} style={{ marginTop: 12, paddingVertical: 10, backgroundColor: theme.primary, borderRadius: 8, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontWeight: "600" }}>Close</Text>
           </Pressable>
         </Pressable>
       </Pressable>
