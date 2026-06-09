@@ -36,6 +36,7 @@ export interface FieldModelOverlayProps {
   vp: { scale: number; tx: number; ty: number };
   canvas: { width: number; height: number };
   canvasPageOffset: { x: number; y: number };
+  fovDeg?: number;
 }
 
 export interface FieldModelOverlayHandle {
@@ -79,7 +80,7 @@ function displayName(id: string) { return HANDLE_LABEL[id] ?? id.slice(0, 6); }
 
 export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelOverlayProps>(
   function FieldModelOverlay(
-    { imageWidth, imageHeight, vp, canvas, canvasPageOffset },
+    { imageWidth, imageHeight, vp, canvas, canvasPageOffset, fovDeg: fovDegProp },
     ref,
   ) {
     const sceneRef = useRef<THREE.Scene | null>(null);
@@ -110,6 +111,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
     const placedCount = Object.keys(placed).length;
 
     // ── Homography from placed anchors ────────────────────────────────
+    const effectiveFov = fovDegProp ?? 72;
     const homography = useMemo((): HomographyFit | null => {
       const corr: Correspondence[] = Object.entries(placed).map(([id, p]) => ({
         field: fieldById[id]!,
@@ -119,21 +121,18 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
       // P3P: 3 points + known intrinsics → orthonormal rotation.
       if (placedCount >= 3) {
         const { fitHomographyP3P } = require("./p3pHomography");
-        const { useTrackerSettings } = require("../state/trackerSettings");
-        const K = intrinsicsFromFov(imageWidth, imageHeight, useTrackerSettings.getState().cameraFovDeg || 72);
+        const K = intrinsicsFromFov(imageWidth, imageHeight, effectiveFov);
         return fitHomographyP3P(corr, K);
       }
       return null;
-    }, [placed, fieldById, imageWidth, imageHeight, placedCount]);
+    }, [placed, fieldById, imageWidth, imageHeight, placedCount, effectiveFov]);
 
     // ── Sync 3D camera when homography is available ───────────────────
     useEffect(() => {
       const cam = cameraRef.current;
       if (!cam || !homography) return;
 
-      const { useTrackerSettings } = require("../state/trackerSettings");
-      const hFovDeg = useTrackerSettings.getState().cameraFovDeg || 72;
-      const K = intrinsicsFromFov(imageWidth, imageHeight, hFovDeg);
+      const K = intrinsicsFromFov(imageWidth, imageHeight, effectiveFov);
       const ifx = 1 / K.fx, ify = 1 / K.fy;
       const Kinv = [ifx, 0, -K.cx * ifx, 0, ify, -K.cy * ify, 0, 0, 1];
       const M = mul3x3(Kinv, homography.H);
@@ -174,7 +173,7 @@ export const FieldModelOverlay = forwardRef<FieldModelOverlayHandle, FieldModelO
         P20,              P21,              P22,              P23,
       );
       cam.projectionMatrixInverse.copy(cam.projectionMatrix).invert();
-    }, [homography, imageWidth, imageHeight]);
+    }, [homography, imageWidth, imageHeight, effectiveFov]);
 
     // ── Model visibility + opacity ────────────────────────────────────
     useEffect(() => {

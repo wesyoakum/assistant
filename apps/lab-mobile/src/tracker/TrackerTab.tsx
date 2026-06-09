@@ -1333,7 +1333,7 @@ export function TrackerTab() {
             )}
             {showPoseOverlay && (
               <React.Suspense fallback={<View style={StyleSheet.absoluteFill}><Text style={{ color: "#fff", padding: 10 }}>Loading 3D overlay…</Text></View>}>
-                <FieldModelOverlay ref={poseOverlayRef} imageWidth={frame.imageWidth} imageHeight={frame.imageHeight} vp={vp} canvas={canvas} canvasPageOffset={canvasPageOffsetRef.current} />
+                <FieldModelOverlay ref={poseOverlayRef} imageWidth={frame.imageWidth} imageHeight={frame.imageHeight} vp={vp} canvas={canvas} canvasPageOffset={canvasPageOffsetRef.current} fovDeg={cameraFovDeg} />
               </React.Suspense>
             )}
             {cameraPose && !showPoseOverlay && showFieldLines && canvas.width > 10 && (
