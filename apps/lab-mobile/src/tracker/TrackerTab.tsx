@@ -53,7 +53,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const OTA_TIMESTAMP = "2026-06-07 6:45pm CDT";
+const OTA_TIMESTAMP = "2026-06-07 7:48pm CDT";
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
 function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
@@ -528,6 +528,8 @@ export function TrackerTab() {
   // Accumulated detections in step-by-step mode.
   const [detections, setDetections] = useState<Map<number, TrackedFrame>>(new Map());
   const [detectMode, setDetectMode] = useState(false);
+  const [validatedFrames, setValidatedFrames] = useState<Set<number>>(new Set());
+  const ballisticRef = useRef<BallisticTracker | null>(null);
 
   // Detect a single frame at the given timestamp using the native pipeline.
   const detectSingleFrame = useCallback(async (timeSec: number, frameIdx: number) => {
@@ -566,6 +568,11 @@ export function TrackerTab() {
     if (!videoUri || !frame) return;
     setDetectMode(true);
     setDetections(new Map());
+    setValidatedFrames(new Set());
+    ballisticRef.current = new BallisticTracker({
+      frameRate: Math.min(frame.frameRate > 0 ? frame.frameRate : 30, 30),
+      r2Threshold: trackR2Threshold,
+    });
 
     // Build initial result from just the current frame.
     const fps = frame.frameRate > 0 ? frame.frameRate : 30;
@@ -592,7 +599,7 @@ export function TrackerTab() {
     await detectSingleFrame(frameTimeSec, Math.round(frameTimeSec * Math.min(fps, 30)));
   };
 
-  // Update result frames when detections change in detect mode.
+  // Update result frames and run ballistic validation when detections change.
   useEffect(() => {
     if (!detectMode || !result) return;
     const updated = result.frames.map((f) => {
@@ -601,6 +608,38 @@ export function TrackerTab() {
       return f;
     });
     setResult((prev) => prev ? { ...prev, frames: updated } : prev);
+
+    // Feed new detections to ballistic tracker.
+    const bt = ballisticRef.current;
+    if (!bt || !cameraPose || !cameraXYZ || !frame) return;
+    const K = intrinsicsFromFov(result.videoWidth, result.videoHeight, cameraFovDeg || 72);
+    // Process all detections in order.
+    const sorted = [...detections.entries()].sort((a, b) => a[0] - b[0]);
+    // Reset and replay (tracker is stateful, replaying is safe since it's fast).
+    bt.constructor.prototype.constructor.call(bt); // can't reset easily, just rebuild
+    const freshBt = new BallisticTracker({
+      frameRate: result.frameRate,
+      r2Threshold: trackR2Threshold,
+    });
+    for (const [fi, det] of sorted) {
+      if (!det.box || det.lost) { freshBt.tick(fi); continue; }
+      const cx = det.box.x + det.box.width / 2;
+      const cy = det.box.y + det.box.height / 2;
+      const ray = computeRayInfo(cx, cy, result.videoWidth, result.videoHeight, K, cameraPose.fit.Hinv, cameraXYZ, false, fi, det.timeSec);
+      if (ray && ray.yzY != null && ray.yzZ != null) {
+        freshBt.addObservation({
+          frameIndex: fi, timeSec: det.timeSec,
+          yzY: ray.yzY, yzZ: ray.yzZ,
+          pixelX: cx, pixelY: cy,
+          confidence: det.confidence,
+          rayDir: { x: ray.rayDirX, y: ray.rayDirY, z: ray.rayDirZ },
+        });
+      } else {
+        freshBt.tick(fi);
+      }
+    }
+    ballisticRef.current = freshBt;
+    setValidatedFrames(freshBt.getFilteredFrameIndices());
   }, [detections, detectMode]);
 
   // Detect on frame change in detect mode.
@@ -630,9 +669,37 @@ export function TrackerTab() {
     return interpolateBoxes(result.frames, box);
   }, [result, box]);
 
-  // Smooth Catmull-Rom path through every real detection center.
+  // Polynomial fit path through validated detections (detect mode only).
+  const polyFitPath = useMemo(() => {
+    if (!detectMode || validatedFrames.size < 3 || !result) return "";
+    // Get validated detections sorted by time.
+    const pts = [...detections.entries()]
+      .filter(([fi]) => validatedFrames.has(fi))
+      .map(([_, d]) => ({ t: d.timeSec, cx: d.box!.x + d.box!.width / 2, cy: d.box!.y + d.box!.height / 2 }))
+      .filter((p) => p.cx != null)
+      .sort((a, b) => a.t - b.t);
+    if (pts.length < 3) return "";
+    const ts = pts.map((p) => p.t);
+    const fX = lsqQuadratic(ts, pts.map((p) => p.cx));
+    const fY = lsqQuadratic(ts, pts.map((p) => p.cy));
+    // Sample the polynomial across the time range + a bit of extrapolation.
+    const tMin = ts[0]!, tMax = ts[ts.length - 1]!;
+    const extend = (tMax - tMin) * 0.15;
+    const steps = 40;
+    const pathPts: string[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = (tMin - extend) + (i / steps) * (tMax - tMin + 2 * extend);
+      const x = fX[0]! * t * t + fX[1]! * t + fX[2]!;
+      const y = fY[0]! * t * t + fY[1]! * t + fY[2]!;
+      if (x < -0.1 || x > 1.1 || y < -0.1 || y > 1.1) continue;
+      pathPts.push(`${i === 0 || pathPts.length === 0 ? "M" : "L"} ${x} ${y}`);
+    }
+    return pathPts.join(" ");
+  }, [detectMode, validatedFrames, detections, result]);
+
+  // Smooth Catmull-Rom path through every real detection center (hidden in detect mode).
   const splinePath = useMemo(() => {
-    if (!result || !interpolated) return "";
+    if (!result || !interpolated || detectMode) return "";
     const pts: Array<{ x: number; y: number }> = [];
     const end = showAllDetections ? result.frames.length - 1 : reviewIdx;
     for (let i = 0; i <= end && i < result.frames.length; i++) {
@@ -669,8 +736,16 @@ export function TrackerTab() {
   useEffect(() => { isDetectingRef.current = isDetecting; }, [isDetecting]);
 
   // Map video playback position → reviewIdx for overlay sync.
+  const detectModeRef = useRef(detectMode);
+  useEffect(() => { detectModeRef.current = detectMode; }, [detectMode]);
+
   const onPlaybackStatus = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded || !result) return;
+    // In detect mode, transport buttons control reviewIdx — don't let the video override it.
+    if (detectModeRef.current) {
+      if (status.didJustFinish) setIsPlaying(false);
+      return;
+    }
     const posSec = status.positionMillis / 1000;
     const frames = result.frames;
     let idx = 0;
@@ -682,17 +757,16 @@ export function TrackerTab() {
     if (status.didJustFinish && !isDetectingRef.current) setIsPlaying(false);
   }, [result]);
 
-  // Seek video when result changes or reviewIdx is reset to 0.
+  // Seek video when result first appears (non-detect mode only).
   const resultRef = useRef(result);
   useEffect(() => {
-    if (!result || !videoRef.current) return;
-    // Seek when result first appears or when it changes (e.g., streaming → final).
+    if (!result || !videoRef.current || detectMode) return;
     if (resultRef.current !== result) {
       resultRef.current = result;
       const startMs = (result.frames[reviewIdx]?.timeSec ?? result.frames[0]?.timeSec ?? 0) * 1000;
       videoRef.current.setPositionAsync(startMs);
     }
-  }, [result, reviewIdx]);
+  }, [result, reviewIdx, detectMode]);
 
   // Sync playback speed to video player.
   useEffect(() => {
@@ -700,12 +774,14 @@ export function TrackerTab() {
   }, [playSpeed]);
 
   // Seek the video to a specific frame index.
-  const seekToFrame = useCallback((idx: number) => {
+  const seekToFrame = useCallback(async (idx: number) => {
     if (!result || !videoRef.current) return;
-    videoRef.current.setPositionAsync(
-      (result.frames[idx]?.timeSec ?? 0) * 1000,
-      { toleranceMillisBefore: 0, toleranceAfterMillis: 0 },
-    );
+    const ms = (result.frames[idx]?.timeSec ?? 0) * 1000;
+    // Use setStatusAsync to atomically set position + pause in one call.
+    await videoRef.current.setStatusAsync({
+      positionMillis: ms,
+      shouldPlay: !detectModeRef.current,
+    });
   }, [result]);
 
   const copyTrace = async () => {
@@ -803,20 +879,21 @@ export function TrackerTab() {
     return null;
   }, [allRayInfo, reviewIdx]);
 
-  // B&W fallback: only decode JPEG when showProcessed is toggled on.
+  // Frame image: use frameAtTime for B&W mode OR detect mode (frame-accurate).
   const [reviewImage, setReviewImage] = useState<{ base64: string; timeSec: number } | null>(null);
   useEffect(() => {
-    if (!showProcessed || !result || !videoUri || !reviewedFrame) {
+    const needImage = showProcessed || detectMode;
+    if (!needImage || !result || !videoUri || !reviewedFrame) {
       setReviewImage(null);
       return;
     }
     const t = reviewedFrame.timeSec;
     let cancelled = false;
-    VisionTracker.frameAtTime(videoUri, t, 0.75)
+    VisionTracker.frameAtTime(videoUri, t, 0.85)
       .then((f) => { if (!cancelled) setReviewImage({ base64: f.imageBase64, timeSec: t }); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [showProcessed, reviewIdx, result, videoUri, reviewedFrame?.timeSec]);
+  }, [showProcessed, detectMode, reviewIdx, result, videoUri, reviewedFrame?.timeSec]);
 
   if (!VisionTracker.available()) {
     return (
@@ -1384,6 +1461,13 @@ export function TrackerTab() {
               >
                 {showProcessed && reviewImage ? (
                   <ProcessedImage base64={reviewImage.base64} />
+                ) : detectMode && reviewImage ? (
+                  <Image
+                    source={{ uri: `data:image/jpeg;base64,${reviewImage.base64}` }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="stretch"
+                    fadeDuration={0}
+                  />
                 ) : (
                   <Video
                     ref={videoRef}
@@ -1402,6 +1486,11 @@ export function TrackerTab() {
                     <Path d={splinePath} stroke="rgba(0,200,255,0.95)" strokeWidth={2} fill="none" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 )}
+                {polyFitPath !== "" && (
+                  <Svg style={{ position: "absolute", left: 0, top: 0, right: 0, bottom: 0 }} viewBox="0 0 1 1" preserveAspectRatio="none">
+                    <Path d={polyFitPath} stroke="rgba(0,200,255,0.7)" strokeWidth={1} fill="none" vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                )}
                 {(showAllDetections ? interpolated : interpolated?.slice(0, reviewIdx))?.map((p, i) => {
                   if (!p.box) return null;
                   const cx = p.box.x + p.box.width / 2;
@@ -1410,15 +1499,21 @@ export function TrackerTab() {
                   const t = i / denom;
                   const alpha = 0.25 + t * 0.7;
                   const sizeFactor = 0.5 + t * 0.5;
+                  // In detect mode: red = unvalidated, yellow = validated.
+                  const isValidated = detectMode && validatedFrames.has(i);
+                  const dotColor = detectMode
+                    ? (isValidated ? `rgba(255,204,0,${alpha})` : `rgba(255,59,48,${alpha})`)
+                    : `rgba(255,204,0,${alpha})`;
+                  const borderColor = dotColor;
                   if (p.interpolated) {
-                    const sz = 6 * sizeFactor;
+                    const sz = 3 * sizeFactor;
                     return (
-                      <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, borderWidth: 1, borderColor: `rgba(255,204,0,${alpha})`, backgroundColor: "transparent" }} />
+                      <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, borderWidth: 1, borderColor, backgroundColor: "transparent" }} />
                     );
                   }
-                  const sz = 8 * sizeFactor;
+                  const sz = 4 * sizeFactor;
                   return (
-                    <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, backgroundColor: `rgba(255,204,0,${alpha})` }} />
+                    <View key={`trail-${i}`} pointerEvents="none" style={{ position: "absolute", left: `${cx * 100}%`, top: `${cy * 100}%`, width: sz, height: sz, marginLeft: -sz / 2, marginTop: -sz / 2, borderRadius: sz / 2, backgroundColor: dotColor }} />
                   );
                 })}
                 {(showAllDetections ? result.frames : result.frames.slice(0, reviewIdx + 1)).map((f: any, i) => {
@@ -1487,19 +1582,12 @@ export function TrackerTab() {
               ray3d = { yzY: ri.yzY.toFixed(2), yzZ: ri.yzZ.toFixed(2) };
             }
           }
-          // Compute R² from all accumulated detections.
-          const allDets = [...detections.values()].filter((d) => d.box && !d.lost).sort((a, b) => a.timeSec - b.timeSec);
-          let r2Str = "—";
-          if (allDets.length >= 3) {
-            const ts = allDets.map((d) => d.timeSec);
-            const xs = allDets.map((d) => d.box!.x + d.box!.width / 2);
-            const ys = allDets.map((d) => d.box!.y + d.box!.height / 2);
-            const tMin = ts[0]!;
-            const pts = allDets.map((d, i) => ({ tn: ts[i]! - tMin, cx: xs[i]!, cy: ys[i]! }));
-            const fitX = lsqQuadratic(pts.map((p) => p.tn), pts.map((p) => p.cx));
-            const fitY = lsqQuadratic(pts.map((p) => p.tn), pts.map((p) => p.cy));
-            r2Str = computeR2(pts, fitX, fitY).toFixed(4);
-          }
+          // Show the ballistic tracker's internal data.
+          const bt = ballisticRef.current;
+          const activeTrack = bt?.getActiveTrack();
+          const r2Str = activeTrack ? activeTrack.r2.toFixed(4) : "—";
+          const speedStr = activeTrack ? `${activeTrack.speedMph.toFixed(0)}mph` : "—";
+          const trackObs = activeTrack ? activeTrack.observations.length : 0;
           return (
             <View style={{ backgroundColor: "rgba(0,0,0,0.85)", paddingHorizontal: 10, paddingVertical: 6 }}>
               <Text style={{ color: "#0af", fontSize: 10, fontFamily: "monospace" }}>
@@ -1511,8 +1599,8 @@ export function TrackerTab() {
               <Text style={{ color: ray3d ? "#FF9500" : "#666", fontSize: 10, fontFamily: "monospace" }}>
                 3D: {ray3d ? `Y=${ray3d.yzY}m Z=${ray3d.yzZ}m` : "—"}
               </Text>
-              <Text style={{ color: "#fff", fontSize: 10, fontFamily: "monospace" }}>
-                R²: {r2Str}
+              <Text style={{ color: activeTrack ? "#34C759" : "#666", fontSize: 10, fontFamily: "monospace" }}>
+                {activeTrack ? activeTrack.state : "no track"}  R²:{r2Str}  {speedStr}  obs:{trackObs}/{detections.size}
               </Text>
             </View>
           );
@@ -1546,7 +1634,7 @@ export function TrackerTab() {
               </View>
               {/* Right column: actions */}
               <View pointerEvents="box-none" style={{ position: "absolute", right: 6, top: "50%", transform: [{ translateY: -40 }], gap: 4, alignItems: "center" }}>
-                <Pill label="Back" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); setDetectMode(false); setDetections(new Map()); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                <Pill label="Back" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); setDetectMode(false); setDetections(new Map()); setValidatedFrames(new Set()); ballisticRef.current = null; streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                 <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                 <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} small />
               </View>
@@ -1621,7 +1709,7 @@ export function TrackerTab() {
                   {([1, 0.5, 0.25, 0.125] as const).map((s) => (
                     <Pill key={s} label={s === 1 ? "1×" : s === 0.5 ? "½×" : s === 0.25 ? "¼×" : "⅛×"} active={playSpeed === s} onPress={() => setPlaySpeed(s)} small />
                   ))}
-                  <Pill label="Back" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); setDetectMode(false); setDetections(new Map()); streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
+                  <Pill label="Back" onPress={() => { detectionSubRef.current?.remove(); detectionSubRef.current = null; setIsDetecting(false); setDetectMode(false); setDetections(new Map()); setValidatedFrames(new Set()); ballisticRef.current = null; streamingFramesRef.current = []; setIsPlaying(false); setResult(null); setReviewIdx(0); setVp({ scale: 1, tx: 0, ty: 0 }); }} small />
                   <Pill label="Export" onPress={handleExportVideo} disabled={!!busy} small />
                   <Pill label="Save" active onPress={handleSaveSession} disabled={!!busy} />
                 </View>
