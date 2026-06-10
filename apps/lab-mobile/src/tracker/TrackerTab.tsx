@@ -55,7 +55,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const OTA_TIMESTAMP = "2026-06-09 live+person";
+const OTA_TIMESTAMP = "2026-06-09e";
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
 function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
@@ -1555,7 +1555,7 @@ export function TrackerTab() {
 
         <View style={{ flexDirection: "row", gap: 8, justifyContent: "center", marginBottom: 16 }}>
           <Pressable onPress={pickVideo} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.primary, opacity: busy ? 0.5 : 1 }]}>
-            <Text style={styles.btnText}>Pick video</Text>
+            <Text style={styles.btnText}>Track</Text>
           </Pressable>
           <Pressable onPress={handleLoadSession} disabled={!!busy} style={[styles.btn, { backgroundColor: theme.surfaceAlt, opacity: busy ? 0.5 : 1 }]}>
             <Text style={[styles.btnText, { color: theme.text }]}>Load</Text>
