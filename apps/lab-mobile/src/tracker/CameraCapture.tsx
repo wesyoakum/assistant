@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -35,24 +35,9 @@ function isPhysicalLens(id: string): boolean {
 interface Props {
   onCapture: (uri: string) => void;
   onCancel: () => void;
-  /** When true, renders just the CameraView without modal chrome. */
-  inline?: boolean;
-  /** Fires each time a 1-second buffer segment finishes recording. */
-  onSegmentReady?: (uri: string) => void;
 }
 
-export interface CameraCaptureHandle {
-  /** Take a snapshot and return base64 + dimensions. */
-  takeSnapshot: () => Promise<{ base64: string; width: number; height: number } | null>;
-  /** Start the buffer recording loop. */
-  startBuffering: () => void;
-  /** Stop the buffer loop. isRecording will become false. */
-  stopBuffering: () => void;
-  isRecording: boolean;
-}
-
-export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
-  function CameraCapture({ onCapture, onCancel, inline, onSegmentReady }, ref) {
+export function CameraCapture({ onCapture, onCancel }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [mode, setMode] = useState<CaptureMode>("record");
@@ -80,10 +65,6 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
   const bufferActiveRef = useRef(false);
   const segmentDuration = 1; // seconds per segment
 
-  // Keep a ref to onSegmentReady so the running buffer loop always sees the latest callback.
-  const onSegmentReadyRef = useRef(onSegmentReady);
-  onSegmentReadyRef.current = onSegmentReady;
-
   // Request permission on mount.
   useEffect(() => {
     if (!permission?.granted) requestPermission();
@@ -108,19 +89,6 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
         FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
       }
     };
-  }, []);
-
-  // ── Snapshot ──
-
-  const takeSnapshot = useCallback(async (): Promise<{ base64: string; width: number; height: number } | null> => {
-    if (!cameraRef.current) return null;
-    try {
-      const pic = await (cameraRef.current as any).takePictureAsync({ base64: true, quality: 0.85 });
-      if (pic?.base64 && pic.width && pic.height) {
-        return { base64: pic.base64, width: pic.width, height: pic.height };
-      }
-    } catch {}
-    return null;
   }, []);
 
   // ── Record mode ──
@@ -183,15 +151,10 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
       const uri = await recordOneSegment();
       if (uri) {
         segmentsRef.current.push(uri);
-        // Notify parent of each completed segment (for live detection).
-        if (onSegmentReadyRef.current) onSegmentReadyRef.current(uri);
-        // In non-live mode, trim ring buffer.
-        if (!onSegmentReadyRef.current) {
-          const maxSegments = Math.ceil(bufferSeconds / segmentDuration);
-          while (segmentsRef.current.length > maxSegments) {
-            const old = segmentsRef.current.shift();
-            if (old) FileSystem.deleteAsync(old, { idempotent: true }).catch(() => {});
-          }
+        const maxSegments = Math.ceil(bufferSeconds / segmentDuration);
+        while (segmentsRef.current.length > maxSegments) {
+          const old = segmentsRef.current.shift();
+          if (old) FileSystem.deleteAsync(old, { idempotent: true }).catch(() => {});
         }
         setSegmentCount(segmentsRef.current.length);
       }
@@ -200,19 +163,12 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
       if (!bufferActiveRef.current) break;
     }
     if (bufferTimerRef.current) clearInterval(bufferTimerRef.current);
-    setIsRecording(false);
     // Signal that the loop is done with the final segment list.
     if (bufferDoneRef.current) {
       bufferDoneRef.current([...segmentsRef.current]);
       bufferDoneRef.current = null;
     }
   }, [bufferSeconds, recordOneSegment]);
-
-  const stopBufferingFn = useCallback(() => {
-    bufferActiveRef.current = false;
-    // Force stop the current recording so it resolves quickly.
-    try { cameraRef.current?.stopRecording(); } catch {}
-  }, []);
 
   const captureBuffer = useCallback(async () => {
     // Signal the loop to stop after the current segment finishes.
@@ -246,15 +202,6 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
     }
   }, [saveAndCapture]);
 
-  // ── Imperative handle ──
-
-  useImperativeHandle(ref, () => ({
-    takeSnapshot,
-    startBuffering,
-    stopBuffering: stopBufferingFn,
-    get isRecording() { return bufferActiveRef.current; },
-  }));
-
   if (!permission) {
     return (
       <View style={styles.container}>
@@ -269,34 +216,13 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
         <Pressable onPress={requestPermission} style={styles.btn}>
           <Text style={styles.btnTxt}>Grant Permission</Text>
         </Pressable>
-        {!inline && (
-          <Pressable onPress={onCancel} style={[styles.btn, { backgroundColor: "#333" }]}>
-            <Text style={styles.btnTxt}>Cancel</Text>
-          </Pressable>
-        )}
+        <Pressable onPress={onCancel} style={[styles.btn, { backgroundColor: "#333" }]}>
+          <Text style={styles.btnTxt}>Cancel</Text>
+        </Pressable>
       </View>
     );
   }
 
-  // ── Inline mode: just the camera, no chrome ──
-  if (inline) {
-    return (
-      <View style={styles.container}>
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing={facing}
-          mode="video"
-          videoQuality="1080p"
-          mute
-          {...(facing === "back" ? { selectedLens: lens } : {})}
-          onCameraReady={onCameraReady}
-        />
-      </View>
-    );
-  }
-
-  // ── Full mode: with all controls ──
   return (
     <View style={styles.container}>
       <CameraView
@@ -421,7 +347,7 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
       </SafeAreaView>
     </View>
   );
-});
+}
 
 const styles = StyleSheet.create({
   container: {

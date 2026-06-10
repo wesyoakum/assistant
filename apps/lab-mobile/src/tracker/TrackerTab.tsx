@@ -24,7 +24,6 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
-import type { CameraCaptureHandle } from "./CameraCapture";
 const CameraCapture = React.lazy(() =>
   import("./CameraCapture").then((m) => ({ default: m.CameraCapture })),
 );
@@ -58,7 +57,8 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p04 · 2026-06-09 11:15pm";
+const PUSH_ID = "p05 · 2026-06-10 12:00am";
+const OTA_TIMESTAMP = PUSH_ID;
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
 function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
@@ -185,16 +185,6 @@ export function TrackerTab() {
   // Load saved videos and calibrations on mount.
   useEffect(() => { listSavedVideos().then(setSavedVideos).catch(() => {}); }, []);
   useEffect(() => { listCalibrations().then(setSavedCals).catch(() => {}); }, []);
-
-  // Prune expired live dots every 100ms (visible for 2s, fade over 1s, gone at 3s).
-  useEffect(() => {
-    if (!liveRecording && liveDots.length === 0) return;
-    const id = setInterval(() => {
-      const now = Date.now();
-      setLiveDots((prev) => prev.filter((d) => now - d.t < 3000));
-    }, 100);
-    return () => clearInterval(id);
-  }, [liveRecording, liveDots.length > 0]);
   useEffect(() => { listRois().then(setSavedRois).catch(() => {}); }, []);
 
   // Disable parent ScrollView's pan while the user is gesturing on the canvas.
@@ -224,14 +214,6 @@ export function TrackerTab() {
 
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
-  const [liveMode, setLiveMode] = useState(false);
-  const [liveSnapshot, setLiveSnapshot] = useState<{ base64: string; width: number; height: number } | null>(null);
-  const [liveRecording, setLiveRecording] = useState(false);
-  const [liveSegmentCount, setLiveSegmentCount] = useState(0);
-  const liveCameraRef = useRef<CameraCaptureHandle>(null);
-  const liveFrameOffsetRef = useRef(0);
-  const liveProcessingChainRef = useRef<Promise<void>>(Promise.resolve());
-  const [liveDots, setLiveDots] = useState<{ nx: number; ny: number; t: number; label: string; box?: { x: number; y: number; w: number; h: number } }[]>([]);
 
   const pickFromLibrary = async () => {
     setShowSourcePicker(false);
@@ -1090,149 +1072,6 @@ export function TrackerTab() {
     setRenameRoiText("");
   };
 
-  // ── Live detection ──────────────────────────────────────────────────
-
-  const handleLiveSnap = async () => {
-    const snap = await liveCameraRef.current?.takeSnapshot();
-    if (snap) setLiveSnapshot(snap);
-  };
-
-  const processLiveSegment = useCallback(async (segmentUri: string) => {
-    const fps = 30;
-    const segDuration = 1.0;
-    liveFrameOffsetRef.current += Math.round(fps * segDuration);
-    const detectOpts = {
-      startTimeSec: 0,
-      endTimeSec: segDuration,
-      stepSec: 1 / fps,
-      minConfidence: 0.10,
-      roi: box ?? undefined,
-      preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
-    };
-    // Run ball detection (feeds streamingFramesRef via onDetection subscription).
-    try {
-      await Yolo.detectInVideo(segmentUri, { ...detectOpts, labelFilter: ["sports ball"] });
-    } catch {}
-    // Run person detection (separate pass — results go to liveDots only, not streamingFrames).
-    try {
-      const personResult = await Yolo.detectInVideo(segmentUri, { ...detectOpts, labelFilter: ["person"], minConfidence: 0.25 });
-      const now = Date.now();
-      const newDots = personResult.frames
-        .filter((f) => f.box && !f.lost)
-        .map((f) => ({
-          nx: f.box!.x + f.box!.width / 2,
-          ny: f.box!.y + f.box!.height / 2,
-          t: now,
-          label: "person",
-          box: { x: f.box!.x, y: f.box!.y, w: f.box!.width, h: f.box!.height },
-        }));
-      if (newDots.length > 0) setLiveDots((prev) => [...prev, ...newDots]);
-    } catch {}
-  }, [box, preprocessBW, contrastLevel]);
-
-  const onLiveSegmentReady = useCallback((uri: string) => {
-    setLiveSegmentCount((c) => c + 1);
-    // Queue sequential processing so segments are detected in order.
-    liveProcessingChainRef.current = liveProcessingChainRef.current.then(() => processLiveSegment(uri));
-  }, [processLiveSegment]);
-
-  const startLiveDetection = useCallback(() => {
-    // Use snapshot dimensions if available, otherwise default to 1080p.
-    const w = liveSnapshot?.width ?? 1920;
-    const h = liveSnapshot?.height ?? 1080;
-    // Reset state.
-    liveFrameOffsetRef.current = 0;
-    liveProcessingChainRef.current = Promise.resolve();
-    setLiveSegmentCount(0);
-    streamingFramesRef.current = [];
-    streamingMetaRef.current = {
-      videoWidth: w,
-      videoHeight: h,
-      frameRate: 30,
-    };
-    setResult(null);
-    setDetections(new Map());
-    setValidatedFrames(new Set());
-    ballisticRef.current = new BallisticTracker({
-      frameRate: 30,
-      r2Threshold: trackR2Threshold,
-    });
-
-    // Subscribe to detection events.
-    detectionSubRef.current?.remove();
-    const baseOffsetRef = liveFrameOffsetRef; // capture ref
-    detectionSubRef.current = Yolo.onDetection((frame) => {
-      streamingFramesRef.current.push({
-        ...frame,
-        frameIndex: streamingFramesRef.current.length,
-        timeSec: streamingFramesRef.current.length / 30,
-      });
-      // Push dot for live overlay (only if detected).
-      if (frame.box && !frame.lost) {
-        const cx = frame.box.x + frame.box.width / 2;
-        const cy = frame.box.y + frame.box.height / 2;
-        setLiveDots((prev) => [...prev, { nx: cx, ny: cy, t: Date.now(), label: "ball" }]);
-      }
-    });
-
-    setLiveDots([]);
-    setIsDetecting(true);
-    setLiveRecording(true);
-    setLiveSnapshot(null); // Switch back to camera preview while recording.
-    // Buffering is started by the useEffect below once the camera is mounted.
-  }, [liveSnapshot, trackR2Threshold]);
-
-  // Start buffering once liveRecording is true and the camera ref is available.
-  useEffect(() => {
-    if (!liveRecording) return;
-    // The camera may not be mounted yet (lazy load). Retry until ref is ready.
-    const tryStart = () => {
-      if (liveCameraRef.current) {
-        liveCameraRef.current.startBuffering();
-      } else {
-        setTimeout(tryStart, 100);
-      }
-    };
-    tryStart();
-  }, [liveRecording]);
-
-  const stopLiveDetection = useCallback(() => {
-    // Stop camera recording.
-    liveCameraRef.current?.stopBuffering();
-    setLiveRecording(false);
-
-    // Wait for processing to finish, then finalize.
-    liveProcessingChainRef.current.then(() => {
-      detectionSubRef.current?.remove();
-      detectionSubRef.current = null;
-      setIsDetecting(false);
-
-      // Flush final results.
-      const frames = [...streamingFramesRef.current];
-      const meta = streamingMetaRef.current;
-      if (frames.length > 0 && meta) {
-        setResult({
-          frames,
-          elapsedMs: 0,
-          videoWidth: meta.videoWidth,
-          videoHeight: meta.videoHeight,
-          frameRate: meta.frameRate,
-          mode: "yolo" as TrackerMode,
-        });
-        setReviewIdx(0);
-      }
-      setLiveMode(false);
-    });
-  }, []);
-
-  const exitLiveMode = useCallback(() => {
-    if (liveRecording) stopLiveDetection();
-    setLiveMode(false);
-    setLiveSnapshot(null);
-    setLiveRecording(false);
-    setLiveSegmentCount(0);
-  }, [liveRecording, stopLiveDetection]);
-
   const handleSaveSession = async () => {
     if (!result) return;
     setBusy("saving session…");
@@ -1413,159 +1252,11 @@ export function TrackerTab() {
 
   return (
     <>
-    {/* ── Live detection mode ──────────────────────────────────────── */}
-    {liveMode && !result && (
-      <View style={{ flex: 1, backgroundColor: "#000" }}>
-        {/* Camera preview or frozen snapshot */}
-        {liveSnapshot && !liveRecording ? (
-          /* Frozen snapshot for calibration / ROI setup */
-          <View style={{ flex: 1 }}>
-            <Image
-              source={{ uri: `data:image/jpeg;base64,${liveSnapshot.base64}` }}
-              style={StyleSheet.absoluteFill}
-              resizeMode="contain"
-            />
-            {showPoseOverlay && (
-              <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-                <React.Suspense fallback={null}>
-                  <FieldModelOverlay
-                    ref={poseOverlayRef}
-                    imageWidth={liveSnapshot.width}
-                    imageHeight={liveSnapshot.height}
-                    vp={{ scale: 1, tx: 0, ty: 0 }}
-                    canvas={{ width: liveSnapshot.width, height: liveSnapshot.height }}
-                    canvasPageOffset={{ x: 0, y: 0 }}
-                    fovDeg={cameraFovDeg}
-                  />
-                </React.Suspense>
-              </View>
-            )}
-            {/* Controls overlay */}
-            <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
-              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 4, paddingTop: 50, paddingHorizontal: 8 }}>
-                {showPoseOverlay && (
-                  <>
-                    <Pill label="Reset" onPress={() => poseOverlayRef.current?.reset()} small />
-                    <Pill label="Save" onPress={handleSaveCal} disabled={!!busy} small />
-                    <Pill label="Load" onPress={handleLoadCal} disabled={!!busy} small />
-                    <Pill label="Set Pose" active onPress={handleSetPose} small />
-                    <Pill label="Back" onPress={() => setShowPoseOverlay(false)} small />
-                    <DragNumber value={cameraFovDeg} onChange={(v) => useTrackerSettings.getState().setCameraFovDeg(v)} min={20} max={120} label="FOV" suffix="°" />
-                  </>
-                )}
-                {!showPoseOverlay && (
-                  <>
-                    <Pill label={cameraPose ? "Cal ✓" : "Cal"} active={!!cameraPose} onPress={() => setShowPoseOverlay(true)} small />
-                    <Pill label={box ? "ROI ✓" : "ROI"} active={!!box} onPress={handleLoadRoi} small />
-                    <Pill label="Load Cal" onPress={handleLoadCal} small />
-                    <Pill label="Load ROI" onPress={handleLoadRoi} small />
-                  </>
-                )}
-              </View>
-              {!showPoseOverlay && (
-                <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50 }}>
-                  <Pill label="Re-snap" onPress={() => setLiveSnapshot(null)} />
-                  <Pill label="Go" active onPress={startLiveDetection} />
-                  <Pill label="Exit" onPress={exitLiveMode} />
-                </View>
-              )}
-            </View>
-          </View>
-        ) : (
-          /* Live camera preview (or recording) */
-          <View style={{ flex: 1 }}>
-            <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}><ActivityIndicator color="#fff" /></View>}>
-              <CameraCapture
-                ref={liveCameraRef}
-                inline
-                onCapture={() => {}}
-                onCancel={() => {}}
-                onSegmentReady={onLiveSegmentReady}
-              />
-            </React.Suspense>
-            {/* Live detection overlay: dots for ball, boxes for person */}
-            {liveDots.length > 0 && (
-              <View style={StyleSheet.absoluteFill} pointerEvents="none">
-                {liveDots.map((d, i) => {
-                  const age = (Date.now() - d.t) / 1000;
-                  const opacity = age < 2 ? 1 : Math.max(0, 1 - (age - 2));
-                  if (d.label === "person" && d.box) {
-                    return (
-                      <View
-                        key={`${d.t}-${i}`}
-                        style={{
-                          position: "absolute",
-                          left: `${d.box.x * 100}%`,
-                          top: `${d.box.y * 100}%`,
-                          width: `${d.box.w * 100}%`,
-                          height: `${d.box.h * 100}%`,
-                          borderWidth: 1.5,
-                          borderColor: `rgba(80,160,255,${opacity})`,
-                          borderRadius: 3,
-                        }}
-                      />
-                    );
-                  }
-                  return (
-                    <View
-                      key={`${d.t}-${i}`}
-                      style={{
-                        position: "absolute",
-                        left: `${d.nx * 100}%`,
-                        top: `${d.ny * 100}%`,
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: `rgba(0,255,100,${opacity})`,
-                        marginLeft: -4,
-                        marginTop: -4,
-                      }}
-                    />
-                  );
-                })}
-              </View>
-            )}
-            {/* Status + controls overlay */}
-            <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
-              <View style={{ alignItems: "center", paddingTop: 50 }}>
-                {liveRecording && (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" }} />
-                    <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                      LIVE · {liveSegmentCount}s · {streamingFramesRef.current.length} frames
-                    </Text>
-                  </View>
-                )}
-                {cameraPose && !liveRecording && (
-                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                    <Text style={{ color: "#0f0", fontSize: 11 }}>Cal ✓{box ? "  ·  ROI ✓" : ""}</Text>
-                  </View>
-                )}
-              </View>
-              <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50 }}>
-                {liveRecording ? (
-                  <Pill label="Stop" active color="#FF3B30" onPress={stopLiveDetection} />
-                ) : (
-                  <>
-                    <Pill label="Snap" onPress={handleLiveSnap} />
-                    <Pill label="Load Cal" onPress={handleLoadCal} />
-                    <Pill label="Load ROI" onPress={handleLoadRoi} />
-                    {cameraPose && <Pill label="Go" active onPress={startLiveDetection} />}
-                    <Pill label="Exit" onPress={exitLiveMode} />
-                  </>
-                )}
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
-    )}
-
     {/* ── Empty state: no video loaded ───────────────────────────────── */}
-    {!frame && !liveMode && (
+    {!frame && (
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background }}>
         <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, textAlign: "center", marginBottom: 6 }}>Home</Text>
-        <Text style={{ fontSize: 11, color: theme.textSubtle, textAlign: "center", marginBottom: 12 }}>v{require("../../app.json").expo.version} · {PUSH_ID}</Text>
+        <Text style={{ fontSize: 11, color: theme.textSubtle, textAlign: "center", marginBottom: 12 }}>v{require("../../app.json").expo.version} · {OTA_TIMESTAMP}</Text>
         <Text style={{ fontSize: 12, color: theme.textSubtle, textAlign: "center", marginBottom: 20 }}>
           Pick a video, calibrate the field, set ROI and frame range, run the tracker.
         </Text>
@@ -2131,9 +1822,6 @@ export function TrackerTab() {
           </Pressable>
           <Pressable onPress={() => { setShowSourcePicker(false); setShowCamera(true); }} style={{ backgroundColor: "#FF3B30", paddingVertical: 14, borderRadius: 10, alignItems: "center" }}>
             <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>Record / Buffer</Text>
-          </Pressable>
-          <Pressable onPress={() => { setShowSourcePicker(false); setLiveMode(true); setVideoUri(null); setFrame(null); setResult(null); setLiveSnapshot(null); setLiveRecording(false); setLiveSegmentCount(0); }} style={{ backgroundColor: "#0af", paddingVertical: 14, borderRadius: 10, alignItems: "center" }}>
-            <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>Live Detect</Text>
           </Pressable>
           <Pressable onPress={() => setShowSourcePicker(false)} style={{ paddingVertical: 10, alignItems: "center" }}>
             <Text style={{ color: theme.textMuted, fontSize: 14 }}>Cancel</Text>
