@@ -1464,7 +1464,7 @@ export function TrackerTab() {
               inline
               onCapture={() => {}}
               onCancel={() => {}}
-              onSegmentReady={liveRecording ? onLiveSegmentReady : undefined}
+              onSegmentReady={onLiveSegmentReady}
             />
             {/* Live detection overlay: dots for ball, boxes for person */}
             {liveDots.length > 0 && (

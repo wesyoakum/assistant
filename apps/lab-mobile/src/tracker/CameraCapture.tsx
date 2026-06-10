@@ -80,6 +80,10 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
   const bufferActiveRef = useRef(false);
   const segmentDuration = 1; // seconds per segment
 
+  // Keep a ref to onSegmentReady so the running buffer loop always sees the latest callback.
+  const onSegmentReadyRef = useRef(onSegmentReady);
+  onSegmentReadyRef.current = onSegmentReady;
+
   // Request permission on mount.
   useEffect(() => {
     if (!permission?.granted) requestPermission();
@@ -180,9 +184,9 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
       if (uri) {
         segmentsRef.current.push(uri);
         // Notify parent of each completed segment (for live detection).
-        if (onSegmentReady) onSegmentReady(uri);
+        if (onSegmentReadyRef.current) onSegmentReadyRef.current(uri);
         // In non-live mode, trim ring buffer.
-        if (!onSegmentReady) {
+        if (!onSegmentReadyRef.current) {
           const maxSegments = Math.ceil(bufferSeconds / segmentDuration);
           while (segmentsRef.current.length > maxSegments) {
             const old = segmentsRef.current.shift();
@@ -202,7 +206,7 @@ export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
       bufferDoneRef.current([...segmentsRef.current]);
       bufferDoneRef.current = null;
     }
-  }, [bufferSeconds, recordOneSegment, onSegmentReady]);
+  }, [bufferSeconds, recordOneSegment]);
 
   const stopBufferingFn = useCallback(() => {
     bufferActiveRef.current = false;
