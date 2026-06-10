@@ -24,6 +24,7 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
+import type { CameraCaptureHandle } from "./CameraCapture";
 const CameraCapture = React.lazy(() =>
   import("./CameraCapture").then((m) => ({ default: m.CameraCapture })),
 );
@@ -57,7 +58,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p06 · 2026-06-10 12:30am";
+const PUSH_ID = "p07 · 2026-06-10 12:45am";
 const OTA_TIMESTAMP = PUSH_ID;
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
@@ -214,6 +215,10 @@ export function TrackerTab() {
 
   const [showSourcePicker, setShowSourcePicker] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
+  const [liveSnapshot, setLiveSnapshot] = useState<{ base64: string; width: number; height: number } | null>(null);
+  const [liveRecording, setLiveRecording] = useState(false);
+  const liveCameraRef = useRef<CameraCaptureHandle>(null);
 
   const pickFromLibrary = async () => {
     setShowSourcePicker(false);
@@ -1072,6 +1077,19 @@ export function TrackerTab() {
     setRenameRoiText("");
   };
 
+  // ── Live mode handlers ─────────────────────────────────────────────
+
+  const handleLiveSnap = async () => {
+    const snap = await liveCameraRef.current?.takeSnapshot();
+    if (snap) setLiveSnapshot(snap);
+  };
+
+  const exitLiveMode = useCallback(() => {
+    setLiveMode(false);
+    setLiveSnapshot(null);
+    setLiveRecording(false);
+  }, []);
+
   const handleSaveSession = async () => {
     if (!result) return;
     setBusy("saving session…");
@@ -1252,8 +1270,69 @@ export function TrackerTab() {
 
   return (
     <>
+    {/* ── Live detection mode ──────────────────────────────────────── */}
+    {liveMode && !result && (
+      <View style={{ flex: 1, backgroundColor: "#000" }}>
+        {liveSnapshot ? (
+          /* Frozen snapshot for calibration / ROI setup */
+          <View style={{ flex: 1 }}>
+            <Image
+              source={{ uri: `data:image/jpeg;base64,${liveSnapshot.base64}` }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="contain"
+            />
+            <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
+              <View style={{ alignItems: "center", paddingTop: 50 }}>
+                <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                  <Text style={{ color: "#fff", fontSize: 11 }}>Snapshot · {liveSnapshot.width}×{liveSnapshot.height}</Text>
+                </View>
+                {cameraPose && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginTop: 4 }}>
+                    <Text style={{ color: "#0f0", fontSize: 11 }}>Cal ✓{box ? "  ·  ROI ✓" : ""}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50 }}>
+                <Pill label="Load Cal" onPress={handleLoadCal} />
+                <Pill label="Load ROI" onPress={handleLoadRoi} />
+                <Pill label="Re-snap" onPress={() => setLiveSnapshot(null)} />
+                <Pill label="Exit" onPress={exitLiveMode} />
+              </View>
+            </View>
+          </View>
+        ) : (
+          /* Live camera preview */
+          <View style={{ flex: 1 }}>
+            <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}><ActivityIndicator color="#fff" /></View>}>
+              <CameraCapture
+                ref={liveCameraRef}
+                inline
+                onCapture={() => {}}
+                onCancel={() => {}}
+              />
+            </React.Suspense>
+            <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
+              <View style={{ alignItems: "center", paddingTop: 50 }}>
+                {cameraPose && (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
+                    <Text style={{ color: "#0f0", fontSize: 11 }}>Cal ✓{box ? "  ·  ROI ✓" : ""}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50 }}>
+                <Pill label="Snap" onPress={handleLiveSnap} />
+                <Pill label="Load Cal" onPress={handleLoadCal} />
+                <Pill label="Load ROI" onPress={handleLoadRoi} />
+                <Pill label="Exit" onPress={exitLiveMode} />
+              </View>
+            </View>
+          </View>
+        )}
+      </View>
+    )}
+
     {/* ── Empty state: no video loaded ───────────────────────────────── */}
-    {!frame && (
+    {!frame && !liveMode && (
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background }}>
         <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, textAlign: "center", marginBottom: 6 }}>Home</Text>
         <Text style={{ fontSize: 11, color: theme.textSubtle, textAlign: "center", marginBottom: 12 }}>v{require("../../app.json").expo.version} · {OTA_TIMESTAMP}</Text>
@@ -1822,6 +1901,9 @@ export function TrackerTab() {
           </Pressable>
           <Pressable onPress={() => { setShowSourcePicker(false); setShowCamera(true); }} style={{ backgroundColor: "#FF3B30", paddingVertical: 14, borderRadius: 10, alignItems: "center" }}>
             <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>Record / Buffer</Text>
+          </Pressable>
+          <Pressable onPress={() => { setShowSourcePicker(false); setLiveMode(true); setVideoUri(null); setFrame(null); setResult(null); setLiveSnapshot(null); setLiveRecording(false); }} style={{ backgroundColor: "#0af", paddingVertical: 14, borderRadius: 10, alignItems: "center" }}>
+            <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>Live Detect</Text>
           </Pressable>
           <Pressable onPress={() => setShowSourcePicker(false)} style={{ paddingVertical: 10, alignItems: "center" }}>
             <Text style={{ color: theme.textMuted, fontSize: 14 }}>Cancel</Text>
