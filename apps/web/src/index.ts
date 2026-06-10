@@ -1176,9 +1176,8 @@ const segmentPage = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const LAB_BUILD_URL = "https://expo.dev/accounts/wesyoakum/projects/whylab/builds/4933329b-36bd-49df-b5a6-e0e045392ba9";
-const LAB_BUILD_VERSION = "1.24.3 · p03";
-const LAB_QR_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAcIAAAHCAQAAAABUY/ToAAAEH0lEQVR4nO1c222rQBCdHZDyiaUUkFJwBykpuiWlA1NKCohkPiMZzdU8dsH3Cq3BRE6WOR+Ixx6ZkKN5QyBYhw5XEgGcmQNmV8zBmTlgdsUcnJkDZlfMwZk5YHbFHJyZA2ZXzMGZJT6hYKgBugOf6GveDgG6g2wAwrGPq44Pvts1wFUshjNvfEItMc4sFRhCODZfLJYnCm/niqPuIQBAJYtiEO7PNgfcCRNUFu2ZhXSuiE567qK6AmjsKpGqqSIV3Ol3/Z3ozG97QvU/xwGazxq610+gLgCo0VH/ttlvojOL1hBB/0Sh/eANDXx1qAn650to37f6TXRmkU+oYffEdogDZjrBEOjPgZ0XS4pjJFmlTu7xd7scuIKjcOaNT6iThCu6rHCEisLbR62S0iiIA2vBNXMF0JkF+jJKxwTAlqb5CgT9EKg7VOzf+FJDv/jvRGd+d14mkORMbU4jQiLN9zWtPzUX0I3A87IscIe5PYhotFLEtSA9J8rhJcR7keEaKk0JeCeTTmJp+trK0VJoDBxTc80I2g+OgrR2XXGI/di7XQNcxWI4MwtSq8KWBkZvNZYcm1hj5D33ZUuAe/RlIEXoKCTeQJJPTM68Tl2oEvBeO0TismI0ZB5M5COeLsVDbKA8HipSCXgnM4SXrxTxANAfOYzWR2IkuSqhkMdDBSthFWjSihfnNWnBggbbMTKyfN97rkUqAbeIh4j9VqwPSeujSoFSuuDxUKlKwG2YjRUVJcuX5gZZmhaDbTrzuZ9xt4uAy5ZP4MwsSHN73hWXZaNDVo4GqzsmNyZOzmuMNwH3OYNGV/Nm08L0xSrWutg1VKAS8O7cni4p4pFkPh62abbRoiW3Q4UqAbeoD12VhsyrkW5kDFbtkPdcC1UCbtS3r0xNWqLWCymtvxq09p5raUrA1Uww65Oi5rHhoRlak6LryWLXUHlKwPuZFRFxe17U1OmbZpUNM9r0YqpYP/5uFwOXUwzOzILMyKTJs/E1stR4teq0zw8tA+60Tk2afmnLvorxkJ6z2Q/3ZUUqAe9nVmp4wpvWh8CGqk/8xqu87NqehxB19fC7XQxcTjE4c4EdAhWIeDC5pIVpsUNROZb0e0x9C3BvNUaDFatlfzI/NH11WuEz+YUpAbeZ/YAYAKVSIkxfuo9ht+f2JSoBVzNhlIqVF1OHIx3S+AmH1Ix1O1SaEnDLeIimaX0revmf4RoqTQm4nYbaiTGCSYMstmC951qoEnCz734AZ/TQEn/97IWF0z/zhxsOQN3rJ78//dC7RWf+YA01ohfeY73wBtr3+sKNjQDte8V7TxR4nTU7/P+ZA+41L2tHbxVnpy1XS5PVnpeVqARczQz+jfOi/p/ozAwwt2AWzswBsyvm4MwcMLtiDs7MAbMr5uDMHH7XE/oL7t+E7EQkx7sAAAAASUVORK5CYII=";
+const LAB_BUILD_URL = "https://expo.dev/accounts/wesyoakum/projects/whylab/builds/8710fd2c-5055-4778-b0c9-02905a9eb206";
+const LAB_BUILD_VERSION = "1.24.3 · p04";
 
 const labPage = `<!DOCTYPE html>
 <html lang="en">
@@ -1210,7 +1209,7 @@ const labPage = `<!DOCTYPE html>
   </nav>
   <h1>WHY Lab</h1>
   <p class="subtitle">Scan to install the latest build</p>
-  <div class="qr"><img src="data:image/png;base64,` + LAB_QR_BASE64 + `" alt="QR code" /></div>
+  <div class="qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=` + encodeURIComponent(LAB_BUILD_URL) + `" alt="QR code" /></div>
   <div class="build-info">v` + LAB_BUILD_VERSION + `</div>
   <a class="build-link" href="` + LAB_BUILD_URL + `" target="_blank">Install &rarr;</a>
 
