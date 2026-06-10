@@ -58,7 +58,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p09 · 2026-06-10 1:15am";
+const PUSH_ID = "p10 · 2026-06-10 1:30am";
 const OTA_TIMESTAMP = PUSH_ID;
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
@@ -1454,10 +1454,10 @@ export function TrackerTab() {
             {/* Status + controls */}
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
               <View style={{ alignItems: "center", paddingTop: 50 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 }}>
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" }} />
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#0f0" }} />
                   <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                    LIVE · {liveSegmentCount}s · {streamingFramesRef.current.length} det
+                    {streamingFramesRef.current.length} detections
                     {cameraPose ? "  ·  Cal ✓" : ""}{box ? "  ·  ROI ✓" : ""}
                   </Text>
                 </View>
