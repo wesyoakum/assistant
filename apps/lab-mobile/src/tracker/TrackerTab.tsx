@@ -58,7 +58,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p08 · 2026-06-10 1:00am";
+const PUSH_ID = "p09 · 2026-06-10 1:15am";
 const OTA_TIMESTAMP = PUSH_ID;
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
@@ -1126,16 +1126,17 @@ export function TrackerTab() {
     liveProcessingChainRef.current = liveProcessingChainRef.current.then(() => processLiveSegment(uri));
   }, [processLiveSegment]);
 
-  const startLiveDetection = useCallback(() => {
-    const w = liveSnapshot?.width ?? 1920;
-    const h = liveSnapshot?.height ?? 1080;
+  // Auto-start detection when entering live mode.
+  useEffect(() => {
+    if (!liveMode || liveRecording) return;
+    // Reset state.
     liveFrameOffsetRef.current = 0;
     liveSegmentCountRef.current = 0;
     liveProcessingChainRef.current = Promise.resolve();
     setLiveSegmentCount(0);
     setLiveDots([]);
     streamingFramesRef.current = [];
-    streamingMetaRef.current = { videoWidth: w, videoHeight: h, frameRate: 30 };
+    streamingMetaRef.current = { videoWidth: 1920, videoHeight: 1080, frameRate: 30 };
     setResult(null);
     setDetections(new Map());
     setValidatedFrames(new Set());
@@ -1156,8 +1157,7 @@ export function TrackerTab() {
 
     setIsDetecting(true);
     setLiveRecording(true);
-    setLiveSnapshot(null);
-  }, [liveSnapshot]);
+  }, [liveMode]);
 
   // Start buffering once liveRecording is true and the camera ref is available.
   useEffect(() => {
@@ -1454,30 +1454,19 @@ export function TrackerTab() {
             {/* Status + controls */}
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
               <View style={{ alignItems: "center", paddingTop: 50 }}>
-                {liveRecording && (
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 }}>
-                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" }} />
-                    <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>LIVE · {liveSegmentCount}s · {streamingFramesRef.current.length} det</Text>
-                  </View>
-                )}
-                {cameraPose && !liveRecording && (
-                  <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
-                    <Text style={{ color: "#0f0", fontSize: 11 }}>Cal ✓{box ? "  ·  ROI ✓" : ""}</Text>
-                  </View>
-                )}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" }} />
+                  <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                    LIVE · {liveSegmentCount}s · {streamingFramesRef.current.length} det
+                    {cameraPose ? "  ·  Cal ✓" : ""}{box ? "  ·  ROI ✓" : ""}
+                  </Text>
+                </View>
               </View>
-              <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50 }}>
-                {liveRecording ? (
-                  <Pill label="Stop" active color="#FF3B30" onPress={stopLiveDetection} />
-                ) : (
-                  <>
-                    <Pill label="Snap" onPress={handleLiveSnap} />
-                    <Pill label="Load Cal" onPress={handleLoadCal} />
-                    <Pill label="Load ROI" onPress={handleLoadRoi} />
-                    {cameraPose && <Pill label="Go" active onPress={startLiveDetection} />}
-                    <Pill label="Exit" onPress={exitLiveMode} />
-                  </>
-                )}
+              <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50, flexWrap: "wrap" }}>
+                <Pill label="Load Cal" onPress={handleLoadCal} />
+                <Pill label="Load ROI" onPress={handleLoadRoi} />
+                <Pill label="Snap" onPress={handleLiveSnap} />
+                <Pill label="Stop" active color="#FF3B30" onPress={stopLiveDetection} />
               </View>
             </View>
           </View>
