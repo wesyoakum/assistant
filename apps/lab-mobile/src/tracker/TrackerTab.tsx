@@ -55,7 +55,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const OTA_TIMESTAMP = "2026-06-09e";
+const PUSH_ID = "p01 · 2026-06-09 9:45pm";
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
 function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
@@ -1548,7 +1548,7 @@ export function TrackerTab() {
     {!frame && !liveMode && (
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, backgroundColor: theme.background }}>
         <Text style={{ fontSize: 18, fontWeight: "700", color: theme.text, textAlign: "center", marginBottom: 6 }}>Home</Text>
-        <Text style={{ fontSize: 11, color: theme.textSubtle, textAlign: "center", marginBottom: 12 }}>v{require("../../app.json").expo.version} · {OTA_TIMESTAMP}</Text>
+        <Text style={{ fontSize: 11, color: theme.textSubtle, textAlign: "center", marginBottom: 12 }}>v{require("../../app.json").expo.version} · {PUSH_ID}</Text>
         <Text style={{ fontSize: 12, color: theme.textSubtle, textAlign: "center", marginBottom: 20 }}>
           Pick a video, calibrate the field, set ROI and frame range, run the tracker.
         </Text>
