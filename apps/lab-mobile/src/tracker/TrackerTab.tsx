@@ -58,7 +58,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p02 · 2026-06-09 10:15pm";
+const PUSH_ID = "p03 · 2026-06-09 10:45pm";
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
 function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
@@ -1179,10 +1179,22 @@ export function TrackerTab() {
     setIsDetecting(true);
     setLiveRecording(true);
     setLiveSnapshot(null); // Switch back to camera preview while recording.
-
-    // Start camera buffer recording.
-    liveCameraRef.current?.startBuffering();
+    // Buffering is started by the useEffect below once the camera is mounted.
   }, [liveSnapshot, trackR2Threshold]);
+
+  // Start buffering once liveRecording is true and the camera ref is available.
+  useEffect(() => {
+    if (!liveRecording) return;
+    // The camera may not be mounted yet (lazy load). Retry until ref is ready.
+    const tryStart = () => {
+      if (liveCameraRef.current) {
+        liveCameraRef.current.startBuffering();
+      } else {
+        setTimeout(tryStart, 100);
+      }
+    };
+    tryStart();
+  }, [liveRecording]);
 
   const stopLiveDetection = useCallback(() => {
     // Stop camera recording.
