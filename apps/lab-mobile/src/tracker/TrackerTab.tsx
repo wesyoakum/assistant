@@ -24,7 +24,10 @@ import { Yolo } from "expo-yolo";
 import { Baseball } from "expo-baseball";
 import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";
 import { detectorWalk, type RawDetection } from "./detectorWalk";
-import { CameraCapture, type CameraCaptureHandle } from "./CameraCapture";
+import type { CameraCaptureHandle } from "./CameraCapture";
+const CameraCapture = React.lazy(() =>
+  import("./CameraCapture").then((m) => ({ default: m.CameraCapture })),
+);
 import type { FieldModelOverlayHandle } from "../field/FieldModelOverlay";
 const FieldModelOverlay = React.lazy(() =>
   import("../field/FieldModelOverlay").then((m) => ({ default: m.FieldModelOverlay })),
@@ -55,7 +58,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p01 · 2026-06-09 9:45pm";
+const PUSH_ID = "p02 · 2026-06-09 10:15pm";
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
 function DragNumber({ value, onChange, min, max, label, suffix = "" }: {
@@ -1459,13 +1462,15 @@ export function TrackerTab() {
         ) : (
           /* Live camera preview (or recording) */
           <View style={{ flex: 1 }}>
-            <CameraCapture
-              ref={liveCameraRef}
-              inline
-              onCapture={() => {}}
-              onCancel={() => {}}
-              onSegmentReady={onLiveSegmentReady}
-            />
+            <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}><ActivityIndicator color="#fff" /></View>}>
+              <CameraCapture
+                ref={liveCameraRef}
+                inline
+                onCapture={() => {}}
+                onCancel={() => {}}
+                onSegmentReady={onLiveSegmentReady}
+              />
+            </React.Suspense>
             {/* Live detection overlay: dots for ball, boxes for person */}
             {liveDots.length > 0 && (
               <View style={StyleSheet.absoluteFill} pointerEvents="none">
