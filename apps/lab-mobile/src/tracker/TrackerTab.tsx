@@ -228,7 +228,7 @@ export function TrackerTab() {
   const liveCameraRef = useRef<CameraCaptureHandle>(null);
   const liveFrameOffsetRef = useRef(0);
   const liveProcessingChainRef = useRef<Promise<void>>(Promise.resolve());
-  const [liveDots, setLiveDots] = useState<{ nx: number; ny: number; t: number }[]>([]);
+  const [liveDots, setLiveDots] = useState<{ nx: number; ny: number; t: number; label: string; box?: { x: number; y: number; w: number; h: number } }[]>([]);
 
   const pickFromLibrary = async () => {
     setShowSourcePicker(false);
@@ -1097,23 +1097,34 @@ export function TrackerTab() {
   const processLiveSegment = useCallback(async (segmentUri: string) => {
     const fps = 30;
     const segDuration = 1.0;
-    const baseOffset = liveFrameOffsetRef.current;
     liveFrameOffsetRef.current += Math.round(fps * segDuration);
+    const detectOpts = {
+      startTimeSec: 0,
+      endTimeSec: segDuration,
+      stepSec: 1 / fps,
+      minConfidence: 0.10,
+      roi: box ?? undefined,
+      preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
+    };
+    // Run ball detection (feeds streamingFramesRef via onDetection subscription).
     try {
-      await Yolo.detectInVideo(segmentUri, {
-        startTimeSec: 0,
-        endTimeSec: segDuration,
-        stepSec: 1 / fps,
-        minConfidence: 0.10,
-        labelFilter: ["sports ball"],
-        roi: box ?? undefined,
-        preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
-      });
-      // Results arrive via onDetection events — the subscription pushes them
-      // to streamingFramesRef with adjusted frame indices.
-    } catch {
-      // Segment detection failed — skip.
-    }
+      await Yolo.detectInVideo(segmentUri, { ...detectOpts, labelFilter: ["sports ball"] });
+    } catch {}
+    // Run person detection (separate pass — results go to liveDots only, not streamingFrames).
+    try {
+      const personResult = await Yolo.detectInVideo(segmentUri, { ...detectOpts, labelFilter: ["person"], minConfidence: 0.25 });
+      const now = Date.now();
+      const newDots = personResult.frames
+        .filter((f) => f.box && !f.lost)
+        .map((f) => ({
+          nx: f.box!.x + f.box!.width / 2,
+          ny: f.box!.y + f.box!.height / 2,
+          t: now,
+          label: "person",
+          box: { x: f.box!.x, y: f.box!.y, w: f.box!.width, h: f.box!.height },
+        }));
+      if (newDots.length > 0) setLiveDots((prev) => [...prev, ...newDots]);
+    } catch {}
   }, [box, preprocessBW, contrastLevel]);
 
   const onLiveSegmentReady = useCallback((uri: string) => {
@@ -1157,7 +1168,7 @@ export function TrackerTab() {
       if (frame.box && !frame.lost) {
         const cx = frame.box.x + frame.box.width / 2;
         const cy = frame.box.y + frame.box.height / 2;
-        setLiveDots((prev) => [...prev, { nx: cx, ny: cy, t: Date.now() }]);
+        setLiveDots((prev) => [...prev, { nx: cx, ny: cy, t: Date.now(), label: "ball" }]);
       }
     });
 
@@ -1455,12 +1466,29 @@ export function TrackerTab() {
               onCancel={() => {}}
               onSegmentReady={liveRecording ? onLiveSegmentReady : undefined}
             />
-            {/* Live detection dots overlay */}
+            {/* Live detection overlay: dots for ball, boxes for person */}
             {liveDots.length > 0 && (
               <View style={StyleSheet.absoluteFill} pointerEvents="none">
                 {liveDots.map((d, i) => {
                   const age = (Date.now() - d.t) / 1000;
                   const opacity = age < 2 ? 1 : Math.max(0, 1 - (age - 2));
+                  if (d.label === "person" && d.box) {
+                    return (
+                      <View
+                        key={`${d.t}-${i}`}
+                        style={{
+                          position: "absolute",
+                          left: `${d.box.x * 100}%`,
+                          top: `${d.box.y * 100}%`,
+                          width: `${d.box.w * 100}%`,
+                          height: `${d.box.h * 100}%`,
+                          borderWidth: 1.5,
+                          borderColor: `rgba(80,160,255,${opacity})`,
+                          borderRadius: 3,
+                        }}
+                      />
+                    );
+                  }
                   return (
                     <View
                       key={`${d.t}-${i}`}
