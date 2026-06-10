@@ -57,7 +57,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p05 · 2026-06-10 12:00am";
+const PUSH_ID = "p06 · 2026-06-10 12:30am";
 const OTA_TIMESTAMP = PUSH_ID;
 
 /** Draggable number input — drag horizontally to change value, like Blender. */

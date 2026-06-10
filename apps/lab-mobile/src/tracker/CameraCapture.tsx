@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import {
   View,
   Text,
@@ -35,9 +35,18 @@ function isPhysicalLens(id: string): boolean {
 interface Props {
   onCapture: (uri: string) => void;
   onCancel: () => void;
+  inline?: boolean;
+  onSegmentReady?: (uri: string) => void;
 }
 
-export function CameraCapture({ onCapture, onCancel }: Props) {
+export interface CameraCaptureHandle {
+  takeSnapshot: () => Promise<{ base64: string; width: number; height: number } | null>;
+  startBuffering: () => void;
+  stopBuffering: () => void;
+}
+
+export const CameraCapture = forwardRef<CameraCaptureHandle, Props>(
+  function CameraCapture({ onCapture, onCancel, inline, onSegmentReady }, ref) {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
   const [mode, setMode] = useState<CaptureMode>("record");
@@ -64,6 +73,10 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
   const segmentsRef = useRef<string[]>([]);
   const bufferActiveRef = useRef(false);
   const segmentDuration = 1; // seconds per segment
+
+  // Keep a ref to onSegmentReady so the running buffer loop always sees the latest callback.
+  const onSegmentReadyRef = useRef(onSegmentReady);
+  onSegmentReadyRef.current = onSegmentReady;
 
   // Request permission on mount.
   useEffect(() => {
@@ -151,10 +164,13 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
       const uri = await recordOneSegment();
       if (uri) {
         segmentsRef.current.push(uri);
-        const maxSegments = Math.ceil(bufferSeconds / segmentDuration);
-        while (segmentsRef.current.length > maxSegments) {
-          const old = segmentsRef.current.shift();
-          if (old) FileSystem.deleteAsync(old, { idempotent: true }).catch(() => {});
+        if (onSegmentReadyRef.current) onSegmentReadyRef.current(uri);
+        if (!onSegmentReadyRef.current) {
+          const maxSegments = Math.ceil(bufferSeconds / segmentDuration);
+          while (segmentsRef.current.length > maxSegments) {
+            const old = segmentsRef.current.shift();
+            if (old) FileSystem.deleteAsync(old, { idempotent: true }).catch(() => {});
+          }
         }
         setSegmentCount(segmentsRef.current.length);
       }
@@ -201,6 +217,28 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
       saveAndCapture(segments[segments.length - 1]!);
     }
   }, [saveAndCapture]);
+
+  const takeSnapshot = useCallback(async (): Promise<{ base64: string; width: number; height: number } | null> => {
+    if (!cameraRef.current) return null;
+    try {
+      const pic = await (cameraRef.current as any).takePictureAsync({ base64: true, quality: 0.85 });
+      if (pic?.base64 && pic.width && pic.height) {
+        return { base64: pic.base64, width: pic.width, height: pic.height };
+      }
+    } catch {}
+    return null;
+  }, []);
+
+  const stopBufferingFn = useCallback(() => {
+    bufferActiveRef.current = false;
+    try { cameraRef.current?.stopRecording(); } catch {}
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    takeSnapshot,
+    startBuffering,
+    stopBuffering: stopBufferingFn,
+  }));
 
   if (!permission) {
     return (
@@ -347,7 +385,7 @@ export function CameraCapture({ onCapture, onCancel }: Props) {
       </SafeAreaView>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
