@@ -1176,8 +1176,8 @@ const segmentPage = `<!DOCTYPE html>
 </body>
 </html>`;
 
-const LAB_BUILD_URL = "https://expo.dev/accounts/wesyoakum/projects/whylab/builds/8710fd2c-5055-4778-b0c9-02905a9eb206";
-const LAB_BUILD_VERSION = "1.24.3 · p04";
+const LAB_BUILD_URL = "https://expo.dev/accounts/wesyoakum/projects/whylab/builds/b3c0b0fe-e356-4e6f-96c6-88a545f89bbd";
+const LAB_BUILD_VERSION = "1.24.3 · p05";
 
 const labPage = `<!DOCTYPE html>
 <html lang="en">
