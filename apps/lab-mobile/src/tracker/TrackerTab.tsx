@@ -58,7 +58,7 @@ import { useTheme } from "../theme";
 type TrackerMode = "yolo";
 const DETECTOR_MODES: TrackerMode[] = ["yolo"];
 const MODE_LABEL: Record<TrackerMode, string> = { yolo: "YOLO26n" };
-const PUSH_ID = "p07 · 2026-06-10 12:45am";
+const PUSH_ID = "p08 · 2026-06-10 1:00am";
 const OTA_TIMESTAMP = PUSH_ID;
 
 /** Draggable number input — drag horizontally to change value, like Blender. */
@@ -1084,11 +1084,133 @@ export function TrackerTab() {
     if (snap) setLiveSnapshot(snap);
   };
 
+  const liveSegmentCountRef = useRef(0);
+  const liveFrameOffsetRef = useRef(0);
+  const liveProcessingChainRef = useRef<Promise<void>>(Promise.resolve());
+  const [liveSegmentCount, setLiveSegmentCount] = useState(0);
+  const [liveDots, setLiveDots] = useState<{ nx: number; ny: number; t: number; label: string; box?: { x: number; y: number; w: number; h: number } }[]>([]);
+
+  const processLiveSegment = useCallback(async (segmentUri: string) => {
+    const fps = 30;
+    const segDuration = 1.0;
+    liveFrameOffsetRef.current += Math.round(fps * segDuration);
+    const detectOpts = {
+      startTimeSec: 0,
+      endTimeSec: segDuration,
+      stepSec: 1 / fps,
+      minConfidence: 0.10,
+      roi: box ?? undefined,
+      preprocess: preprocessBW ? { grayscale: true, contrast: contrastLevel } : undefined,
+    };
+    try {
+      await Yolo.detectInVideo(segmentUri, { ...detectOpts, labelFilter: ["sports ball"] });
+    } catch {}
+    try {
+      const personResult = await Yolo.detectInVideo(segmentUri, { ...detectOpts, labelFilter: ["person"], minConfidence: 0.25 });
+      const now = Date.now();
+      const newDots = personResult.frames
+        .filter((f) => f.box && !f.lost)
+        .map((f) => ({
+          nx: f.box!.x + f.box!.width / 2,
+          ny: f.box!.y + f.box!.height / 2,
+          t: now,
+          label: "person" as const,
+          box: { x: f.box!.x, y: f.box!.y, w: f.box!.width, h: f.box!.height },
+        }));
+      if (newDots.length > 0) setLiveDots((prev) => [...prev, ...newDots]);
+    } catch {}
+  }, [box, preprocessBW, contrastLevel]);
+
+  const onLiveSegmentReady = useCallback((uri: string) => {
+    setLiveSegmentCount((c) => c + 1);
+    liveProcessingChainRef.current = liveProcessingChainRef.current.then(() => processLiveSegment(uri));
+  }, [processLiveSegment]);
+
+  const startLiveDetection = useCallback(() => {
+    const w = liveSnapshot?.width ?? 1920;
+    const h = liveSnapshot?.height ?? 1080;
+    liveFrameOffsetRef.current = 0;
+    liveSegmentCountRef.current = 0;
+    liveProcessingChainRef.current = Promise.resolve();
+    setLiveSegmentCount(0);
+    setLiveDots([]);
+    streamingFramesRef.current = [];
+    streamingMetaRef.current = { videoWidth: w, videoHeight: h, frameRate: 30 };
+    setResult(null);
+    setDetections(new Map());
+    setValidatedFrames(new Set());
+
+    detectionSubRef.current?.remove();
+    detectionSubRef.current = Yolo.onDetection((frame) => {
+      streamingFramesRef.current.push({
+        ...frame,
+        frameIndex: streamingFramesRef.current.length,
+        timeSec: streamingFramesRef.current.length / 30,
+      });
+      if (frame.box && !frame.lost) {
+        const cx = frame.box.x + frame.box.width / 2;
+        const cy = frame.box.y + frame.box.height / 2;
+        setLiveDots((prev) => [...prev, { nx: cx, ny: cy, t: Date.now(), label: "ball" }]);
+      }
+    });
+
+    setIsDetecting(true);
+    setLiveRecording(true);
+    setLiveSnapshot(null);
+  }, [liveSnapshot]);
+
+  // Start buffering once liveRecording is true and the camera ref is available.
+  useEffect(() => {
+    if (!liveRecording) return;
+    const tryStart = () => {
+      if (liveCameraRef.current) {
+        liveCameraRef.current.startBuffering();
+      } else {
+        setTimeout(tryStart, 100);
+      }
+    };
+    tryStart();
+  }, [liveRecording]);
+
+  const stopLiveDetection = useCallback(() => {
+    liveCameraRef.current?.stopBuffering();
+    setLiveRecording(false);
+    liveProcessingChainRef.current.then(() => {
+      detectionSubRef.current?.remove();
+      detectionSubRef.current = null;
+      setIsDetecting(false);
+      const frames = [...streamingFramesRef.current];
+      const meta = streamingMetaRef.current;
+      if (frames.length > 0 && meta) {
+        setResult({ frames, elapsedMs: 0, videoWidth: meta.videoWidth, videoHeight: meta.videoHeight, frameRate: meta.frameRate, mode: "yolo" as TrackerMode });
+        setReviewIdx(0);
+      }
+      setLiveMode(false);
+    });
+  }, []);
+
   const exitLiveMode = useCallback(() => {
+    if (liveRecording) {
+      liveCameraRef.current?.stopBuffering();
+      detectionSubRef.current?.remove();
+      detectionSubRef.current = null;
+      setIsDetecting(false);
+      setLiveRecording(false);
+    }
     setLiveMode(false);
     setLiveSnapshot(null);
-    setLiveRecording(false);
-  }, []);
+    setLiveDots([]);
+  }, [liveRecording]);
+
+  // Prune expired live dots every 100ms.
+  useEffect(() => {
+    if (liveDots.length === 0) return;
+    const id = setInterval(() => {
+      const now = Date.now();
+      setLiveDots((prev) => prev.filter((d) => now - d.t < 3000));
+    }, 100);
+    return () => clearInterval(id);
+  }, [liveDots.length > 0]);
 
   const handleSaveSession = async () => {
     if (!result) return;
@@ -1301,7 +1423,7 @@ export function TrackerTab() {
             </View>
           </View>
         ) : (
-          /* Live camera preview */
+          /* Live camera preview (or recording) */
           <View style={{ flex: 1 }}>
             <React.Suspense fallback={<View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}><ActivityIndicator color="#fff" /></View>}>
               <CameraCapture
@@ -1309,21 +1431,53 @@ export function TrackerTab() {
                 inline
                 onCapture={() => {}}
                 onCancel={() => {}}
+                onSegmentReady={onLiveSegmentReady}
               />
             </React.Suspense>
+            {/* Detection dots overlay */}
+            {liveDots.length > 0 && (
+              <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                {liveDots.map((d, i) => {
+                  const age = (Date.now() - d.t) / 1000;
+                  const opacity = age < 2 ? 1 : Math.max(0, 1 - (age - 2));
+                  if (d.label === "person" && d.box) {
+                    return (
+                      <View key={`${d.t}-${i}`} style={{ position: "absolute", left: `${d.box.x * 100}%`, top: `${d.box.y * 100}%`, width: `${d.box.w * 100}%`, height: `${d.box.h * 100}%`, borderWidth: 1.5, borderColor: `rgba(80,160,255,${opacity})`, borderRadius: 3 }} />
+                    );
+                  }
+                  return (
+                    <View key={`${d.t}-${i}`} style={{ position: "absolute", left: `${d.nx * 100}%`, top: `${d.ny * 100}%`, width: 8, height: 8, borderRadius: 4, backgroundColor: `rgba(0,255,100,${opacity})`, marginLeft: -4, marginTop: -4 }} />
+                  );
+                })}
+              </View>
+            )}
+            {/* Status + controls */}
             <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, justifyContent: "space-between" }} pointerEvents="box-none">
               <View style={{ alignItems: "center", paddingTop: 50 }}>
-                {cameraPose && (
+                {liveRecording && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#fff" }} />
+                    <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>LIVE · {liveSegmentCount}s · {streamingFramesRef.current.length} det</Text>
+                  </View>
+                )}
+                {cameraPose && !liveRecording && (
                   <View style={{ backgroundColor: "rgba(0,0,0,0.6)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 }}>
                     <Text style={{ color: "#0f0", fontSize: 11 }}>Cal ✓{box ? "  ·  ROI ✓" : ""}</Text>
                   </View>
                 )}
               </View>
               <View style={{ flexDirection: "row", justifyContent: "center", gap: 8, paddingBottom: 50 }}>
-                <Pill label="Snap" onPress={handleLiveSnap} />
-                <Pill label="Load Cal" onPress={handleLoadCal} />
-                <Pill label="Load ROI" onPress={handleLoadRoi} />
-                <Pill label="Exit" onPress={exitLiveMode} />
+                {liveRecording ? (
+                  <Pill label="Stop" active color="#FF3B30" onPress={stopLiveDetection} />
+                ) : (
+                  <>
+                    <Pill label="Snap" onPress={handleLiveSnap} />
+                    <Pill label="Load Cal" onPress={handleLoadCal} />
+                    <Pill label="Load ROI" onPress={handleLoadRoi} />
+                    {cameraPose && <Pill label="Go" active onPress={startLiveDetection} />}
+                    <Pill label="Exit" onPress={exitLiveMode} />
+                  </>
+                )}
               </View>
             </View>
           </View>
