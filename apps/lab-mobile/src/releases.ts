@@ -10,6 +10,14 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.9.2",
+    title: "Audio spectrum: hide chord label (OTA)",
+    notes: [
+      "The chord identification badge above the spectrum is gone. Note labels along the bottom still appear in Notes-scale mode.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.9.1",
     title: "Audio spectrum restored (OTA)",
     notes: [

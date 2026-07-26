@@ -17,7 +17,7 @@ import { Audio } from "expo-av";
 import LiveAudioStream from "react-native-live-audio-stream";
 import FFT from "fft.js";
 import { useTheme, type Theme } from "../theme";
-import { detectNotes, identifyChord } from "./chords";
+import { detectNotes } from "./chords";
 
 const SAMPLE_RATE = 44100;
 const N_BANDS = 96;
@@ -178,7 +178,7 @@ export function SpectrumView() {
         Audio spectrum
       </Text>
       <Text style={{ fontSize: 12, color: theme.textSubtle, marginBottom: 12 }}>
-        Live mic input → {fftSize}-pt FFT → {N_BANDS} log-spaced bands. Peak markers decay ~8% per frame. Note labels + chord detection when the scale is set to Notes.
+        Live mic input → {fftSize}-pt FFT → {N_BANDS} log-spaced bands. Peak markers decay ~8% per frame. Note labels appear when the scale is set to Notes.
       </Text>
 
       <View style={styles.card}>
@@ -300,19 +300,17 @@ function SpectrumBars({ samples, peaks, height = 90, bandEdges, sampleRate, fftS
   bandEdges?: Int32Array | null; sampleRate?: number; fftSize?: number;
 }) {
   if (samples.length === 0) {
-    return <View style={{ height: height + 38, backgroundColor: "transparent" }} />;
+    return <View style={{ height: height + 18, backgroundColor: "transparent" }} />;
   }
   const peaksArr = peaks && peaks.length === samples.length ? peaks : samples;
   const noteHeight = 18;
-  const chordHeight = 20;
-  const totalHeight = height + noteHeight + chordHeight;
+  const totalHeight = height + noteHeight;
   const usable = height - 4;
   const n = samples.length;
 
   const notes = bandEdges && sampleRate && fftSize
     ? detectNotes(peaksArr, bandEdges, 0.15, sampleRate, fftSize)
     : [];
-  const chord = identifyChord(notes);
 
   const noteBands = new Map<number, string>();
   if (bandEdges && sampleRate && fftSize) {
@@ -330,12 +328,6 @@ function SpectrumBars({ samples, peaks, height = 90, bandEdges, sampleRate, fftS
 
   return (
     <View style={{ height: totalHeight, padding: 6 }}>
-      {chord && (
-        <View style={{ height: chordHeight, justifyContent: "center", alignItems: "center" }}>
-          <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>{chord}</Text>
-        </View>
-      )}
-      {!chord && <View style={{ height: chordHeight }} />}
       <View style={{ height, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 2 }}>
         {samples.map((v, i) => {
           const barH = Math.max(1, v * usable);
