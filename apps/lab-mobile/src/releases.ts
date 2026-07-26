@@ -10,6 +10,15 @@ export interface Release {
 
 export const RELEASES: Release[] = [
   {
+    version: "v1.9.1",
+    title: "Audio spectrum restored (OTA)",
+    notes: [
+      "The mic-input frequency spectrum from the old Lab experiments screen is back — Settings → Tools → Audio spectrum opens it as its own screen. Live FFT (4096 or 8192 pt), 96 log-spaced bands, peak markers with decay, and Notes-scale mode adds note/chord labels.",
+      "This is a minimum-viable restore — the full-screen modal and chart pan/pinch gestures from the original weren't ported over. The RangeSlider controls for frequency and dB range do the same thing.",
+      "JS-only — delivered over-the-air.",
+    ],
+  },
+  {
     version: "v1.9.0",
     title: "Tracker: draw a box → YOLO inference ROI (NATIVE rebuild)",
     notes: [

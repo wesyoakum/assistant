@@ -75,6 +75,7 @@ function AuthGate() {
       }}
     >
       <Stack.Screen name="tracker" />
+      <Stack.Screen name="spectrum" options={{ headerShown: true, title: "Audio spectrum" }} />
       <Stack.Screen name="sign-in" />
       <Stack.Screen name="index" />
     </Stack>
