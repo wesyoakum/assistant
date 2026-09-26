@@ -1,9 +1,9 @@
 """
 Season-level context for the SEC against-the-spread page: SP+ / FPI ratings,
 247 talent composite, recruiting class rank, AP polls, returning production and
-season advanced stats, for the 16 current SEC programs 2021-2025.
+season advanced stats, and head coach + tenure year, for the 16 current SEC programs 2016-2025.
 
-    python pull_sec_seasons.py      (needs CFBD_KEY; writes sec_seasons_2021_2025.csv)
+    python pull_sec_seasons.py      (needs CFBD_KEY; writes sec_seasons_2016_2025.csv)
 """
 import csv, os, sys, time
 import requests
@@ -14,7 +14,7 @@ if not KEY:
 
 BASE = "https://api.collegefootballdata.com"
 H = {"Authorization": f"Bearer {KEY}"}
-SEASONS = range(2021, 2026)
+SEASONS = range(2016, 2026)
 TEAMS = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
          "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
          "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
@@ -58,7 +58,8 @@ FIELDS = ["season", "team", "sp_rating", "sp_rank", "sp_off_rank", "sp_def_rank"
           "fpi", "fpi_rank", "fpi_sor_rank", "talent", "talent_rank", "recruit_rank",
           "recruit_points", "ap_pre", "ap_final", "ret_ppa_pct", "ret_usage_pct",
           "off_ppa", "off_success", "off_explosiveness", "def_ppa", "def_success",
-          "def_explosiveness"]
+          "def_explosiveness", "coach", "coach_tenure_year", "coach_first_year", "coach_games",
+          "coaches_that_year"]
 
 rows = {}
 for year in SEASONS:
@@ -116,7 +117,32 @@ for year in SEASONS:
     print(f"{year}: done", flush=True)
     time.sleep(0.3)
 
-out = "sec_seasons_2021_2025.csv"
+# ---- head coaches: one call per school, all years, so tenure counts seasons before the window (and 2020)
+for t in TEAMS:
+    seasons = []   # (year, coach, games)
+    for c in get("/coaches", team=t, optional=True):
+        name = f"{c.get('firstName','')} {c.get('lastName','')}".strip()
+        for sn in c.get("seasons", []):
+            if sn.get("school") == t and sn.get("year") is not None:
+                seasons.append((sn["year"], name, sn.get("games") or 0))
+    by_year = {}
+    for yr, name, games in seasons:
+        by_year.setdefault(yr, []).append((name, games))
+    # primary coach for a season = the one who coached the most games
+    primary = {yr: max(v, key=lambda x: x[1])[0] for yr, v in by_year.items()}
+    # first consecutive year of the primary coach's current run at the school
+    first = {}
+    for yr in sorted(primary):
+        name = primary[yr]
+        first[yr] = first[yr - 1] if primary.get(yr - 1) == name else yr
+    for yr in SEASONS:
+        if yr in primary and (yr, t) in rows:
+            rows[(yr, t)].update(coach=primary[yr], coach_tenure_year=yr - first[yr] + 1, coach_first_year=first[yr],
+                                 coach_games=dict(by_year[yr])[primary[yr]], coaches_that_year=len(by_year[yr]))
+    print(f"coaches {t}: {len(primary)} seasons on file", flush=True)
+    time.sleep(0.3)
+
+out = "sec_seasons_2016_2025.csv"
 with open(out, "w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=FIELDS)
     w.writeheader()
