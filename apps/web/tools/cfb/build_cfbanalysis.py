@@ -48,19 +48,19 @@ def scatter(g,color):
     W,Hh=720,540; L,R,T,B=56,20,20,48
     xmin,xmax=-60,40; ymin,ymax=-45,65
     X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R); Y=lambda v:T+(ymax-v)/(ymax-ymin)*(Hh-T-B)
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Closing spread versus actual margin">']
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Expected margin versus actual margin">']
     for v in range(-60,41,10): s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="grid"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{v:+d}</text>')
     for v in range(-40,66,10): s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="grid"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{v:+d}</text>')
     s.append(f'<line x1="{X(xmin):.1f}" y1="{Y(0):.1f}" x2="{X(xmax):.1f}" y2="{Y(0):.1f}" class="zero"/>')
     s.append(f'<line x1="{X(-60):.1f}" y1="{Y(60):.1f}" x2="{X(40):.1f}" y2="{Y(-40):.1f}" class="fair"/>')
     s.append(f'<text x="{X(-57):.1f}" y="{Y(58)-6:.1f}" class="lbl">Books exactly right</text>')
-    s.append(f'<text x="{X(-45):.1f}" y="{Y(50):.1f}" class="lbl faint">Covered ↑</text><text x="{X(14):.1f}" y="{Y(-36):.1f}" class="lbl faint">↓ Did not cover</text>')
-    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Closing spread (negative = favored)</text>')
+    s.append(f'<text x="{X(-45):.1f}" y="{Y(50):.1f}" class="lbl faint">Beat the number ↑</text><text x="{X(14):.1f}" y="{Y(-36):.1f}" class="lbl faint">↓ Fell short</text>')
+    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Closing line (negative = favored by that much)</text>')
     s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Actual margin</text>')
     for _,r in g.iterrows():
         cls={'Cover':'cover','No Cover':'nocover','Push':'push'}[r.res]
         loc={'H':'vs','A':'at','N':'vs (N)'}[r.site]
-        tip=f"{r.season} {loc} {r.opponent}: {r.su} {r.team_pts}-{r.opp_pts}, line {r.close_spread:+g}, cover margin {r.cover_margin:+g}"
+        tip=f"{r.season} {loc} {r.opponent}: {r.su} {r.team_pts}-{r.opp_pts}, line {r.close_spread:+g}, beat by {r.cover_margin:+g}"
         s.append(f'<circle cx="{X(r.close_spread):.1f}" cy="{Y(r.actual_margin):.1f}" r="5.5" class="pt {cls}"><title>{H.escape(tip)}</title></circle>')
     s.append('</svg>'); return ''.join(s)
 
@@ -70,13 +70,13 @@ def strip(g):
     for i,yr in enumerate(seasons):
         y0=i*rowh+10; base=y0+62; rs=g[g.season==yr]; st=stats(rs)
         s.append(f'<text x="0" y="{y0+14}" class="seasonlbl">{yr}</text>')
-        s.append(f'<text x="{W}" y="{y0+14}" class="seasonstat" text-anchor="end">{rec(st)} ATS · {st["w"]}-{st["l"]} SU · avg cover margin {st["cm"]:+.1f}</text>')
+        s.append(f'<text x="{W}" y="{y0+14}" class="seasonstat" text-anchor="end">{rec(st)} vs the number · {st["w"]}-{st["l"]} won-lost · beat by {st["cm"]:+.1f} avg</text>')
         s.append(f'<line x1="70" y1="{base}" x2="{W-10}" y2="{base}" class="zero"/>')
         gap=(W-90)/max(len(rs),14)
         for j,(_,r) in enumerate(rs.iterrows()):
             x=80+j*gap+gap/2; yv=base-(max(-40,min(40,r.cover_margin))/40)*40
             cls={'Cover':'cover','No Cover':'nocover','Push':'push'}[r.res]
-            tip=f"{r.opponent} ({ {'H':'home','A':'away','N':'neutral'}[r.site]}): {r.su} {r.team_pts}-{r.opp_pts}, line {r.close_spread:+g}, cover margin {r.cover_margin:+g}"
+            tip=f"{r.opponent} ({ {'H':'home','A':'away','N':'neutral'}[r.site]}): {r.su} {r.team_pts}-{r.opp_pts}, line {r.close_spread:+g}, beat by {r.cover_margin:+g}"
             s.append(f'<rect x="{x-6:.1f}" y="{min(base,yv):.1f}" width="12" height="{abs(base-yv):.1f}" class="bar {cls}"><title>{H.escape(tip)}</title></rect>')
             nm=r.opponent.replace('Mississippi State','Miss St').replace('South Carolina','S Carolina').replace(' State',' St').replace('Appalachian','App')
             s.append(f'<text x="{x:.1f}" y="{base+50}" class="oppl" text-anchor="middle" transform="rotate(-38 {x:.1f} {base+50})">{H.escape(nm[:16])}</text>')
@@ -137,7 +137,7 @@ def surprises(g):
     def row(r):
         loc={'H':'vs','A':'at','N':'vs (N)'}[r.site]
         return f"<tr><td>{r.season} {loc} {H.escape(r.opponent)}</td><td>{r.su} {r.team_pts}-{r.opp_pts}</td><td>{r.close_spread:+g}</td><td>{r.p*100:.0f}%</td></tr>"
-    hdr="<tr><th>Game</th><th>Result</th><th>Line</th><th>Win prob.</th></tr>"
+    hdr="<tr><th>Game</th><th>Result</th><th>Closing line</th><th>Chance to win</th></tr>"
     wins=''.join(row(r) for _,r in g[g.su=='W'].nsmallest(4,'p').iterrows())
     losses=''.join(row(r) for _,r in g[g.su=='L'].nlargest(4,'p').iterrows())
     return f"<h3>Unlikeliest wins</h3><div class='wrap'><table>{hdr}{wins}</table></div><h3>Most surprising losses</h3><div class='wrap'><table>{hdr}{losses}</table></div>"
@@ -149,42 +149,60 @@ def split_table(g):
                     ('Conference games',g[g.conf_game=='Y']),('Non-conference',g[g.conf_game=='N']),('Postseason',g[g.season_type=='postseason'])]:
         if len(sub)==0: continue
         st=stats(sub); rows.append(f"<tr><td>{lab}</td><td>{st['n']}</td><td>{st['w']}-{st['l']}</td><td>{rec(st)}</td><td>{st['pct']:.0f}%</td><td>{st['cm']:+.1f}</td></tr>")
-    return "<div class='wrap'><table><tr><th>Split</th><th>Games</th><th>Straight up</th><th>ATS</th><th>Cover %</th><th>Avg cover margin</th></tr>"+''.join(rows)+"</table></div>"
+    return "<div class='wrap'><table><tr><th>Split</th><th>Games</th><th>Won-lost</th><th>Vs the number</th><th>Beat %</th><th>Beat by, avg</th></tr>"+''.join(rows)+"</table></div>"
+
+GLOSS='<details class="gloss"><summary>Terms used on this page</summary><dl><dt>Closing line</dt><dd>The sportsbooks\' final forecast of the margin, with everyone\'s money behind it. Negative means the team was favored by that many points. Used here as the best available measure of what everyone expected.</dd><dt>Expected wins</dt><dd>Each closing line converted to a chance of winning, then added up. The record the market thought was coming.</dd><dt>Deserved wins</dt><dd>Each game\'s postgame win probability, from CollegeFootballData\'s play-by-play model, added up. How many games a team that played that way usually wins. The gap between actual and deserved wins is what most people call luck.</dd><dt>SP+</dt><dd>Bill Connelly\'s efficiency rating of how well a team actually played, adjusted for opponent. Used here as the measure of quality, separate from the record.</dd><dt>Talent composite</dt><dd>247Sports\' rating of the whole roster\'s recruiting pedigree. Used here as the measure of what the players were supposed to be.</dd><dt>Beat the number</dt><dd>Finished with a better margin than the closing line; a bettor would say "covered". Beat by is margin plus line: +7 means seven points better than expected.</dd><dt>One-score game</dt><dd>Decided by eight points or fewer.</dd></dl></details>'
+INTRO_TEAM='<div class="intro"><p>Every frustrating season comes down to one of three things. <b>The expectations were wrong:</b> the team was never as good as the polls, the lines, and the fans believed. <b>The bounces were wrong:</b> the team played well enough to win and didn\'t. <b>The development was wrong:</b> the players were there and the play wasn\'t. Each section below tests one of them. The numbers don\'t pick a winner. You do.</p></div>'
+INTRO_SEC='<div class="intro"><p>Every frustrating season comes down to one of three things: the expectations were wrong, the bounces were wrong, or the development was wrong. This page asks those three questions of all sixteen programs at once, so you can see where yours sits. Each team also has its own page in the menu above.</p></div>'
 
 def team_section(t):
     g=d[d.team==t].sort_values('date'); st=stats(g); col=COLORS[t]
-    seasons=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{rec(s)}</td><td>{s['pct']:.0f}%</td><td>{s['cm']:+.1f}</td></tr>" for yr,s in ((yr,stats(g[g.season==yr])) for yr in sorted(g.season.unique())))
-    xseasons=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{xrec(s)}</td><td>{dw(s):+.1f}</td><td>{s['fw']}-{s['fl']}</td><td>{s['uw']}-{s['ul']}</td></tr>" for yr,s in ((yr,stats(g[g.season==yr])) for yr in sorted(g.season.unique())))
+    yrs=sorted(g.season.unique()); ys={yr:stats(g[g.season==yr]) for yr in yrs}
+    t1=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{xrec(s)}</td><td>{s['sow']:.1f}-{s['n']-s['sow']:.1f}</td><td>{dw(s):+.1f}</td><td>{luck(s):+.1f}</td><td>{s['fw']}-{s['fl']}</td><td>{s['uw']}-{s['ul']}</td></tr>" for yr,s in ys.items())
+    t2=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{s['osw']}-{s['osl']}</td><td>{fr(s['tom'],'{:+.0f}')}</td><td>{luck(s):+.1f}</td></tr>" for yr,s in ys.items())
+    t3=''.join(f"<tr><td>{yr}</td><td>{fr(r.get('talent_rank'))}</td><td>{fr(r.get('recruit_rank'))}</td><td>{fr(r.get('ap_pre'))}</td><td>{fr(r.get('sp_rank'))}</td><td>{fr(r.get('sp_off_rank'))}</td><td>{fr(r.get('sp_def_rank'))}</td><td>{ys[yr]['w']}-{ys[yr]['l']}</td></tr>" for yr in yrs for r in [srow(t,yr)])
+    t4=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{rec(s)}</td><td>{s['pct']:.0f}%</td><td>{s['cm']:+.1f}</td></tr>" for yr,s in ys.items())
     mv=g.dropna(subset=['move']); mvtxt=''
     if len(mv)>20:
         toward=mv[mv.move<0]; away=mv[mv.move>0]
-        mvtxt=f"<p>Of {len(mv)} games with an opening line, the number moved toward {t} in {len(toward)} ({stats(toward)['pct']:.0f}% cover rate when it did) and away in {len(away)} ({stats(away)['pct']:.0f}% cover rate). Average movement {mv.move.mean():+.2f} points; negative means bettors pushed the line further in the team's favor.</p>"
+        mvtxt=f"<p>Of {len(mv)} games with an opening line, the number moved toward {H.escape(t)} in {len(toward)} ({stats(toward)['pct']:.0f}% beat the number when it did) and away in {len(away)} ({stats(away)['pct']:.0f}%). Average movement {mv.move.mean():+.2f} points; negative means bettors pushed the line further in the team's favor.</p>"
+    tal_t=tal.get(t,np.nan); sp_t=spr.get(t,np.nan)
     return f'''<section class="team" id="{slug(t)}" style="--accent:{col}" hidden>
-<h1>{H.escape(t)} against the spread</h1>
-<p class="sub">Every game from 2021 through 2025 with a closing line, from the {t} side of the number.</p>
-<div class="big"><div><b>{rec(st)}</b><span>ATS record, {st['n']} games</span></div><div><b>{st['pct']:.0f}%</b><span>cover rate (52.4% breaks even)</span></div><div><b>{st['cm']:+.1f}</b><span>avg cover margin, points</span></div><div><b>{st['w']}-{st['l']}</b><span>straight up</span></div></div>
-<h2>Where the market missed</h2>
-<p>Each dot is one game. Left-right is the closing spread; up-down is the final margin. Dots above the dashed line covered, dots below did not.</p>
-{scatter(g,col)}
-<div class="key"><span><i style="background:var(--accent)"></i>Covered</span><span><i style="background:var(--nocover)"></i>Did not cover</span><span><i style="background:var(--push)"></i>Push</span></div>
-<h2>Game by game</h2>
-{strip(g)}
-<h2>Season by season</h2>
-<div class="wrap"><table><tr><th>Season</th><th>Straight up</th><th>ATS</th><th>Cover %</th><th>Avg cover margin</th></tr>{seasons}</table></div>
-<h2>Splits</h2>
-{split_table(g)}
-{mvtxt}
-<h2>Wins versus expectation</h2>
-<p>Each closing spread implies a win probability; adding those up gives the number of wins the market expected. {H.escape(t)} won {st['w']} of {st['n']} games against an expectation of {st['xw']:.1f}, {abs(dw(st)):.1f} wins {'above' if dw(st)>=0 else 'below'} the market. Filled dot is actual wins, open circle is what the market expected, and the square is what the play deserved (second-order wins: each game's postgame win probability, summed).</p>
+<h1>{H.escape(t)}, 2021 through 2025</h1>
+<p class="sub">Every game with a closing line, five seasons, from the {H.escape(t)} side of the number.</p>
+<div class="big"><div><b>{st['w']}-{st['l']}</b><span>won-lost, {st['n']} games</span></div><div><b>{st['xw']:.1f}</b><span>wins the market expected</span></div><div><b>{st['sow']:.1f}</b><span>wins the play deserved</span></div><div><b>No. {fr(tal_t)}</b><span>roster by talent, avg national rank</span></div><div><b>No. {fr(sp_t)}</b><span>quality of play (SP+), avg national rank</span></div></div>
+{INTRO_TEAM}
+{GLOSS}
+<h2>1. Were the expectations wrong?</h2>
+<p>The closing line is the sharpest forecast there is. Convert each one to a chance of winning and add them up, and you get the record the market expected. Deserved wins come from the other direction: after each game, a play-by-play model estimates how often a team that played that way wins it. If the market expected more wins than the play deserved, the expectations were wrong. If the play deserved more than the team got, keep reading.</p>
 {xwchart(g,col)}
-<div class="wrap"><table><tr><th>Season</th><th>Record</th><th>Expected</th><th>&plusmn;</th><th>As favorite</th><th>As underdog</th></tr>{xseasons}</table></div>
+<div class="key"><span><i style="background:var(--accent)"></i>Won</span><span><i class="open"></i>Market expected</span><span><i class="sq" style="background:var(--accent)"></i>Play deserved</span></div>
+<div class="wrap"><table><tr><th>Season</th><th>Record</th><th>Market expected</th><th>Play deserved</th><th>Won vs market</th><th>Won vs deserved</th><th>As favorite</th><th>As underdog</th></tr>{t1}</table></div>
+<h2>2. Was it luck?</h2>
+<p>Luck is the gap between what the play deserved and what actually happened: close games, turnovers, and the afternoons that defied the odds. The games below are ranked by the pre-game chance of winning implied by the closing line.</p>
 {surprises(g)}
-<h2>Talent, quality, and luck</h2>
-<p>Three ways to rank a team: the roster it recruited (247 talent composite), how well it actually played (SP+), and what the polls expected in August. A team whose SP+ line sits below its talent line is getting more out of its players than the recruiting rankings promised; above it, less.</p>
+<h3>Close games and turnovers</h3>
+<div class="wrap"><table><tr><th>Season</th><th>Record</th><th>One-score games</th><th>Turnover margin</th><th>Won vs deserved</th></tr>{t2}</table></div>
+<h2>3. Was it the roster?</h2>
+<p>Three national rankings side by side: the roster's recruiting pedigree (247Sports talent composite), how well the team actually played (SP+), and where the preseason AP poll had it. Lower is better. When the play line sits below the talent line, the roster gave less than its rankings promised. Above it, more.</p>
 {rankchart(t) if HAS_S else ''}
 <div class="key"><span><i style="background:var(--accent)"></i>Talent composite</span><span><i style="background:var(--ink)"></i>SP+ (quality of play)</span><span><i style="background:var(--push)"></i>Preseason AP (blank = unranked)</span></div>
-{verdict(t,g,st)}
-{ctx_table(t,g)}
+<div class="wrap"><table><tr><th>Season</th><th>Talent</th><th>Recruiting class</th><th>Preseason AP</th><th>SP+</th><th>Offense</th><th>Defense</th><th>Record</th></tr>{t3}</table></div>
+<h2>Appendix: game by game against the number</h2>
+<p>For readers who follow the lines. Everything above was built from these games.</p>
+<div class="big"><div><b>{rec(st)}</b><span>vs the number (beat-short-push)</span></div><div><b>{st['pct']:.0f}%</b><span>beat the number (52.4% breaks even for a bettor)</span></div><div><b>{st['cm']:+.1f}</b><span>beat the number by, avg points</span></div></div>
+<h3>Expected margin versus actual margin</h3>
+<p>Each dot is one game. Left to right is the closing line; up and down is the final margin. Dots above the dashed line beat the number, dots below fell short.</p>
+{scatter(g,col)}
+<div class="key"><span><i style="background:var(--accent)"></i>Beat the number</span><span><i style="background:var(--nocover)"></i>Fell short</span><span><i style="background:var(--push)"></i>Push</span></div>
+<h3>Beat the number by, game by game</h3>
+{strip(g)}
+<h3>Season by season</h3>
+<div class="wrap"><table><tr><th>Season</th><th>Record</th><th>Vs the number</th><th>Beat %</th><th>Beat by, avg</th></tr>{t4}</table></div>
+<h3>Splits</h3>
+{split_table(g)}
+{mvtxt}
+<p class="more"><a href="#sec">Compare with the rest of the SEC</a></p>
 </section>'''
 
 # ---------- conference page
@@ -203,7 +221,7 @@ ctx_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}<
 def dotplot():
     W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50
     xmin,xmax=-4,4; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Average cover margin by team">']
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Average beat-by margin by team">']
     for v in range(-4,5): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
     for i,t in enumerate(order):
         y=20+i*rh; v=tot[t]['cm']; pct=tot[t]['pct']
@@ -287,39 +305,47 @@ xw_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</
 sd=d.groupby('team').cover_margin.mean().std()
 opts=''.join(f'<option value="{slug(t)}">{H.escape(t)}</option>' for t in TEAMS)
 
+lorder=sorted(TEAMS,key=lambda t:luck(tot[t]),reverse=True)
+mrank=morder.index('Texas A&M')+1; lrank=lorder.index('Texas A&M')+1; drank=dorder.index('Texas A&M')+1
 conf=f'''<section class="team" id="sec" style="--accent:#1c1a1a">
-<h1>The SEC against the spread</h1>
-<p class="sub">Sixteen current SEC programs, 2021 through 2025: {len(d):,} team-games, every one with a closing line. Texas and Oklahoma's Big 12 seasons are included so each program has the same five-year window.</p>
-<div class="big"><div><b>{allst['pct']:.1f}%</b><span>league-wide cover rate</span></div><div><b>{am['pct']:.0f}%</b><span>Texas A&amp;M cover rate</span></div><div><b>{rank} of 16</b><span>A&amp;M rank by avg cover margin</span></div><div><b>{dw(am):+.1f}</b><span>A&amp;M wins vs expected, {xrank} of 16</span></div></div>
-<h2>Who the market gets wrong</h2>
-<p>Average cover margin per team. Positive means the program beat its closing number on average; negative means the market was consistently too generous. The spread of the whole league is under {sd*2:.0f} points end to end, so small differences here are mostly noise.</p>
-{dotplot()}
-<h2>Favorites and underdogs</h2>
-<p>Filled dot is cover rate as a favorite, open circle as an underdog. A team far to the left on the filled dot but to the right on the open one is a program the public overbuys when it's expected to win.</p>
-{favdog()}
-<h2>Season by season</h2>
-<p>ATS record per team-season. Maroon shading is above 50%, tan is below; deeper color is further from even.</p>
-{heat()}
-<h2>Wins versus expectation</h2>
-<p>Covering is one question; winning is another. Each closing spread implies a pre-game win probability (a normal curve centered on the spread with a {SIG:.0f}-point standard deviation, the observed scatter of outcomes in this data), and summing those over five years gives the wins the market expected. Positive means the program won more often than it was priced to. A team can sit high here while covering rarely if it keeps winning close as a favorite.</p>
-{xwplot()}
-<div class="wrap"><table><tr><th>Team</th><th>Record</th><th>Expected</th><th>&plusmn;</th><th>As favorite</th><th>As underdog</th></tr>{xw_rows}</table></div>
+<h1>The SEC, 2021 through 2025</h1>
+<p class="sub">Sixteen current SEC programs, {len(d):,} team-games, every one with a closing line. Texas and Oklahoma's Big 12 seasons are included so each program has the same five-year window.</p>
+<div class="big"><div><b>{am['w']}-{am['l']}</b><span>Texas A&amp;M won-lost</span></div><div><b>{mgap(am):+.1f}</b><span>market expected minus play deserved, {mrank} of 16</span></div><div><b>{luck(am):+.1f}</b><span>won minus play deserved, {lrank} of 16</span></div><div><b>{fr(dev['Texas A&M'],'{:+.0f}')}</b><span>talent rank minus SP+ rank, {drank} of 16</span></div></div>
+{INTRO_SEC}
+{GLOSS}
 <h2>Overrated, underrated, lucky, unlucky</h2>
-<p>Spread results alone cannot tell an overrated team from an unlucky one. This separates them with a third number: deserved wins, the sum of each game's postgame win probability (CFBD's play-by-play estimate of how often a team playing that way wins that game). Up and down is what the market expected minus what the play deserved: up is overrated. Left and right is actual wins minus deserved wins: right is overperforming, usually close games and turnover luck.</p>
+<p>Up and down is what the market expected minus what the play deserved: up is overrated. Left and right is actual wins minus deserved wins: right is overperforming, usually close games and turnover luck. Five-season totals. A team can be overrated and unlucky at the same time; that is the top-left corner.</p>
 {quad()}
 <h2>Playing above or below the roster</h2>
-<p>Average talent-composite rank minus average SP+ rank across the five seasons. Positive means the program has played better than its recruiting rankings would predict; negative means the roster has been better than the results. Ranks are among all FBS programs.</p>
+<p>Average talent-composite rank minus average SP+ rank across the five seasons. Positive means the program has played better than its recruiting rankings would predict; negative means the roster has been better than the play. Ranks are among all FBS programs.</p>
 {devplot() if HAS_S else ''}
-<div class="wrap"><table><tr><th>Team</th><th>Talent rk</th><th>SP+ rk</th><th>Talent&minus;SP+</th><th>Record</th><th>Deserved</th><th>Market</th><th>Luck</th><th>Market gap</th></tr>{ctx_rows}</table></div>
-<h2>All sixteen</h2>
-<p>Line move is the average change from opening to closing spread from the team's perspective; negative means bettors pushed the number further in the team's favor. About half of games have an opening line on file.</p>
-<div class="wrap"><table><tr><th>Team</th><th>SU</th><th>ATS</th><th>Cover %</th><th>Avg cover margin</th><th>As fav</th><th>As dog</th><th>Line move</th></tr>{conf_rows}</table></div>
-<p class="note">Data: CollegeFootballData.com games and lines endpoints, closing spread from consensus or DraftKings where available. Spreads are from the listed team's side, negative = favored. Cover margin = actual margin + spread. Conference games appear once for each side, so league-wide cover margin nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each closing spread to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them. Deserved wins sum CFBD's postgame win probability per game; where CFBD has no play-by-play for a game ({int(d.post_wp.isna().sum())} of {len(d)}), the spread-implied probability stands in. Talent composite, recruiting ranks, SP+, and AP polls are CFBD's season tables.</p>
+<div class="wrap"><table><tr><th>Team</th><th>Talent rank</th><th>SP+ rank</th><th>Talent&minus;SP+</th><th>Record</th><th>Play deserved</th><th>Market expected</th><th>Won vs deserved</th><th>Market vs deserved</th></tr>{ctx_rows}</table></div>
+<h2>Wins versus expectation</h2>
+<p>Actual wins minus the wins the market expected, five-season totals. Positive means the program won more often than it was priced to. This mixes the first two questions together; the quadrant chart above pulls them apart.</p>
+{xwplot()}
+<div class="wrap"><table><tr><th>Team</th><th>Record</th><th>Market expected</th><th>Won vs market</th><th>As favorite</th><th>As underdog</th></tr>{xw_rows}</table></div>
+<h2>Appendix: against the number</h2>
+<p>For readers who follow the lines.</p>
+<div class="big"><div><b>{allst['pct']:.1f}%</b><span>league-wide beat-the-number rate</span></div><div><b>{am['pct']:.0f}%</b><span>Texas A&amp;M beat-the-number rate</span></div><div><b>{rank} of 16</b><span>A&amp;M rank by beat-by average</span></div></div>
+<h3>Beat the number by, on average</h3>
+<p>Positive means the program beat its closing number on average; negative means the market was consistently too generous. The whole league spans under {sd*2:.0f} points end to end, so small differences here are mostly noise.</p>
+{dotplot()}
+<h3>Favorites and underdogs</h3>
+<p>Filled dot is the beat-the-number rate as a favorite, open circle as an underdog. A team far to the left on the filled dot but to the right on the open one is a program the public overbuys when it's expected to win.</p>
+{favdog()}
+<h3>Season by season</h3>
+<p>Record against the number per team-season. Maroon shading is above 50%, tan is below; deeper color is further from even.</p>
+{heat()}
+<h3>All sixteen</h3>
+<p>Line move is the average change from opening to closing line from the team's perspective; negative means bettors pushed the number further in the team's favor. About half of games have an opening line on file.</p>
+<div class="wrap"><table><tr><th>Team</th><th>Won-lost</th><th>Vs the number</th><th>Beat %</th><th>Beat by, avg</th><th>Beat % as fav</th><th>Beat % as dog</th><th>Line move</th></tr>{conf_rows}</table></div>
+<p class="note">Data: CollegeFootballData.com games and lines endpoints, closing line from consensus or DraftKings where available. Lines are from the listed team's side, negative = favored. Beat by = actual margin + line. Conference games appear once for each side, so the league-wide beat-by average nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each closing line to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them. Deserved wins sum CFBD's postgame win probability per game; where CFBD has no play-by-play for a game ({int(d.post_wp.isna().sum())} of {len(d)}), the line-implied probability stands in. Talent composite, recruiting ranks, SP+, and AP polls are CFBD's season tables.</p>
+<p class="more"><a href="#texas-am">Texas A&amp;M's page</a></p>
 </section>'''
 
 page=f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SEC against the spread, 2021–2025</title>
+<title>The SEC, 2021 through 2025: expectations, luck, and talent</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;600&display=swap">
 <style>
 :root{{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
@@ -336,9 +362,13 @@ select:focus{{outline:2px solid var(--accent,#500000);outline-offset:1px}}
 h1{{font-family:"Barlow Condensed","Arial Narrow",Arial,sans-serif;font-weight:700;font-size:clamp(38px,8vw,64px);line-height:.95;margin:0 0 6px;letter-spacing:-.01em}}
 h2{{font-family:"Barlow Condensed","Arial Narrow",Arial,sans-serif;font-weight:700;font-size:26px;margin:44px 0 4px}}
 h3{{font-family:"Barlow Condensed","Arial Narrow",Arial,sans-serif;font-weight:700;font-size:19px;margin:24px 0 0}}
+.intro{{border:1px solid var(--rule);background:var(--panel);padding:4px 16px;margin:22px 0 10px}} .intro p{{max-width:none}}
+.gloss{{font-size:14px;color:var(--mute);margin:0 0 8px}} .gloss summary{{cursor:pointer;font-weight:600;color:var(--ink)}} .gloss dl{{margin:6px 0 0}} .gloss dt{{font-weight:600;color:var(--ink);margin-top:8px}} .gloss dd{{margin:0}}
+.key i.open{{background:transparent;border:2px solid var(--accent);box-sizing:border-box}} .key i.sq{{border-radius:0;opacity:.5}}
+.more{{margin-top:36px;font-weight:600}} a{{color:inherit}}
 .sub{{color:var(--mute);margin:0 0 26px;max-width:60ch}} p{{max-width:64ch}}
-.big{{display:flex;gap:28px;flex-wrap:wrap;margin:10px 0 6px;border-top:2px solid var(--accent);padding-top:12px}}
-.big div{{min-width:120px}} .big b{{font-family:"Barlow Condensed",Arial,sans-serif;font-size:44px;line-height:1;display:block}} .big span{{color:var(--mute);font-size:14px}}
+.big{{display:flex;gap:20px;flex-wrap:wrap;margin:10px 0 6px;border-top:2px solid var(--accent);padding-top:12px}}
+.big div{{min-width:110px;max-width:130px}} .big b{{font-family:"Barlow Condensed",Arial,sans-serif;font-size:44px;line-height:1;display:block}} .big span{{color:var(--mute);font-size:14px}}
 .chart{{width:100%;height:auto;display:block;background:var(--panel);border:1px solid var(--rule);padding:8px;box-sizing:border-box}}
 .grid{{stroke:var(--rule);stroke-width:1}} .zero{{stroke:var(--mute);stroke-width:1.2}} .stem{{stroke:var(--rule);stroke-width:2}}
 .fair{{stroke:var(--ink);stroke-width:1.5;stroke-dasharray:6 5}}
@@ -358,10 +388,12 @@ th{{font-weight:600;color:var(--mute)}} tr.hi td{{font-weight:600;background:rgb
 {''.join(team_section(t) for t in TEAMS)}
 </main>
 <script>
-(function(){{var sel=document.getElementById('pick');function show(id){{document.querySelectorAll('section.team').forEach(function(s){{s.hidden=s.id!==id}});sel.value=id;try{{localStorage.setItem('secpick',id)}}catch(e){{}}window.scrollTo(0,0)}}
-sel.addEventListener('change',function(){{show(sel.value)}});
-var h=location.hash.slice(1),saved=null;try{{saved=localStorage.getItem('secpick')}}catch(e){{}}
-var init=(h&&document.getElementById(h))?h:'sec';show(init)}})();
+(function(){{var sel=document.getElementById('pick');function show(id){{document.querySelectorAll('section.team').forEach(function(s){{s.hidden=s.id!==id}});sel.value=id;window.scrollTo(0,0)}}
+function fromHash(){{var h=location.hash.slice(1);return (h&&document.getElementById(h))?h:null}}
+sel.addEventListener('change',function(){{history.replaceState(null,'','#'+sel.value);show(sel.value)}});
+window.addEventListener('hashchange',function(){{var h=fromHash();if(h)show(h)}});
+window.addEventListener('load',function(){{window.scrollTo(0,0)}});
+show(fromHash()||'texas-am')}})();
 </script></body></html>'''
 open('cfbanalysis.html','w',encoding='utf-8').write(page)
 print(len(page)//1024,'KB'); print(pd.DataFrame({t:tot[t] for t in order}).T[['n','c','nc','p','pct','cm']].round(1).to_string())
