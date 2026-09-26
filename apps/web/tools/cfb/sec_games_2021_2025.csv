@@ -1,0 +1,1041 @@
+season,week,date,season_type,team,opponent,site,conf_game,team_pts,opp_pts,actual_margin,open_spread,close_spread,provider,cover_margin
+2021,1,2021-09-04,regular,Alabama,Miami,N,N,44,13,31,,-19.5,consensus,11.5
+2021,2,2021-09-11,regular,Alabama,Mercer,H,N,48,14,34,-54.0,-54.0,Bovada,-20.0
+2021,3,2021-09-18,regular,Alabama,Florida,A,Y,31,29,2,,-14.0,consensus,-12.0
+2021,4,2021-09-25,regular,Alabama,Southern Miss,H,N,63,14,49,,-45.0,consensus,4.0
+2021,5,2021-10-02,regular,Alabama,Ole Miss,H,Y,42,21,21,,-15.0,consensus,6.0
+2021,6,2021-10-10,regular,Alabama,Texas A&M,A,Y,38,41,-3,,-18.5,consensus,-21.5
+2021,7,2021-10-16,regular,Alabama,Mississippi State,A,Y,49,9,40,,-17.5,consensus,22.5
+2021,8,2021-10-23,regular,Alabama,Tennessee,H,Y,52,24,28,,-25.5,consensus,2.5
+2021,10,2021-11-06,regular,Alabama,LSU,H,Y,20,14,6,,-29.0,consensus,-23.0
+2021,11,2021-11-13,regular,Alabama,New Mexico State,H,N,59,3,56,,-50.5,consensus,5.5
+2021,12,2021-11-20,regular,Alabama,Arkansas,H,Y,42,35,7,,-20.5,consensus,-13.5
+2021,13,2021-11-27,regular,Alabama,Auburn,A,Y,24,22,2,,-20.5,consensus,-18.5
+2021,14,2021-12-04,regular,Alabama,Georgia,N,Y,41,24,17,,6.5,consensus,23.5
+2021,1,2021-12-31,postseason,Alabama,Cincinnati,N,N,27,6,21,,-13.0,consensus,8.0
+2021,1,2022-01-11,postseason,Alabama,Georgia,N,N,18,33,-15,,3.0,consensus,-12.0
+2021,1,2021-09-04,regular,Arkansas,Rice,H,N,38,17,21,,-19.5,consensus,1.5
+2021,2,2021-09-11,regular,Arkansas,Texas,H,N,40,21,19,,6.0,consensus,25.0
+2021,3,2021-09-18,regular,Arkansas,Georgia Southern,H,N,45,10,35,,-23.0,consensus,12.0
+2021,4,2021-09-25,regular,Arkansas,Texas A&M,N,Y,20,10,10,,4.5,consensus,14.5
+2021,5,2021-10-02,regular,Arkansas,Georgia,A,Y,0,37,-37,,16.5,consensus,-20.5
+2021,6,2021-10-09,regular,Arkansas,Ole Miss,A,Y,51,52,-1,,5.0,consensus,4.0
+2021,7,2021-10-16,regular,Arkansas,Auburn,H,Y,23,38,-15,,-4.5,consensus,-19.5
+2021,8,2021-10-23,regular,Arkansas,Arkansas-Pine Bluff,H,N,45,3,42,,-50.5,consensus,-8.5
+2021,10,2021-11-06,regular,Arkansas,Mississippi State,H,Y,31,28,3,,-4.0,consensus,-1.0
+2021,11,2021-11-14,regular,Arkansas,LSU,A,Y,16,13,3,,-3.0,consensus,0.0
+2021,12,2021-11-20,regular,Arkansas,Alabama,A,Y,35,42,-7,,20.5,consensus,13.5
+2021,13,2021-11-26,regular,Arkansas,Missouri,H,Y,34,17,17,,-14.5,consensus,2.5
+2021,1,2022-01-01,postseason,Arkansas,Penn State,N,N,24,10,14,,-3.5,consensus,10.5
+2021,1,2021-09-04,regular,Auburn,Akron,H,N,60,10,50,,-37.0,consensus,13.0
+2021,2,2021-09-11,regular,Auburn,Alabama State,H,N,62,0,62,,-49.5,consensus,12.5
+2021,3,2021-09-18,regular,Auburn,Penn State,A,N,20,28,-8,,4.0,consensus,-4.0
+2021,4,2021-09-25,regular,Auburn,Georgia State,H,N,34,24,10,,-27.5,consensus,-17.5
+2021,5,2021-10-03,regular,Auburn,LSU,A,Y,24,19,5,,3.0,consensus,8.0
+2021,6,2021-10-09,regular,Auburn,Georgia,H,Y,10,34,-24,,14.5,consensus,-9.5
+2021,7,2021-10-16,regular,Auburn,Arkansas,A,Y,38,23,15,,4.5,consensus,19.5
+2021,9,2021-10-30,regular,Auburn,Ole Miss,H,Y,31,20,11,,-3.0,consensus,8.0
+2021,10,2021-11-06,regular,Auburn,Texas A&M,A,Y,3,20,-17,,4.5,consensus,-12.5
+2021,11,2021-11-13,regular,Auburn,Mississippi State,H,Y,34,43,-9,,-5.5,consensus,-14.5
+2021,12,2021-11-21,regular,Auburn,South Carolina,A,Y,17,21,-4,,-7.0,consensus,-11.0
+2021,13,2021-11-27,regular,Auburn,Alabama,H,Y,22,24,-2,,20.5,consensus,18.5
+2021,1,2021-12-28,postseason,Auburn,Houston,N,N,13,17,-4,,1.5,consensus,-2.5
+2021,1,2021-09-04,regular,Florida,Florida Atlantic,H,N,35,14,21,,-23.5,consensus,-2.5
+2021,2,2021-09-11,regular,Florida,South Florida,A,N,42,20,22,,-28.5,consensus,-6.5
+2021,3,2021-09-18,regular,Florida,Alabama,H,Y,29,31,-2,,14.0,consensus,12.0
+2021,4,2021-09-25,regular,Florida,Tennessee,H,Y,38,14,24,,-19.0,consensus,5.0
+2021,5,2021-10-02,regular,Florida,Kentucky,A,Y,13,20,-7,,-7.5,consensus,-14.5
+2021,6,2021-10-09,regular,Florida,Vanderbilt,H,Y,42,0,42,,-39.0,consensus,3.0
+2021,7,2021-10-16,regular,Florida,LSU,A,Y,42,49,-7,,-12.5,consensus,-19.5
+2021,9,2021-10-30,regular,Florida,Georgia,N,Y,7,34,-27,,14.0,consensus,-13.0
+2021,10,2021-11-06,regular,Florida,South Carolina,A,Y,17,40,-23,,-20.5,consensus,-43.5
+2021,11,2021-11-13,regular,Florida,Samford,H,N,70,52,18,,-36.0,consensus,-18.0
+2021,12,2021-11-20,regular,Florida,Missouri,A,Y,23,24,-1,,-9.0,consensus,-10.0
+2021,13,2021-11-27,regular,Florida,Florida State,H,N,24,21,3,,-4.0,consensus,-1.0
+2021,1,2021-12-24,postseason,Florida,UCF,N,N,17,29,-12,,-7.0,consensus,-19.0
+2021,1,2021-09-04,regular,Georgia,Clemson,N,N,10,3,7,,2.5,consensus,9.5
+2021,2,2021-09-11,regular,Georgia,UAB,H,N,56,7,49,,-22.5,consensus,26.5
+2021,3,2021-09-18,regular,Georgia,South Carolina,H,Y,40,13,27,,-31.5,consensus,-4.5
+2021,4,2021-09-25,regular,Georgia,Vanderbilt,A,Y,62,0,62,,-36.0,consensus,26.0
+2021,5,2021-10-02,regular,Georgia,Arkansas,H,Y,37,0,37,,-16.5,consensus,20.5
+2021,6,2021-10-09,regular,Georgia,Auburn,A,Y,34,10,24,,-14.5,consensus,9.5
+2021,7,2021-10-16,regular,Georgia,Kentucky,H,Y,30,13,17,,-21.5,consensus,-4.5
+2021,9,2021-10-30,regular,Georgia,Florida,N,Y,34,7,27,,-14.0,consensus,13.0
+2021,10,2021-11-06,regular,Georgia,Missouri,H,Y,43,6,37,,-40.0,consensus,-3.0
+2021,11,2021-11-13,regular,Georgia,Tennessee,A,Y,41,17,24,,-19.5,consensus,4.5
+2021,12,2021-11-20,regular,Georgia,Charleston Southern,H,N,56,7,49,,-52.5,consensus,-3.5
+2021,13,2021-11-27,regular,Georgia,Georgia Tech,A,N,45,0,45,,-35.5,consensus,9.5
+2021,14,2021-12-04,regular,Georgia,Alabama,N,Y,24,41,-17,,-6.5,consensus,-23.5
+2021,1,2022-01-01,postseason,Georgia,Michigan,N,N,34,11,23,,-7.5,consensus,15.5
+2021,1,2022-01-11,postseason,Georgia,Alabama,N,N,33,18,15,,-3.0,consensus,12.0
+2021,1,2021-09-04,regular,Kentucky,UL Monroe,H,N,45,10,35,,-31.0,consensus,4.0
+2021,2,2021-09-11,regular,Kentucky,Missouri,H,Y,35,28,7,,-5.5,consensus,1.5
+2021,3,2021-09-18,regular,Kentucky,Chattanooga,H,N,28,23,5,,-33.5,consensus,-28.5
+2021,4,2021-09-25,regular,Kentucky,South Carolina,A,Y,16,10,6,,-4.5,consensus,1.5
+2021,5,2021-10-02,regular,Kentucky,Florida,H,Y,20,13,7,,7.5,consensus,14.5
+2021,6,2021-10-09,regular,Kentucky,LSU,H,Y,42,21,21,,-2.0,consensus,19.0
+2021,7,2021-10-16,regular,Kentucky,Georgia,A,Y,13,30,-17,,21.5,consensus,4.5
+2021,9,2021-10-30,regular,Kentucky,Mississippi State,A,Y,17,31,-14,,1.0,consensus,-13.0
+2021,10,2021-11-06,regular,Kentucky,Tennessee,H,Y,42,45,-3,,1.0,consensus,-2.0
+2021,11,2021-11-14,regular,Kentucky,Vanderbilt,A,Y,34,17,17,,-21.5,consensus,-4.5
+2021,12,2021-11-20,regular,Kentucky,New Mexico State,H,N,56,16,40,,-35.5,consensus,4.5
+2021,13,2021-11-28,regular,Kentucky,Louisville,A,N,52,21,31,,3.0,consensus,34.0
+2021,1,2022-01-01,postseason,Kentucky,Iowa,N,N,20,17,3,,-3.0,consensus,0.0
+2021,1,2021-09-05,regular,LSU,UCLA,A,N,27,38,-11,,-2.0,consensus,-13.0
+2021,2,2021-09-12,regular,LSU,McNeese,H,N,34,7,27,,-39.0,consensus,-12.0
+2021,3,2021-09-18,regular,LSU,Central Michigan,H,N,49,21,28,,-19.5,consensus,8.5
+2021,4,2021-09-25,regular,LSU,Mississippi State,A,Y,28,25,3,,-1.5,consensus,1.5
+2021,5,2021-10-03,regular,LSU,Auburn,H,Y,19,24,-5,,-3.0,consensus,-8.0
+2021,6,2021-10-09,regular,LSU,Kentucky,A,Y,21,42,-21,,2.0,consensus,-19.0
+2021,7,2021-10-16,regular,LSU,Florida,H,Y,49,42,7,,12.5,consensus,19.5
+2021,8,2021-10-23,regular,LSU,Ole Miss,A,Y,17,31,-14,,9.0,consensus,-5.0
+2021,10,2021-11-06,regular,LSU,Alabama,A,Y,14,20,-6,,29.0,consensus,23.0
+2021,11,2021-11-14,regular,LSU,Arkansas,H,Y,13,16,-3,,3.0,consensus,0.0
+2021,12,2021-11-21,regular,LSU,UL Monroe,H,N,27,14,13,,-29.0,consensus,-16.0
+2021,13,2021-11-28,regular,LSU,Texas A&M,H,Y,27,24,3,,6.5,consensus,9.5
+2021,1,2022-01-05,postseason,LSU,Kansas State,N,N,20,42,-22,,9.5,consensus,-12.5
+2021,1,2021-09-04,regular,Mississippi State,Louisiana Tech,H,N,35,34,1,,-20.5,consensus,-19.5
+2021,2,2021-09-11,regular,Mississippi State,NC State,H,N,24,10,14,,1.5,consensus,15.5
+2021,3,2021-09-18,regular,Mississippi State,Memphis,A,N,29,31,-2,,-3.5,consensus,-5.5
+2021,4,2021-09-25,regular,Mississippi State,LSU,H,Y,25,28,-3,,1.5,consensus,-1.5
+2021,5,2021-10-02,regular,Mississippi State,Texas A&M,A,Y,26,22,4,,7.0,consensus,11.0
+2021,7,2021-10-16,regular,Mississippi State,Alabama,H,Y,9,49,-40,,17.5,consensus,-22.5
+2021,8,2021-10-23,regular,Mississippi State,Vanderbilt,A,Y,45,6,39,,-20.5,consensus,18.5
+2021,9,2021-10-30,regular,Mississippi State,Kentucky,H,Y,31,17,14,,-1.0,consensus,13.0
+2021,10,2021-11-06,regular,Mississippi State,Arkansas,A,Y,28,31,-3,,4.0,consensus,1.0
+2021,11,2021-11-13,regular,Mississippi State,Auburn,A,Y,43,34,9,,5.5,consensus,14.5
+2021,12,2021-11-20,regular,Mississippi State,Tennessee State,H,N,55,10,45,,-44.0,consensus,1.0
+2021,13,2021-11-26,regular,Mississippi State,Ole Miss,H,Y,21,31,-10,,-2.0,consensus,-12.0
+2021,1,2021-12-28,postseason,Mississippi State,Texas Tech,N,N,7,34,-27,,-10.0,consensus,-37.0
+2021,1,2021-09-04,regular,Missouri,Central Michigan,H,N,34,24,10,,-14.0,consensus,-4.0
+2021,2,2021-09-11,regular,Missouri,Kentucky,A,Y,28,35,-7,,5.5,consensus,-1.5
+2021,3,2021-09-18,regular,Missouri,Southeast Missouri State,H,N,59,28,31,,-34.5,consensus,-3.5
+2021,4,2021-09-25,regular,Missouri,Boston College,A,N,34,41,-7,,1.0,consensus,-6.0
+2021,5,2021-10-02,regular,Missouri,Tennessee,H,Y,24,62,-38,,-2.5,consensus,-40.5
+2021,6,2021-10-09,regular,Missouri,North Texas,H,N,48,35,13,,-18.5,consensus,-5.5
+2021,7,2021-10-16,regular,Missouri,Texas A&M,H,Y,14,35,-21,,11.5,consensus,-9.5
+2021,9,2021-10-30,regular,Missouri,Vanderbilt,A,Y,37,28,9,,-16.0,consensus,-7.0
+2021,10,2021-11-06,regular,Missouri,Georgia,A,Y,6,43,-37,,40.0,consensus,3.0
+2021,11,2021-11-13,regular,Missouri,South Carolina,H,Y,31,28,3,,1.5,consensus,4.5
+2021,12,2021-11-20,regular,Missouri,Florida,H,Y,24,23,1,,9.0,consensus,10.0
+2021,13,2021-11-26,regular,Missouri,Arkansas,A,Y,17,34,-17,,14.5,consensus,-2.5
+2021,1,2021-12-23,postseason,Missouri,Army,N,N,22,24,-2,,7.0,consensus,5.0
+2021,1,2021-09-04,regular,Oklahoma,Tulane,H,N,40,35,5,,-31.0,consensus,-26.0
+2021,2,2021-09-11,regular,Oklahoma,Western Carolina,H,N,76,0,76,,-52.5,consensus,23.5
+2021,3,2021-09-18,regular,Oklahoma,Nebraska,H,N,23,16,7,,-22.5,consensus,-15.5
+2021,4,2021-09-25,regular,Oklahoma,West Virginia,H,Y,16,13,3,,-17.5,consensus,-14.5
+2021,5,2021-10-02,regular,Oklahoma,Kansas State,A,Y,37,31,6,,-12.5,consensus,-6.5
+2021,6,2021-10-09,regular,Oklahoma,Texas,N,Y,55,48,7,,-4.0,consensus,3.0
+2021,7,2021-10-16,regular,Oklahoma,TCU,H,Y,52,31,21,,-12.5,consensus,8.5
+2021,8,2021-10-23,regular,Oklahoma,Kansas,A,Y,35,23,12,,-38.5,consensus,-26.5
+2021,9,2021-10-30,regular,Oklahoma,Texas Tech,H,Y,52,21,31,,-19.0,consensus,12.0
+2021,11,2021-11-13,regular,Oklahoma,Baylor,A,Y,14,27,-13,,-4.0,consensus,-17.0
+2021,12,2021-11-20,regular,Oklahoma,Iowa State,H,Y,28,21,7,,-3.0,consensus,4.0
+2021,13,2021-11-28,regular,Oklahoma,Oklahoma State,A,Y,33,37,-4,,4.0,consensus,0.0
+2021,1,2021-12-30,postseason,Oklahoma,Oregon,N,N,47,32,15,,-7.0,consensus,8.0
+2021,1,2021-09-07,regular,Ole Miss,Louisville,N,N,43,24,19,,-9.0,consensus,10.0
+2021,2,2021-09-11,regular,Ole Miss,Austin Peay,H,N,54,17,37,,-37.0,consensus,0.0
+2021,3,2021-09-19,regular,Ole Miss,Tulane,H,N,61,21,40,,-14.0,consensus,26.0
+2021,5,2021-10-02,regular,Ole Miss,Alabama,A,Y,21,42,-21,,15.0,consensus,-6.0
+2021,6,2021-10-09,regular,Ole Miss,Arkansas,H,Y,52,51,1,,-5.0,consensus,-4.0
+2021,7,2021-10-16,regular,Ole Miss,Tennessee,A,Y,31,26,5,,-1.0,consensus,4.0
+2021,8,2021-10-23,regular,Ole Miss,LSU,H,Y,31,17,14,,-9.0,consensus,5.0
+2021,9,2021-10-30,regular,Ole Miss,Auburn,A,Y,20,31,-11,,3.0,consensus,-8.0
+2021,10,2021-11-06,regular,Ole Miss,Liberty,H,N,27,14,13,,-7.5,consensus,5.5
+2021,11,2021-11-14,regular,Ole Miss,Texas A&M,H,Y,29,19,10,,1.0,consensus,11.0
+2021,12,2021-11-21,regular,Ole Miss,Vanderbilt,H,Y,31,17,14,,-36.0,consensus,-22.0
+2021,13,2021-11-26,regular,Ole Miss,Mississippi State,A,Y,31,21,10,,2.0,consensus,12.0
+2021,1,2022-01-02,postseason,Ole Miss,Baylor,N,N,7,21,-14,,-1.0,consensus,-15.0
+2021,1,2021-09-04,regular,South Carolina,Eastern Illinois,H,N,46,0,46,,-31.5,consensus,14.5
+2021,2,2021-09-11,regular,South Carolina,East Carolina,A,N,20,17,3,,-2.5,consensus,0.5
+2021,3,2021-09-18,regular,South Carolina,Georgia,A,Y,13,40,-27,,31.5,consensus,4.5
+2021,4,2021-09-25,regular,South Carolina,Kentucky,H,Y,10,16,-6,,4.5,consensus,-1.5
+2021,5,2021-10-02,regular,South Carolina,Troy,H,N,23,14,9,,-6.5,consensus,2.5
+2021,6,2021-10-09,regular,South Carolina,Tennessee,A,Y,20,45,-25,,10.5,consensus,-14.5
+2021,7,2021-10-16,regular,South Carolina,Vanderbilt,H,Y,21,20,1,,-18.5,consensus,-17.5
+2021,8,2021-10-23,regular,South Carolina,Texas A&M,A,Y,14,44,-30,,19.5,consensus,-10.5
+2021,10,2021-11-06,regular,South Carolina,Florida,H,Y,40,17,23,,20.5,consensus,43.5
+2021,11,2021-11-13,regular,South Carolina,Missouri,A,Y,28,31,-3,,-1.5,consensus,-4.5
+2021,12,2021-11-21,regular,South Carolina,Auburn,H,Y,21,17,4,,7.0,consensus,11.0
+2021,13,2021-11-28,regular,South Carolina,Clemson,H,N,0,30,-30,,11.5,consensus,-18.5
+2021,1,2021-12-30,postseason,South Carolina,North Carolina,N,N,38,21,17,,12.5,consensus,29.5
+2021,1,2021-09-03,regular,Tennessee,Bowling Green,H,N,38,6,32,,-37.0,consensus,-5.0
+2021,2,2021-09-11,regular,Tennessee,Pittsburgh,H,N,34,41,-7,,3.5,consensus,-3.5
+2021,3,2021-09-18,regular,Tennessee,Tennessee Tech,H,N,56,0,56,,-38.0,consensus,18.0
+2021,4,2021-09-25,regular,Tennessee,Florida,A,Y,14,38,-24,,19.0,consensus,-5.0
+2021,5,2021-10-02,regular,Tennessee,Missouri,A,Y,62,24,38,,2.5,consensus,40.5
+2021,6,2021-10-09,regular,Tennessee,South Carolina,H,Y,45,20,25,,-10.5,consensus,14.5
+2021,7,2021-10-16,regular,Tennessee,Ole Miss,H,Y,26,31,-5,,1.0,consensus,-4.0
+2021,8,2021-10-23,regular,Tennessee,Alabama,A,Y,24,52,-28,,25.5,consensus,-2.5
+2021,10,2021-11-06,regular,Tennessee,Kentucky,A,Y,45,42,3,,-1.0,consensus,2.0
+2021,11,2021-11-13,regular,Tennessee,Georgia,H,Y,17,41,-24,,19.5,consensus,-4.5
+2021,12,2021-11-21,regular,Tennessee,South Alabama,H,N,60,14,46,,-28.5,consensus,17.5
+2021,13,2021-11-27,regular,Tennessee,Vanderbilt,H,Y,45,21,24,,-32.0,consensus,-8.0
+2021,1,2021-12-30,postseason,Tennessee,Purdue,N,N,45,48,-3,,-7.5,consensus,-10.5
+2021,1,2021-09-04,regular,Texas,Louisiana,H,N,38,18,20,,-8.5,consensus,11.5
+2021,2,2021-09-11,regular,Texas,Arkansas,A,N,21,40,-19,,-6.0,consensus,-25.0
+2021,3,2021-09-19,regular,Texas,Rice,H,N,58,0,58,,-26.0,consensus,32.0
+2021,4,2021-09-25,regular,Texas,Texas Tech,H,Y,70,35,35,,-9.0,consensus,26.0
+2021,5,2021-10-02,regular,Texas,TCU,A,Y,32,27,5,,-4.0,consensus,1.0
+2021,6,2021-10-09,regular,Texas,Oklahoma,N,Y,48,55,-7,,4.0,consensus,-3.0
+2021,7,2021-10-16,regular,Texas,Oklahoma State,H,Y,24,32,-8,,-3.5,consensus,-11.5
+2021,9,2021-10-30,regular,Texas,Baylor,A,Y,24,31,-7,,2.5,consensus,-4.5
+2021,10,2021-11-06,regular,Texas,Iowa State,A,Y,7,30,-23,,6.0,consensus,-17.0
+2021,11,2021-11-14,regular,Texas,Kansas,H,Y,56,57,-1,,-31.0,consensus,-32.0
+2021,12,2021-11-20,regular,Texas,West Virginia,A,Y,23,31,-8,,2.5,consensus,-5.5
+2021,13,2021-11-26,regular,Texas,Kansas State,H,Y,22,17,5,,-2.5,consensus,2.5
+2021,1,2021-09-05,regular,Texas A&M,Kent State,H,N,41,10,31,,-29.5,consensus,1.5
+2021,2,2021-09-11,regular,Texas A&M,Colorado,N,N,10,7,3,,-17.0,consensus,-14.0
+2021,3,2021-09-18,regular,Texas A&M,New Mexico,H,N,34,0,34,,-30.0,consensus,4.0
+2021,4,2021-09-25,regular,Texas A&M,Arkansas,N,Y,10,20,-10,,-4.5,consensus,-14.5
+2021,5,2021-10-02,regular,Texas A&M,Mississippi State,H,Y,22,26,-4,,-7.0,consensus,-11.0
+2021,6,2021-10-10,regular,Texas A&M,Alabama,H,Y,41,38,3,,18.5,consensus,21.5
+2021,7,2021-10-16,regular,Texas A&M,Missouri,A,Y,35,14,21,,-11.5,consensus,9.5
+2021,8,2021-10-23,regular,Texas A&M,South Carolina,H,Y,44,14,30,,-19.5,consensus,10.5
+2021,10,2021-11-06,regular,Texas A&M,Auburn,H,Y,20,3,17,,-4.5,consensus,12.5
+2021,11,2021-11-14,regular,Texas A&M,Ole Miss,A,Y,19,29,-10,,-1.0,consensus,-11.0
+2021,12,2021-11-20,regular,Texas A&M,Prairie View A&M,H,N,52,3,49,,-41.5,consensus,7.5
+2021,13,2021-11-28,regular,Texas A&M,LSU,A,Y,24,27,-3,,-6.5,consensus,-9.5
+2021,1,2021-09-05,regular,Vanderbilt,East Tennessee State,H,N,3,23,-20,,-21.0,consensus,-41.0
+2021,2,2021-09-12,regular,Vanderbilt,Colorado State,A,N,24,21,3,,6.5,consensus,9.5
+2021,3,2021-09-19,regular,Vanderbilt,Stanford,H,N,23,41,-18,,12.5,consensus,-5.5
+2021,4,2021-09-25,regular,Vanderbilt,Georgia,H,Y,0,62,-62,,36.0,consensus,-26.0
+2021,5,2021-10-02,regular,Vanderbilt,UConn,H,N,30,28,2,,-14.5,consensus,-12.5
+2021,6,2021-10-09,regular,Vanderbilt,Florida,A,Y,0,42,-42,,39.0,consensus,-3.0
+2021,7,2021-10-16,regular,Vanderbilt,South Carolina,A,Y,20,21,-1,,18.5,consensus,17.5
+2021,8,2021-10-23,regular,Vanderbilt,Mississippi State,H,Y,6,45,-39,,20.5,consensus,-18.5
+2021,9,2021-10-30,regular,Vanderbilt,Missouri,H,Y,28,37,-9,,16.0,consensus,7.0
+2021,11,2021-11-14,regular,Vanderbilt,Kentucky,H,Y,17,34,-17,,21.5,consensus,4.5
+2021,12,2021-11-21,regular,Vanderbilt,Ole Miss,A,Y,17,31,-14,,36.0,consensus,22.0
+2021,13,2021-11-27,regular,Vanderbilt,Tennessee,A,Y,21,45,-24,,32.0,consensus,8.0
+2022,1,2022-09-03,regular,Alabama,Utah State,H,N,55,0,55,,-42.0,consensus,13.0
+2022,2,2022-09-10,regular,Alabama,Texas,A,N,20,19,1,,-21.0,consensus,-20.0
+2022,3,2022-09-17,regular,Alabama,UL Monroe,H,N,63,7,56,,-49.5,consensus,6.5
+2022,4,2022-09-24,regular,Alabama,Vanderbilt,H,Y,55,3,52,,-40.5,consensus,11.5
+2022,5,2022-10-01,regular,Alabama,Arkansas,A,Y,49,26,23,,-17.0,consensus,6.0
+2022,6,2022-10-09,regular,Alabama,Texas A&M,H,Y,24,20,4,,-24.0,consensus,-20.0
+2022,7,2022-10-15,regular,Alabama,Tennessee,A,Y,49,52,-3,,-9.0,consensus,-12.0
+2022,8,2022-10-22,regular,Alabama,Mississippi State,H,Y,30,6,24,,-21.0,consensus,3.0
+2022,10,2022-11-05,regular,Alabama,LSU,A,Y,31,32,-1,,-13.5,consensus,-14.5
+2022,11,2022-11-12,regular,Alabama,Ole Miss,A,Y,30,24,6,,-11.0,consensus,-5.0
+2022,12,2022-11-19,regular,Alabama,Austin Peay,H,N,34,0,34,,-45.0,consensus,-11.0
+2022,13,2022-11-26,regular,Alabama,Auburn,H,Y,49,27,22,,-22.0,consensus,0.0
+2022,1,2022-12-31,postseason,Alabama,Kansas State,N,N,45,20,25,,-7.5,consensus,17.5
+2022,1,2022-09-03,regular,Arkansas,Cincinnati,H,N,31,24,7,,-6.5,consensus,0.5
+2022,2,2022-09-10,regular,Arkansas,South Carolina,H,Y,44,30,14,,-8.5,consensus,5.5
+2022,3,2022-09-17,regular,Arkansas,Missouri State,H,N,38,27,11,,-26.0,consensus,-15.0
+2022,4,2022-09-24,regular,Arkansas,Texas A&M,N,Y,21,23,-2,,1.5,consensus,-0.5
+2022,5,2022-10-01,regular,Arkansas,Alabama,H,Y,26,49,-23,,17.0,consensus,-6.0
+2022,6,2022-10-08,regular,Arkansas,Mississippi State,A,Y,17,40,-23,,8.5,consensus,-14.5
+2022,7,2022-10-15,regular,Arkansas,BYU,A,N,52,35,17,,1.0,consensus,18.0
+2022,9,2022-10-29,regular,Arkansas,Auburn,A,Y,41,27,14,,-4.0,consensus,10.0
+2022,10,2022-11-05,regular,Arkansas,Liberty,H,N,19,21,-2,,-14.5,consensus,-16.5
+2022,11,2022-11-12,regular,Arkansas,LSU,H,Y,10,13,-3,,3.5,consensus,0.5
+2022,12,2022-11-20,regular,Arkansas,Ole Miss,H,Y,42,27,15,,1.0,consensus,16.0
+2022,13,2022-11-25,regular,Arkansas,Missouri,A,Y,27,29,-2,,-3.5,consensus,-5.5
+2022,1,2022-12-28,postseason,Arkansas,Kansas,N,N,55,53,2,,-1.0,consensus,1.0
+2022,1,2022-09-03,regular,Auburn,Mercer,H,N,42,16,26,,-30.0,consensus,-4.0
+2022,2,2022-09-10,regular,Auburn,San José State,H,N,24,16,8,,-24.0,consensus,-16.0
+2022,3,2022-09-17,regular,Auburn,Penn State,H,N,12,41,-29,,2.5,consensus,-26.5
+2022,4,2022-09-24,regular,Auburn,Missouri,H,Y,17,14,3,,-7.5,consensus,-4.5
+2022,5,2022-10-01,regular,Auburn,LSU,H,Y,17,21,-4,,8.0,consensus,4.0
+2022,6,2022-10-08,regular,Auburn,Georgia,A,Y,10,42,-32,,28.0,consensus,-4.0
+2022,7,2022-10-15,regular,Auburn,Ole Miss,A,Y,34,48,-14,,15.5,consensus,1.5
+2022,9,2022-10-29,regular,Auburn,Arkansas,H,Y,27,41,-14,,4.0,consensus,-10.0
+2022,10,2022-11-05,regular,Auburn,Mississippi State,A,Y,33,39,-6,,12.5,consensus,6.5
+2022,11,2022-11-13,regular,Auburn,Texas A&M,H,Y,13,10,3,,-1.5,consensus,1.5
+2022,12,2022-11-19,regular,Auburn,Western Kentucky,H,N,41,17,24,,-5.0,consensus,19.0
+2022,13,2022-11-26,regular,Auburn,Alabama,A,Y,27,49,-22,,22.0,consensus,0.0
+2022,1,2022-09-03,regular,Florida,Utah,H,N,29,26,3,,2.5,consensus,5.5
+2022,2,2022-09-10,regular,Florida,Kentucky,H,Y,16,26,-10,,-6.0,consensus,-16.0
+2022,3,2022-09-17,regular,Florida,South Florida,H,N,31,28,3,,-23.5,consensus,-20.5
+2022,4,2022-09-24,regular,Florida,Tennessee,A,Y,33,38,-5,,11.0,consensus,6.0
+2022,5,2022-10-02,regular,Florida,Eastern Washington,H,N,52,17,35,,-32.0,consensus,3.0
+2022,6,2022-10-08,regular,Florida,Missouri,H,Y,24,17,7,,-10.5,consensus,-3.5
+2022,7,2022-10-15,regular,Florida,LSU,H,Y,35,45,-10,,-2.0,consensus,-12.0
+2022,9,2022-10-29,regular,Florida,Georgia,N,Y,20,42,-22,,23.0,consensus,1.0
+2022,10,2022-11-05,regular,Florida,Texas A&M,A,Y,41,24,17,,1.5,consensus,18.5
+2022,11,2022-11-12,regular,Florida,South Carolina,H,Y,38,6,32,,-8.0,consensus,24.0
+2022,12,2022-11-19,regular,Florida,Vanderbilt,A,Y,24,31,-7,,-14.0,consensus,-21.0
+2022,13,2022-11-26,regular,Florida,Florida State,A,N,38,45,-7,,10.0,consensus,3.0
+2022,1,2022-12-17,postseason,Florida,Oregon State,N,N,3,30,-27,,7.5,consensus,-19.5
+2022,1,2022-09-03,regular,Georgia,Oregon,N,N,49,3,46,,-16.0,consensus,30.0
+2022,2,2022-09-10,regular,Georgia,Samford,H,N,33,0,33,,-53.0,consensus,-20.0
+2022,3,2022-09-17,regular,Georgia,South Carolina,A,Y,48,7,41,,-25.5,consensus,15.5
+2022,4,2022-09-24,regular,Georgia,Kent State,H,N,39,22,17,,-45.0,consensus,-28.0
+2022,5,2022-10-01,regular,Georgia,Missouri,A,Y,26,22,4,,-30.5,consensus,-26.5
+2022,6,2022-10-08,regular,Georgia,Auburn,H,Y,42,10,32,,-28.0,consensus,4.0
+2022,7,2022-10-15,regular,Georgia,Vanderbilt,H,Y,55,0,55,,-37.5,consensus,17.5
+2022,9,2022-10-29,regular,Georgia,Florida,N,Y,42,20,22,,-23.0,consensus,-1.0
+2022,10,2022-11-05,regular,Georgia,Tennessee,H,Y,27,13,14,,-10.0,consensus,4.0
+2022,11,2022-11-13,regular,Georgia,Mississippi State,A,Y,45,19,26,,-16.5,consensus,9.5
+2022,12,2022-11-19,regular,Georgia,Kentucky,A,Y,16,6,10,,-22.5,consensus,-12.5
+2022,13,2022-11-26,regular,Georgia,Georgia Tech,H,N,37,14,23,,-36.5,consensus,-13.5
+2022,14,2022-12-03,regular,Georgia,LSU,N,Y,50,30,20,,-17.5,consensus,2.5
+2022,1,2023-01-01,postseason,Georgia,Ohio State,N,N,42,41,1,,-5.5,consensus,-4.5
+2022,1,2023-01-10,postseason,Georgia,TCU,N,N,65,7,58,,-13.5,consensus,44.5
+2022,1,2022-09-03,regular,Kentucky,Miami (OH),H,N,37,13,24,,-15.0,consensus,9.0
+2022,2,2022-09-10,regular,Kentucky,Florida,A,Y,26,16,10,,6.0,consensus,16.0
+2022,3,2022-09-17,regular,Kentucky,Youngstown State,H,N,31,0,31,,-30.0,consensus,1.0
+2022,4,2022-09-24,regular,Kentucky,Northern Illinois,H,N,31,23,8,,-26.5,consensus,-18.5
+2022,5,2022-10-01,regular,Kentucky,Ole Miss,A,Y,19,22,-3,,6.5,consensus,3.5
+2022,6,2022-10-08,regular,Kentucky,South Carolina,H,Y,14,24,-10,,-4.5,consensus,-14.5
+2022,7,2022-10-15,regular,Kentucky,Mississippi State,H,Y,27,17,10,,3.5,consensus,13.5
+2022,9,2022-10-29,regular,Kentucky,Tennessee,A,Y,6,44,-38,,10.5,consensus,-27.5
+2022,10,2022-11-05,regular,Kentucky,Missouri,A,Y,21,17,4,,1.0,consensus,5.0
+2022,11,2022-11-12,regular,Kentucky,Vanderbilt,H,Y,21,24,-3,,-17.0,consensus,-20.0
+2022,12,2022-11-19,regular,Kentucky,Georgia,H,Y,6,16,-10,,22.5,consensus,12.5
+2022,13,2022-11-26,regular,Kentucky,Louisville,H,N,26,13,13,,-3.5,consensus,9.5
+2022,1,2022-12-31,postseason,Kentucky,Iowa,N,N,0,21,-21,,3.0,consensus,-18.0
+2022,1,2022-09-04,regular,LSU,Florida State,N,N,23,24,-1,-3.0,-4.5,Bovada,-5.5
+2022,2,2022-09-10,regular,LSU,Southern,H,N,65,17,48,,-44.5,consensus,3.5
+2022,3,2022-09-17,regular,LSU,Mississippi State,H,Y,31,16,15,,3.0,consensus,18.0
+2022,4,2022-09-24,regular,LSU,New Mexico,H,N,38,0,38,,-31.5,consensus,6.5
+2022,5,2022-10-01,regular,LSU,Auburn,A,Y,21,17,4,,-8.0,consensus,-4.0
+2022,6,2022-10-08,regular,LSU,Tennessee,H,Y,13,40,-27,,2.5,consensus,-24.5
+2022,7,2022-10-15,regular,LSU,Florida,A,Y,45,35,10,,2.0,consensus,12.0
+2022,8,2022-10-22,regular,LSU,Ole Miss,H,Y,45,20,25,,0.0,consensus,25.0
+2022,10,2022-11-05,regular,LSU,Alabama,H,Y,32,31,1,,13.5,consensus,14.5
+2022,11,2022-11-12,regular,LSU,Arkansas,A,Y,13,10,3,,-3.5,consensus,-0.5
+2022,12,2022-11-20,regular,LSU,UAB,H,N,41,10,31,,-15.0,consensus,16.0
+2022,13,2022-11-27,regular,LSU,Texas A&M,A,Y,23,38,-15,,-10.0,consensus,-25.0
+2022,14,2022-12-03,regular,LSU,Georgia,N,Y,30,50,-20,,17.5,consensus,-2.5
+2022,1,2023-01-02,postseason,LSU,Purdue,N,N,63,7,56,,-15.5,consensus,40.5
+2022,1,2022-09-03,regular,Mississippi State,Memphis,H,N,49,23,26,,-17.0,consensus,9.0
+2022,2,2022-09-11,regular,Mississippi State,Arizona,A,N,39,17,22,,-12.5,consensus,9.5
+2022,3,2022-09-17,regular,Mississippi State,LSU,A,Y,16,31,-15,,-3.0,consensus,-18.0
+2022,4,2022-09-24,regular,Mississippi State,Bowling Green,H,N,45,14,31,,-31.0,consensus,0.0
+2022,5,2022-10-01,regular,Mississippi State,Texas A&M,H,Y,42,24,18,,-4.0,consensus,14.0
+2022,6,2022-10-08,regular,Mississippi State,Arkansas,H,Y,40,17,23,,-8.5,consensus,14.5
+2022,7,2022-10-15,regular,Mississippi State,Kentucky,A,Y,17,27,-10,,-3.5,consensus,-13.5
+2022,8,2022-10-22,regular,Mississippi State,Alabama,A,Y,6,30,-24,,21.0,consensus,-3.0
+2022,10,2022-11-05,regular,Mississippi State,Auburn,H,Y,39,33,6,,-12.5,consensus,-6.5
+2022,11,2022-11-13,regular,Mississippi State,Georgia,H,Y,19,45,-26,,16.5,consensus,-9.5
+2022,12,2022-11-19,regular,Mississippi State,East Tennessee State,H,N,56,7,49,,-39.0,consensus,10.0
+2022,13,2022-11-25,regular,Mississippi State,Ole Miss,A,Y,24,22,2,,2.5,consensus,4.5
+2022,1,2023-01-02,postseason,Mississippi State,Illinois,N,N,19,10,9,,-3.5,consensus,5.5
+2022,1,2022-09-02,regular,Missouri,Louisiana Tech,H,N,52,24,28,,-20.5,consensus,7.5
+2022,2,2022-09-10,regular,Missouri,Kansas State,A,N,12,40,-28,,7.5,consensus,-20.5
+2022,3,2022-09-17,regular,Missouri,Abilene Christian,H,N,34,17,17,,-31.5,consensus,-14.5
+2022,4,2022-09-24,regular,Missouri,Auburn,A,Y,14,17,-3,,7.5,consensus,4.5
+2022,5,2022-10-01,regular,Missouri,Georgia,H,Y,22,26,-4,,30.5,consensus,26.5
+2022,6,2022-10-08,regular,Missouri,Florida,A,Y,17,24,-7,,10.5,consensus,3.5
+2022,8,2022-10-22,regular,Missouri,Vanderbilt,H,Y,17,14,3,,-14.0,consensus,-11.0
+2022,9,2022-10-29,regular,Missouri,South Carolina,A,Y,23,10,13,,3.5,consensus,16.5
+2022,10,2022-11-05,regular,Missouri,Kentucky,H,Y,17,21,-4,,-1.0,consensus,-5.0
+2022,11,2022-11-12,regular,Missouri,Tennessee,A,Y,24,66,-42,,19.5,consensus,-22.5
+2022,12,2022-11-20,regular,Missouri,New Mexico State,H,N,45,14,31,,-29.0,consensus,2.0
+2022,13,2022-11-25,regular,Missouri,Arkansas,H,Y,29,27,2,,3.5,consensus,5.5
+2022,1,2022-12-23,postseason,Missouri,Wake Forest,N,N,17,27,-10,,2.5,consensus,-7.5
+2022,1,2022-09-03,regular,Oklahoma,UTEP,H,N,45,13,32,,-31.0,consensus,1.0
+2022,2,2022-09-10,regular,Oklahoma,Kent State,H,N,33,3,30,,-33.0,consensus,-3.0
+2022,3,2022-09-17,regular,Oklahoma,Nebraska,A,N,49,14,35,,-10.5,consensus,24.5
+2022,4,2022-09-25,regular,Oklahoma,Kansas State,H,Y,34,41,-7,,-13.5,consensus,-20.5
+2022,5,2022-10-01,regular,Oklahoma,TCU,A,Y,24,55,-31,,-5.0,consensus,-36.0
+2022,6,2022-10-08,regular,Oklahoma,Texas,N,Y,0,49,-49,,7.5,consensus,-41.5
+2022,7,2022-10-15,regular,Oklahoma,Kansas,H,Y,52,42,10,,-10.5,consensus,-0.5
+2022,9,2022-10-29,regular,Oklahoma,Iowa State,A,Y,27,13,14,,-1.5,consensus,12.5
+2022,10,2022-11-05,regular,Oklahoma,Baylor,H,Y,35,38,-3,,-3.0,consensus,-6.0
+2022,11,2022-11-12,regular,Oklahoma,West Virginia,A,Y,20,23,-3,,-8.5,consensus,-11.5
+2022,12,2022-11-20,regular,Oklahoma,Oklahoma State,H,Y,28,13,15,,-7.0,consensus,8.0
+2022,13,2022-11-27,regular,Oklahoma,Texas Tech,A,Y,48,51,-3,,-1.5,consensus,-4.5
+2022,1,2022-12-29,postseason,Oklahoma,Florida State,N,N,32,35,-3,,10.5,consensus,7.5
+2022,1,2022-09-03,regular,Ole Miss,Troy,H,N,28,10,18,,-21.5,consensus,-3.5
+2022,2,2022-09-10,regular,Ole Miss,Central Arkansas,H,N,59,3,56,,-36.5,consensus,19.5
+2022,3,2022-09-17,regular,Ole Miss,Georgia Tech,A,N,42,0,42,,-17.0,consensus,25.0
+2022,4,2022-09-24,regular,Ole Miss,Tulsa,H,N,35,27,8,,-21.0,consensus,-13.0
+2022,5,2022-10-01,regular,Ole Miss,Kentucky,H,Y,22,19,3,,-6.5,consensus,-3.5
+2022,6,2022-10-08,regular,Ole Miss,Vanderbilt,A,Y,52,28,24,,-17.0,consensus,7.0
+2022,7,2022-10-15,regular,Ole Miss,Auburn,H,Y,48,34,14,,-15.5,consensus,-1.5
+2022,8,2022-10-22,regular,Ole Miss,LSU,A,Y,20,45,-25,,-0.0,consensus,-25.0
+2022,9,2022-10-29,regular,Ole Miss,Texas A&M,A,Y,31,28,3,,-3.0,consensus,0.0
+2022,11,2022-11-12,regular,Ole Miss,Alabama,H,Y,24,30,-6,,11.0,consensus,5.0
+2022,12,2022-11-20,regular,Ole Miss,Arkansas,A,Y,27,42,-15,,-1.0,consensus,-16.0
+2022,13,2022-11-25,regular,Ole Miss,Mississippi State,H,Y,22,24,-2,,-2.5,consensus,-4.5
+2022,1,2022-12-29,postseason,Ole Miss,Texas Tech,N,N,25,42,-17,,-4.0,consensus,-21.0
+2022,1,2022-09-03,regular,South Carolina,Georgia State,H,N,35,14,21,,-12.5,consensus,8.5
+2022,2,2022-09-10,regular,South Carolina,Arkansas,A,Y,30,44,-14,,8.5,consensus,-5.5
+2022,3,2022-09-17,regular,South Carolina,Georgia,H,Y,7,48,-41,,25.5,consensus,-15.5
+2022,4,2022-09-24,regular,South Carolina,Charlotte,H,N,56,20,36,,-23.5,consensus,12.5
+2022,5,2022-09-29,regular,South Carolina,South Carolina State,H,N,50,10,40,,-40.5,consensus,-0.5
+2022,6,2022-10-08,regular,South Carolina,Kentucky,A,Y,24,14,10,,4.5,consensus,14.5
+2022,8,2022-10-22,regular,South Carolina,Texas A&M,H,Y,30,24,6,,3.0,consensus,9.0
+2022,9,2022-10-29,regular,South Carolina,Missouri,H,Y,10,23,-13,,-3.5,consensus,-16.5
+2022,10,2022-11-05,regular,South Carolina,Vanderbilt,A,Y,38,27,11,,-6.5,consensus,4.5
+2022,11,2022-11-12,regular,South Carolina,Florida,A,Y,6,38,-32,,8.0,consensus,-24.0
+2022,12,2022-11-20,regular,South Carolina,Tennessee,H,Y,63,38,25,,22.5,consensus,47.5
+2022,13,2022-11-26,regular,South Carolina,Clemson,A,N,31,30,1,,14.0,consensus,15.0
+2022,1,2022-12-30,postseason,South Carolina,Notre Dame,N,N,38,45,-7,,5.0,consensus,-2.0
+2022,1,2022-09-01,regular,Tennessee,Ball State,H,N,59,10,49,,-35.5,consensus,13.5
+2022,2,2022-09-10,regular,Tennessee,Pittsburgh,A,N,34,27,7,,-6.0,consensus,1.0
+2022,3,2022-09-17,regular,Tennessee,Akron,H,N,63,6,57,,-47.5,consensus,9.5
+2022,4,2022-09-24,regular,Tennessee,Florida,H,Y,38,33,5,,-11.0,consensus,-6.0
+2022,6,2022-10-08,regular,Tennessee,LSU,A,Y,40,13,27,,-2.5,consensus,24.5
+2022,7,2022-10-15,regular,Tennessee,Alabama,H,Y,52,49,3,,9.0,consensus,12.0
+2022,8,2022-10-22,regular,Tennessee,UT Martin,H,N,65,24,41,,-38.5,consensus,2.5
+2022,9,2022-10-29,regular,Tennessee,Kentucky,H,Y,44,6,38,,-10.5,consensus,27.5
+2022,10,2022-11-05,regular,Tennessee,Georgia,A,Y,13,27,-14,,10.0,consensus,-4.0
+2022,11,2022-11-12,regular,Tennessee,Missouri,H,Y,66,24,42,,-19.5,consensus,22.5
+2022,12,2022-11-20,regular,Tennessee,South Carolina,A,Y,38,63,-25,,-22.5,consensus,-47.5
+2022,13,2022-11-27,regular,Tennessee,Vanderbilt,A,Y,56,0,56,,-14.0,consensus,42.0
+2022,1,2022-12-31,postseason,Tennessee,Clemson,N,N,31,14,17,,4.5,consensus,21.5
+2022,1,2022-09-04,regular,Texas,UL Monroe,H,N,52,10,42,,-37.5,consensus,4.5
+2022,2,2022-09-10,regular,Texas,Alabama,H,N,19,20,-1,,21.0,consensus,20.0
+2022,3,2022-09-18,regular,Texas,UTSA,H,N,41,20,21,,-13.0,consensus,8.0
+2022,4,2022-09-24,regular,Texas,Texas Tech,A,Y,34,37,-3,,-7.0,consensus,-10.0
+2022,5,2022-10-01,regular,Texas,West Virginia,H,Y,38,20,18,,-7.5,consensus,10.5
+2022,6,2022-10-08,regular,Texas,Oklahoma,N,Y,49,0,49,,-7.5,consensus,41.5
+2022,7,2022-10-15,regular,Texas,Iowa State,H,Y,24,21,3,,-15.5,consensus,-12.5
+2022,8,2022-10-22,regular,Texas,Oklahoma State,A,Y,34,41,-7,,-6.5,consensus,-13.5
+2022,10,2022-11-05,regular,Texas,Kansas State,A,Y,34,27,7,,-3.0,consensus,4.0
+2022,11,2022-11-13,regular,Texas,TCU,H,Y,10,17,-7,,-7.5,consensus,-14.5
+2022,12,2022-11-19,regular,Texas,Kansas,A,Y,55,14,41,,-9.0,consensus,32.0
+2022,13,2022-11-25,regular,Texas,Baylor,H,Y,38,27,11,,-10.0,consensus,1.0
+2022,1,2022-12-30,postseason,Texas,Washington,N,N,20,27,-7,,-3.5,consensus,-10.5
+2022,1,2022-09-03,regular,Texas A&M,Sam Houston,H,N,31,0,31,,-36.5,consensus,-5.5
+2022,2,2022-09-10,regular,Texas A&M,App State,H,N,14,17,-3,,-18.0,consensus,-21.0
+2022,3,2022-09-18,regular,Texas A&M,Miami,H,N,17,9,8,,-6.5,consensus,1.5
+2022,4,2022-09-24,regular,Texas A&M,Arkansas,N,Y,23,21,2,,-1.5,consensus,0.5
+2022,5,2022-10-01,regular,Texas A&M,Mississippi State,A,Y,24,42,-18,,4.0,consensus,-14.0
+2022,6,2022-10-09,regular,Texas A&M,Alabama,A,Y,20,24,-4,,24.0,consensus,20.0
+2022,8,2022-10-22,regular,Texas A&M,South Carolina,A,Y,24,30,-6,,-3.0,consensus,-9.0
+2022,9,2022-10-29,regular,Texas A&M,Ole Miss,H,Y,28,31,-3,,3.0,consensus,0.0
+2022,10,2022-11-05,regular,Texas A&M,Florida,H,Y,24,41,-17,,-1.5,consensus,-18.5
+2022,11,2022-11-13,regular,Texas A&M,Auburn,A,Y,10,13,-3,,1.5,consensus,-1.5
+2022,12,2022-11-19,regular,Texas A&M,Massachusetts,H,N,20,3,17,,-32.0,consensus,-15.0
+2022,13,2022-11-27,regular,Texas A&M,LSU,H,Y,38,23,15,,10.0,consensus,25.0
+2022,1,2022-08-28,regular,Vanderbilt,Hawai'i,A,N,63,10,53,,-9.0,consensus,44.0
+2022,1,2022-09-03,regular,Vanderbilt,Elon,H,N,42,31,11,,-18.5,consensus,-7.5
+2022,2,2022-09-10,regular,Vanderbilt,Wake Forest,H,N,25,45,-20,,13.5,consensus,-6.5
+2022,3,2022-09-17,regular,Vanderbilt,Northern Illinois,A,N,38,28,10,,2.5,consensus,12.5
+2022,4,2022-09-24,regular,Vanderbilt,Alabama,A,Y,3,55,-52,,40.5,consensus,-11.5
+2022,6,2022-10-08,regular,Vanderbilt,Ole Miss,H,Y,28,52,-24,,17.0,consensus,-7.0
+2022,7,2022-10-15,regular,Vanderbilt,Georgia,A,Y,0,55,-55,,37.5,consensus,-17.5
+2022,8,2022-10-22,regular,Vanderbilt,Missouri,A,Y,14,17,-3,,14.0,consensus,11.0
+2022,10,2022-11-05,regular,Vanderbilt,South Carolina,H,Y,27,38,-11,,6.5,consensus,-4.5
+2022,11,2022-11-12,regular,Vanderbilt,Kentucky,A,Y,24,21,3,,17.0,consensus,20.0
+2022,12,2022-11-19,regular,Vanderbilt,Florida,H,Y,31,24,7,,14.0,consensus,21.0
+2022,13,2022-11-27,regular,Vanderbilt,Tennessee,H,Y,0,56,-56,,14.0,consensus,-42.0
+2023,1,2023-09-02,regular,Alabama,Middle Tennessee,H,N,56,7,49,-39.0,-39.5,DraftKings,9.5
+2023,2,2023-09-09,regular,Alabama,Texas,H,N,24,34,-10,-7.0,-7.0,DraftKings,-17.0
+2023,3,2023-09-16,regular,Alabama,South Florida,A,N,17,3,14,-31.5,-34.5,Bovada,-20.5
+2023,4,2023-09-23,regular,Alabama,Ole Miss,H,Y,24,10,14,-15.5,-7.0,DraftKings,7.0
+2023,5,2023-10-01,regular,Alabama,Mississippi State,A,Y,40,17,23,-11.5,-14.5,DraftKings,8.5
+2023,6,2023-10-07,regular,Alabama,Texas A&M,A,Y,26,20,6,-8.5,-1.0,DraftKings,5.0
+2023,7,2023-10-14,regular,Alabama,Arkansas,H,Y,24,21,3,-18.0,-19.5,DraftKings,-16.5
+2023,8,2023-10-21,regular,Alabama,Tennessee,H,Y,34,20,14,-9.5,-9.5,DraftKings,4.5
+2023,10,2023-11-04,regular,Alabama,LSU,H,Y,42,28,14,-7.0,-3.0,DraftKings,11.0
+2023,11,2023-11-11,regular,Alabama,Kentucky,A,Y,49,21,28,-10.0,-10.0,DraftKings,18.0
+2023,12,2023-11-18,regular,Alabama,Chattanooga,H,N,66,10,56,,-44.5,ESPN Bet,11.5
+2023,13,2023-11-25,regular,Alabama,Auburn,A,Y,27,24,3,-14.0,-14.5,DraftKings,-11.5
+2023,14,2023-12-02,regular,Alabama,Georgia,N,Y,27,24,3,5.0,5.0,DraftKings,8.0
+2023,1,2024-01-01,postseason,Alabama,Michigan,N,N,20,27,-7,1.5,1.5,DraftKings,-5.5
+2023,1,2023-09-02,regular,Arkansas,Western Carolina,N,N,56,13,43,-35.0,-38.0,Bovada,5.0
+2023,2,2023-09-09,regular,Arkansas,Kent State,H,N,28,6,22,-38.0,-38.5,DraftKings,-16.5
+2023,3,2023-09-16,regular,Arkansas,BYU,H,N,31,38,-7,-10.0,-7.5,Bovada,-14.5
+2023,4,2023-09-23,regular,Arkansas,LSU,A,Y,31,34,-3,13.5,17.5,DraftKings,14.5
+2023,5,2023-09-30,regular,Arkansas,Texas A&M,N,Y,22,34,-12,4.0,6.0,DraftKings,-6.0
+2023,6,2023-10-07,regular,Arkansas,Ole Miss,A,Y,20,27,-7,9.5,11.5,DraftKings,4.5
+2023,7,2023-10-14,regular,Arkansas,Alabama,A,Y,21,24,-3,18.0,19.5,DraftKings,16.5
+2023,8,2023-10-21,regular,Arkansas,Mississippi State,H,Y,3,7,-4,-7.0,-6.5,DraftKings,-10.5
+2023,10,2023-11-04,regular,Arkansas,Florida,A,Y,39,36,3,5.0,4.5,DraftKings,7.5
+2023,11,2023-11-11,regular,Arkansas,Auburn,H,Y,10,48,-38,-3.0,-3.0,DraftKings,-41.0
+2023,12,2023-11-19,regular,Arkansas,Florida International,H,N,44,20,24,-32.0,-32.0,DraftKings,-8.0
+2023,13,2023-11-24,regular,Arkansas,Missouri,H,Y,14,48,-34,7.0,7.0,DraftKings,-27.0
+2023,1,2023-09-02,regular,Auburn,Massachusetts,H,N,59,14,45,,-39.0,consensus,6.0
+2023,2,2023-09-10,regular,Auburn,California,A,N,14,10,4,-6.0,-4.5,DraftKings,-0.5
+2023,3,2023-09-16,regular,Auburn,Samford,H,N,45,13,32,,-37.5,William Hill (New Jersey),-5.5
+2023,4,2023-09-23,regular,Auburn,Texas A&M,A,Y,10,27,-17,7.5,8.5,DraftKings,-8.5
+2023,5,2023-09-30,regular,Auburn,Georgia,H,Y,20,27,-7,18.5,14.0,DraftKings,7.0
+2023,7,2023-10-14,regular,Auburn,LSU,A,Y,18,48,-30,16.5,11.5,DraftKings,-18.5
+2023,8,2023-10-21,regular,Auburn,Ole Miss,H,Y,21,28,-7,3.0,6.5,DraftKings,-0.5
+2023,9,2023-10-28,regular,Auburn,Mississippi State,H,Y,27,13,14,-7.0,-6.5,DraftKings,7.5
+2023,10,2023-11-04,regular,Auburn,Vanderbilt,A,Y,31,15,16,-13.0,-12.5,DraftKings,3.5
+2023,11,2023-11-11,regular,Auburn,Arkansas,A,Y,48,10,38,3.0,3.0,DraftKings,41.0
+2023,12,2023-11-18,regular,Auburn,New Mexico State,H,N,10,31,-21,-22.0,-22.0,DraftKings,-43.0
+2023,13,2023-11-25,regular,Auburn,Alabama,H,Y,24,27,-3,14.0,14.5,DraftKings,11.5
+2023,1,2023-12-30,postseason,Auburn,Maryland,N,N,13,31,-18,-1.5,-1.5,DraftKings,-19.5
+2023,1,2023-09-01,regular,Florida,Utah,A,N,11,24,-13,,8.0,consensus,-5.0
+2023,2,2023-09-09,regular,Florida,McNeese,H,N,49,7,42,,-48.5,William Hill (New Jersey),-6.5
+2023,3,2023-09-16,regular,Florida,Tennessee,H,Y,29,16,13,7.5,7.0,DraftKings,20.0
+2023,4,2023-09-23,regular,Florida,Charlotte,H,N,22,7,15,-28.0,-28.0,DraftKings,-13.0
+2023,5,2023-09-30,regular,Florida,Kentucky,A,Y,14,33,-19,3.5,1.5,DraftKings,-17.5
+2023,6,2023-10-07,regular,Florida,Vanderbilt,H,Y,38,14,24,-18.0,-18.5,DraftKings,5.5
+2023,7,2023-10-14,regular,Florida,South Carolina,A,Y,41,39,2,1.0,2.5,DraftKings,4.5
+2023,9,2023-10-28,regular,Florida,Georgia,N,Y,20,43,-23,21.5,14.5,DraftKings,-8.5
+2023,10,2023-11-04,regular,Florida,Arkansas,H,Y,36,39,-3,-5.0,-4.5,DraftKings,-7.5
+2023,11,2023-11-12,regular,Florida,LSU,A,Y,35,52,-17,16.5,14.0,DraftKings,-3.0
+2023,12,2023-11-19,regular,Florida,Missouri,A,Y,31,33,-2,10.5,10.5,DraftKings,8.5
+2023,13,2023-11-26,regular,Florida,Florida State,H,N,15,24,-9,9.0,6.0,DraftKings,-3.0
+2023,1,2023-09-02,regular,Georgia,UT Martin,H,N,48,7,41,-50.0,-51.0,Bovada,-10.0
+2023,2,2023-09-09,regular,Georgia,Ball State,H,N,45,3,42,-41.5,-42.0,DraftKings,0.0
+2023,3,2023-09-16,regular,Georgia,South Carolina,H,Y,24,14,10,-24.0,-24.5,DraftKings,-14.5
+2023,4,2023-09-23,regular,Georgia,UAB,H,N,49,21,28,-42.0,-41.5,DraftKings,-13.5
+2023,5,2023-09-30,regular,Georgia,Auburn,A,Y,27,20,7,-18.5,-14.0,DraftKings,-7.0
+2023,6,2023-10-07,regular,Georgia,Kentucky,H,Y,51,13,38,-21.5,-14.5,DraftKings,23.5
+2023,7,2023-10-14,regular,Georgia,Vanderbilt,A,Y,37,20,17,-31.5,-32.5,DraftKings,-15.5
+2023,9,2023-10-28,regular,Georgia,Florida,N,Y,43,20,23,-21.5,-14.5,DraftKings,8.5
+2023,10,2023-11-04,regular,Georgia,Missouri,H,Y,30,21,9,-15.5,-15.0,DraftKings,-6.0
+2023,11,2023-11-12,regular,Georgia,Ole Miss,H,Y,52,17,35,-19.5,-13.0,DraftKings,22.0
+2023,12,2023-11-18,regular,Georgia,Tennessee,A,Y,38,10,28,-8.5,-10.0,DraftKings,18.0
+2023,13,2023-11-26,regular,Georgia,Georgia Tech,A,N,31,23,8,-23.0,-23.0,DraftKings,-15.0
+2023,14,2023-12-02,regular,Georgia,Alabama,N,Y,24,27,-3,-5.0,-5.0,DraftKings,-8.0
+2023,1,2023-12-30,postseason,Georgia,Florida State,N,N,63,3,60,-13.5,-13.5,DraftKings,46.5
+2023,1,2023-09-02,regular,Kentucky,Ball State,H,N,44,14,30,-26.5,-26.5,DraftKings,3.5
+2023,2,2023-09-09,regular,Kentucky,Eastern Kentucky,H,N,28,17,11,-35.5,-35.5,DraftKings,-24.5
+2023,3,2023-09-16,regular,Kentucky,Akron,H,N,35,3,32,-24.5,-25.5,Bovada,6.5
+2023,4,2023-09-23,regular,Kentucky,Vanderbilt,A,Y,45,28,17,-14.0,-13.5,DraftKings,3.5
+2023,5,2023-09-30,regular,Kentucky,Florida,H,Y,33,14,19,-3.5,-1.5,DraftKings,17.5
+2023,6,2023-10-07,regular,Kentucky,Georgia,A,Y,13,51,-38,21.5,14.5,DraftKings,-23.5
+2023,7,2023-10-14,regular,Kentucky,Missouri,H,Y,21,38,-17,-2.5,-2.5,DraftKings,-19.5
+2023,9,2023-10-28,regular,Kentucky,Tennessee,H,Y,27,33,-6,3.5,3.5,DraftKings,-2.5
+2023,10,2023-11-04,regular,Kentucky,Mississippi State,A,Y,24,3,21,-3.0,-5.0,DraftKings,16.0
+2023,11,2023-11-11,regular,Kentucky,Alabama,H,Y,21,49,-28,10.0,10.0,DraftKings,-18.0
+2023,12,2023-11-19,regular,Kentucky,South Carolina,A,Y,14,17,-3,-1.5,-1.5,DraftKings,-4.5
+2023,13,2023-11-25,regular,Kentucky,Louisville,A,N,38,31,7,7.0,7.0,DraftKings,14.0
+2023,1,2023-12-29,postseason,Kentucky,Clemson,N,N,35,38,-3,7.5,7.5,DraftKings,4.5
+2023,1,2023-09-03,regular,LSU,Florida State,N,N,24,45,-21,,-2.5,consensus,-23.5
+2023,2,2023-09-09,regular,LSU,Grambling,H,N,72,10,62,,-56.5,William Hill (New Jersey),5.5
+2023,3,2023-09-16,regular,LSU,Mississippi State,A,Y,41,14,27,-9.0,-7.5,DraftKings,19.5
+2023,4,2023-09-23,regular,LSU,Arkansas,H,Y,34,31,3,-13.5,-17.5,DraftKings,-14.5
+2023,5,2023-09-30,regular,LSU,Ole Miss,A,Y,49,55,-6,-4.5,-2.5,DraftKings,-8.5
+2023,6,2023-10-07,regular,LSU,Missouri,A,Y,49,39,10,-8.0,-4.0,DraftKings,6.0
+2023,7,2023-10-14,regular,LSU,Auburn,H,Y,48,18,30,-16.5,-11.5,DraftKings,18.5
+2023,8,2023-10-21,regular,LSU,Army,H,N,62,0,62,-29.5,-33.0,DraftKings,29.0
+2023,10,2023-11-04,regular,LSU,Alabama,A,Y,28,42,-14,7.0,3.0,DraftKings,-11.0
+2023,11,2023-11-12,regular,LSU,Florida,H,Y,52,35,17,-16.5,-14.0,DraftKings,3.0
+2023,12,2023-11-19,regular,LSU,Georgia State,H,N,56,14,42,-30.5,-30.5,DraftKings,11.5
+2023,13,2023-11-25,regular,LSU,Texas A&M,H,Y,42,30,12,-9.5,-10.5,DraftKings,1.5
+2023,1,2024-01-01,postseason,LSU,Wisconsin,N,N,35,31,4,-10.0,-10.0,DraftKings,-6.0
+2023,1,2023-09-02,regular,Mississippi State,SE Louisiana,H,N,48,7,41,-28.0,-31.5,Bovada,9.5
+2023,2,2023-09-09,regular,Mississippi State,Arizona,H,N,31,24,7,-9.5,-8.5,DraftKings,-1.5
+2023,3,2023-09-16,regular,Mississippi State,LSU,H,Y,14,41,-27,9.0,7.5,DraftKings,-19.5
+2023,4,2023-09-23,regular,Mississippi State,South Carolina,A,Y,30,37,-7,6.5,6.0,DraftKings,-1.0
+2023,5,2023-10-01,regular,Mississippi State,Alabama,H,Y,17,40,-23,11.5,14.5,DraftKings,-8.5
+2023,6,2023-10-07,regular,Mississippi State,Western Michigan,H,N,41,28,13,-21.5,-20.5,DraftKings,-7.5
+2023,8,2023-10-21,regular,Mississippi State,Arkansas,A,Y,7,3,4,7.0,6.5,DraftKings,10.5
+2023,9,2023-10-28,regular,Mississippi State,Auburn,A,Y,13,27,-14,7.0,6.5,DraftKings,-7.5
+2023,10,2023-11-04,regular,Mississippi State,Kentucky,H,Y,3,24,-21,3.0,5.0,DraftKings,-16.0
+2023,11,2023-11-12,regular,Mississippi State,Texas A&M,A,Y,10,51,-41,18.5,18.5,DraftKings,-22.5
+2023,12,2023-11-18,regular,Mississippi State,Southern Miss,H,N,41,20,21,-14.0,-14.0,DraftKings,7.0
+2023,13,2023-11-24,regular,Mississippi State,Ole Miss,H,Y,7,17,-10,1.5,11.0,DraftKings,1.0
+2023,1,2023-09-01,regular,Missouri,South Dakota,H,N,35,10,25,-27.5,-27.0,DraftKings,-2.0
+2023,2,2023-09-09,regular,Missouri,Middle Tennessee,H,N,23,19,4,-21.0,-21.0,DraftKings,-17.0
+2023,3,2023-09-16,regular,Missouri,Kansas State,H,N,30,27,3,2.0,2.0,DraftKings,5.0
+2023,4,2023-09-23,regular,Missouri,Memphis,N,N,34,27,7,-5.5,-6.5,DraftKings,0.5
+2023,5,2023-09-30,regular,Missouri,Vanderbilt,A,Y,38,21,17,-13.5,-13.5,DraftKings,3.5
+2023,6,2023-10-07,regular,Missouri,LSU,H,Y,39,49,-10,8.0,4.0,DraftKings,-6.0
+2023,7,2023-10-14,regular,Missouri,Kentucky,A,Y,38,21,17,2.5,2.5,DraftKings,19.5
+2023,8,2023-10-21,regular,Missouri,South Carolina,H,Y,34,12,22,-6.0,-7.5,DraftKings,14.5
+2023,10,2023-11-04,regular,Missouri,Georgia,A,Y,21,30,-9,15.5,15.0,DraftKings,6.0
+2023,11,2023-11-11,regular,Missouri,Tennessee,H,Y,36,7,29,1.0,1.0,DraftKings,30.0
+2023,12,2023-11-19,regular,Missouri,Florida,H,Y,33,31,2,-10.5,-10.5,DraftKings,-8.5
+2023,13,2023-11-24,regular,Missouri,Arkansas,A,Y,48,14,34,-7.0,-7.0,DraftKings,27.0
+2023,1,2023-12-30,postseason,Missouri,Ohio State,N,N,14,3,11,6.5,6.5,DraftKings,17.5
+2023,1,2023-09-02,regular,Oklahoma,Arkansas State,H,N,73,0,73,-33.5,-36.0,DraftKings,37.0
+2023,2,2023-09-09,regular,Oklahoma,SMU,H,N,28,11,17,-16.0,-16.5,DraftKings,0.5
+2023,3,2023-09-16,regular,Oklahoma,Tulsa,A,N,66,17,49,-26.0,-28.0,Bovada,21.0
+2023,4,2023-09-23,regular,Oklahoma,Cincinnati,A,Y,20,6,14,-14.5,-14.0,DraftKings,0.0
+2023,5,2023-09-30,regular,Oklahoma,Iowa State,H,Y,50,20,30,-20.0,-20.0,DraftKings,10.0
+2023,6,2023-10-07,regular,Oklahoma,Texas,N,Y,34,30,4,-6.5,5.5,DraftKings,9.5
+2023,8,2023-10-21,regular,Oklahoma,UCF,H,Y,31,29,2,-18.0,-17.5,DraftKings,-15.5
+2023,9,2023-10-28,regular,Oklahoma,Kansas,A,Y,33,38,-5,-7.0,-9.0,DraftKings,-14.0
+2023,10,2023-11-04,regular,Oklahoma,Oklahoma State,A,Y,24,27,-3,-8.0,-6.0,DraftKings,-9.0
+2023,11,2023-11-12,regular,Oklahoma,West Virginia,H,Y,59,20,39,-12.0,-12.0,DraftKings,27.0
+2023,12,2023-11-18,regular,Oklahoma,BYU,A,Y,31,24,7,-24.0,-24.0,DraftKings,-17.0
+2023,13,2023-11-24,regular,Oklahoma,TCU,H,Y,69,45,24,-6.5,-12.5,DraftKings,11.5
+2023,1,2023-12-29,postseason,Oklahoma,Arizona,N,N,24,38,-14,1.0,1.0,DraftKings,-13.0
+2023,1,2023-09-02,regular,Ole Miss,Mercer,H,N,73,7,66,-31.5,-34.0,Bovada,32.0
+2023,2,2023-09-09,regular,Ole Miss,Tulane,A,N,37,20,17,-6.5,-8.5,DraftKings,8.5
+2023,3,2023-09-16,regular,Ole Miss,Georgia Tech,H,N,48,23,25,-19.0,-17.0,Bovada,8.0
+2023,4,2023-09-23,regular,Ole Miss,Alabama,A,Y,10,24,-14,15.5,7.0,DraftKings,-7.0
+2023,5,2023-09-30,regular,Ole Miss,LSU,H,Y,55,49,6,4.5,2.5,DraftKings,8.5
+2023,6,2023-10-07,regular,Ole Miss,Arkansas,H,Y,27,20,7,-9.5,-11.5,DraftKings,-4.5
+2023,8,2023-10-21,regular,Ole Miss,Auburn,A,Y,28,21,7,-3.0,-6.5,DraftKings,0.5
+2023,9,2023-10-28,regular,Ole Miss,Vanderbilt,H,Y,33,7,26,-25.5,-24.5,DraftKings,1.5
+2023,10,2023-11-04,regular,Ole Miss,Texas A&M,H,Y,38,35,3,-3.0,-3.0,DraftKings,0.0
+2023,11,2023-11-12,regular,Ole Miss,Georgia,A,Y,17,52,-35,19.5,13.0,DraftKings,-22.0
+2023,12,2023-11-18,regular,Ole Miss,UL Monroe,H,N,35,3,32,-37.0,-37.0,DraftKings,-5.0
+2023,13,2023-11-24,regular,Ole Miss,Mississippi State,A,Y,17,7,10,-1.5,-11.0,DraftKings,-1.0
+2023,1,2023-12-30,postseason,Ole Miss,Penn State,N,N,38,25,13,3.5,3.5,DraftKings,16.5
+2023,1,2023-09-02,regular,South Carolina,North Carolina,N,N,17,31,-14,,-2.5,consensus,-16.5
+2023,2,2023-09-09,regular,South Carolina,Furman,H,N,47,21,26,,-18.0,William Hill (New Jersey),8.0
+2023,3,2023-09-16,regular,South Carolina,Georgia,A,Y,14,24,-10,24.0,24.5,DraftKings,14.5
+2023,4,2023-09-23,regular,South Carolina,Mississippi State,H,Y,37,30,7,-6.5,-6.0,DraftKings,1.0
+2023,5,2023-09-30,regular,South Carolina,Tennessee,A,Y,20,41,-21,13.0,12.5,DraftKings,-8.5
+2023,7,2023-10-14,regular,South Carolina,Florida,H,Y,39,41,-2,-1.0,-2.5,DraftKings,-4.5
+2023,8,2023-10-21,regular,South Carolina,Missouri,A,Y,12,34,-22,6.0,7.5,DraftKings,-14.5
+2023,9,2023-10-28,regular,South Carolina,Texas A&M,A,Y,17,30,-13,14.0,14.5,DraftKings,1.5
+2023,10,2023-11-04,regular,South Carolina,Jacksonville State,H,N,38,28,10,-15.5,-15.5,DraftKings,-5.5
+2023,11,2023-11-11,regular,South Carolina,Vanderbilt,H,Y,47,6,41,-14.0,-14.0,DraftKings,27.0
+2023,12,2023-11-19,regular,South Carolina,Kentucky,H,Y,17,14,3,1.5,1.5,DraftKings,4.5
+2023,13,2023-11-26,regular,South Carolina,Clemson,H,N,7,16,-9,7.0,7.0,DraftKings,-2.0
+2023,1,2023-09-02,regular,Tennessee,Virginia,N,N,49,13,36,,-28.0,consensus,8.0
+2023,2,2023-09-09,regular,Tennessee,Austin Peay,H,N,30,13,17,-45.5,-45.5,DraftKings,-28.5
+2023,3,2023-09-16,regular,Tennessee,Florida,A,Y,16,29,-13,-7.5,-7.0,DraftKings,-20.0
+2023,4,2023-09-23,regular,Tennessee,UTSA,H,N,45,14,31,-20.5,-21.5,DraftKings,9.5
+2023,5,2023-09-30,regular,Tennessee,South Carolina,H,Y,41,20,21,-13.0,-12.5,DraftKings,8.5
+2023,7,2023-10-14,regular,Tennessee,Texas A&M,H,Y,20,13,7,-7.0,-3.0,DraftKings,4.0
+2023,8,2023-10-21,regular,Tennessee,Alabama,A,Y,20,34,-14,9.5,9.5,DraftKings,-4.5
+2023,9,2023-10-28,regular,Tennessee,Kentucky,A,Y,33,27,6,-3.5,-3.5,DraftKings,2.5
+2023,10,2023-11-04,regular,Tennessee,UConn,H,N,59,3,56,-34.0,-36.0,DraftKings,20.0
+2023,11,2023-11-11,regular,Tennessee,Missouri,A,Y,7,36,-29,-1.0,-1.0,DraftKings,-30.0
+2023,12,2023-11-18,regular,Tennessee,Georgia,H,Y,10,38,-28,8.5,10.0,DraftKings,-18.0
+2023,13,2023-11-25,regular,Tennessee,Vanderbilt,H,Y,48,24,24,-25.5,-25.5,DraftKings,-1.5
+2023,1,2024-01-01,postseason,Tennessee,Iowa,N,N,35,0,35,-8.0,-8.0,DraftKings,27.0
+2023,1,2023-09-02,regular,Texas,Rice,H,N,37,10,27,-35.5,-35.0,DraftKings,-8.0
+2023,2,2023-09-09,regular,Texas,Alabama,A,N,34,24,10,7.0,7.0,DraftKings,17.0
+2023,3,2023-09-17,regular,Texas,Wyoming,H,N,31,10,21,-28.0,-31.0,Bovada,-10.0
+2023,4,2023-09-23,regular,Texas,Baylor,A,Y,38,6,32,-8.0,-14.5,DraftKings,17.5
+2023,5,2023-09-30,regular,Texas,Kansas,H,Y,40,14,26,-18.0,-16.5,DraftKings,9.5
+2023,6,2023-10-07,regular,Texas,Oklahoma,N,Y,30,34,-4,6.5,-5.5,DraftKings,-9.5
+2023,8,2023-10-21,regular,Texas,Houston,A,Y,31,24,7,-22.0,-23.5,DraftKings,-16.5
+2023,9,2023-10-28,regular,Texas,BYU,H,Y,35,6,29,-17.5,-18.5,DraftKings,10.5
+2023,10,2023-11-04,regular,Texas,Kansas State,H,Y,33,30,3,-9.5,-4.0,DraftKings,-1.0
+2023,11,2023-11-12,regular,Texas,TCU,A,Y,29,26,3,-6.0,-6.0,DraftKings,-3.0
+2023,12,2023-11-19,regular,Texas,Iowa State,A,Y,26,16,10,-8.0,-8.0,DraftKings,2.0
+2023,13,2023-11-25,regular,Texas,Texas Tech,H,Y,57,7,50,-13.5,-13.5,DraftKings,36.5
+2023,14,2023-12-02,regular,Texas,Oklahoma State,N,Y,49,21,28,-14.0,-14.0,DraftKings,14.0
+2023,1,2024-01-02,postseason,Texas,Washington,N,N,31,37,-6,-4.5,-4.5,DraftKings,-10.5
+2023,1,2023-09-02,regular,Texas A&M,New Mexico,H,N,52,10,42,-38.5,-38.0,DraftKings,4.0
+2023,2,2023-09-09,regular,Texas A&M,Miami,A,N,33,48,-15,-6.5,-3.0,DraftKings,-18.0
+2023,3,2023-09-16,regular,Texas A&M,UL Monroe,H,N,47,3,44,-32.0,-36.5,Bovada,7.5
+2023,4,2023-09-23,regular,Texas A&M,Auburn,H,Y,27,10,17,-7.5,-8.5,DraftKings,8.5
+2023,5,2023-09-30,regular,Texas A&M,Arkansas,N,Y,34,22,12,-4.0,-6.0,DraftKings,6.0
+2023,6,2023-10-07,regular,Texas A&M,Alabama,H,Y,20,26,-6,8.5,1.0,DraftKings,-5.0
+2023,7,2023-10-14,regular,Texas A&M,Tennessee,A,Y,13,20,-7,7.0,3.0,DraftKings,-4.0
+2023,9,2023-10-28,regular,Texas A&M,South Carolina,H,Y,30,17,13,-14.0,-14.5,DraftKings,-1.5
+2023,10,2023-11-04,regular,Texas A&M,Ole Miss,A,Y,35,38,-3,3.0,3.0,DraftKings,0.0
+2023,11,2023-11-12,regular,Texas A&M,Mississippi State,H,Y,51,10,41,-18.5,-18.5,DraftKings,22.5
+2023,12,2023-11-18,regular,Texas A&M,Abilene Christian,H,N,38,10,28,,-40.5,ESPN Bet,-12.5
+2023,13,2023-11-25,regular,Texas A&M,LSU,A,Y,30,42,-12,9.5,10.5,DraftKings,-1.5
+2023,1,2023-12-28,postseason,Texas A&M,Oklahoma State,N,N,23,31,-8,-4.5,-4.5,DraftKings,-12.5
+2023,1,2023-08-26,regular,Vanderbilt,Hawai'i,H,N,35,28,7,-18.0,-18.0,DraftKings,-11.0
+2023,1,2023-09-02,regular,Vanderbilt,Alabama A&M,H,N,47,13,34,-36.0,-35.0,Bovada,-1.0
+2023,2,2023-09-09,regular,Vanderbilt,Wake Forest,A,N,20,36,-16,10.0,10.0,DraftKings,-6.0
+2023,3,2023-09-16,regular,Vanderbilt,UNLV,A,N,37,40,-3,-4.0,-4.5,Bovada,-7.5
+2023,4,2023-09-23,regular,Vanderbilt,Kentucky,H,Y,28,45,-17,14.0,13.5,DraftKings,-3.5
+2023,5,2023-09-30,regular,Vanderbilt,Missouri,H,Y,21,38,-17,13.5,13.5,DraftKings,-3.5
+2023,6,2023-10-07,regular,Vanderbilt,Florida,A,Y,14,38,-24,18.0,18.5,DraftKings,-5.5
+2023,7,2023-10-14,regular,Vanderbilt,Georgia,H,Y,20,37,-17,31.5,32.5,DraftKings,15.5
+2023,9,2023-10-28,regular,Vanderbilt,Ole Miss,A,Y,7,33,-26,25.5,24.5,DraftKings,-1.5
+2023,10,2023-11-04,regular,Vanderbilt,Auburn,H,Y,15,31,-16,13.0,12.5,DraftKings,-3.5
+2023,11,2023-11-11,regular,Vanderbilt,South Carolina,A,Y,6,47,-41,14.0,14.0,DraftKings,-27.0
+2023,13,2023-11-25,regular,Vanderbilt,Tennessee,A,Y,24,48,-24,25.5,25.5,DraftKings,1.5
+2024,1,2024-08-31,regular,Alabama,Western Kentucky,H,N,63,0,63,-31.0,-31.0,DraftKings,32.0
+2024,2,2024-09-07,regular,Alabama,South Florida,H,N,42,16,26,-31.0,-31.0,DraftKings,-5.0
+2024,3,2024-09-14,regular,Alabama,Wisconsin,A,N,42,10,32,-9.0,-15.5,DraftKings,16.5
+2024,5,2024-09-28,regular,Alabama,Georgia,H,Y,41,34,7,4.5,2.0,DraftKings,9.0
+2024,6,2024-10-05,regular,Alabama,Vanderbilt,A,Y,35,40,-5,-24.0,-23.5,DraftKings,-28.5
+2024,7,2024-10-12,regular,Alabama,South Carolina,H,Y,27,25,2,-21.5,-21.0,DraftKings,-19.0
+2024,8,2024-10-19,regular,Alabama,Tennessee,A,Y,17,24,-7,-2.5,-3.5,DraftKings,-10.5
+2024,9,2024-10-26,regular,Alabama,Missouri,H,Y,34,0,34,-8.5,-16.0,DraftKings,18.0
+2024,11,2024-11-10,regular,Alabama,LSU,A,Y,42,13,29,1.0,-2.5,DraftKings,26.5
+2024,12,2024-11-16,regular,Alabama,Mercer,H,N,52,7,45,,-42.0,DraftKings,3.0
+2024,13,2024-11-24,regular,Alabama,Oklahoma,A,Y,3,24,-21,-2.0,-14.0,DraftKings,-35.0
+2024,14,2024-11-30,regular,Alabama,Auburn,H,Y,28,14,14,-14.0,-11.0,DraftKings,3.0
+2024,1,2024-12-31,postseason,Alabama,Michigan,N,N,13,19,-6,,-16.5,DraftKings,-22.5
+2024,1,2024-08-29,regular,Arkansas,Arkansas-Pine Bluff,N,N,70,0,70,,-50.5,ESPN Bet,19.5
+2024,2,2024-09-07,regular,Arkansas,Oklahoma State,A,N,31,39,-8,9.0,7.5,DraftKings,-0.5
+2024,3,2024-09-14,regular,Arkansas,UAB,H,N,37,27,10,-24.0,-24.0,DraftKings,-14.0
+2024,4,2024-09-21,regular,Arkansas,Auburn,A,Y,24,14,10,,2.5,DraftKings,12.5
+2024,5,2024-09-28,regular,Arkansas,Texas A&M,N,Y,17,21,-4,10.5,6.5,DraftKings,2.5
+2024,6,2024-10-05,regular,Arkansas,Tennessee,H,Y,19,14,5,10.5,14.0,DraftKings,19.0
+2024,8,2024-10-19,regular,Arkansas,LSU,H,Y,10,34,-24,9.5,3.0,DraftKings,-21.0
+2024,9,2024-10-26,regular,Arkansas,Mississippi State,A,Y,58,25,33,-8.5,-7.5,DraftKings,25.5
+2024,10,2024-11-02,regular,Arkansas,Ole Miss,H,Y,31,63,-32,9.5,8.0,DraftKings,-24.0
+2024,12,2024-11-16,regular,Arkansas,Texas,H,Y,10,20,-10,16.5,13.0,DraftKings,3.0
+2024,13,2024-11-23,regular,Arkansas,Louisiana Tech,H,N,35,14,21,-23.5,-23.5,DraftKings,-2.5
+2024,14,2024-11-30,regular,Arkansas,Missouri,A,Y,21,28,-7,3.0,3.0,DraftKings,-4.0
+2024,1,2024-12-28,postseason,Arkansas,Texas Tech,N,N,39,26,13,-2.5,3.5,DraftKings,16.5
+2024,1,2024-08-31,regular,Auburn,Alabama A&M,H,N,73,3,70,,-48.5,ESPN Bet,21.5
+2024,2,2024-09-07,regular,Auburn,California,H,N,14,21,-7,-12.5,-13.0,DraftKings,-20.0
+2024,3,2024-09-14,regular,Auburn,New Mexico,H,N,45,19,26,-28.0,-28.0,DraftKings,-2.0
+2024,4,2024-09-21,regular,Auburn,Arkansas,H,Y,14,24,-10,,-2.5,DraftKings,-12.5
+2024,5,2024-09-28,regular,Auburn,Oklahoma,H,Y,21,27,-6,2.5,-2.0,DraftKings,-8.0
+2024,6,2024-10-05,regular,Auburn,Georgia,A,Y,13,31,-18,23.5,21.0,DraftKings,3.0
+2024,8,2024-10-19,regular,Auburn,Missouri,A,Y,17,21,-4,9.5,3.5,DraftKings,-0.5
+2024,9,2024-10-26,regular,Auburn,Kentucky,A,Y,24,10,14,3.5,2.0,DraftKings,16.0
+2024,10,2024-11-02,regular,Auburn,Vanderbilt,H,Y,7,17,-10,-5.0,-7.5,DraftKings,-17.5
+2024,12,2024-11-16,regular,Auburn,UL Monroe,H,N,48,14,34,-25.5,-24.5,DraftKings,9.5
+2024,13,2024-11-24,regular,Auburn,Texas A&M,H,Y,43,41,2,2.0,2.5,DraftKings,4.5
+2024,14,2024-11-30,regular,Auburn,Alabama,A,Y,14,28,-14,14.0,11.0,DraftKings,-3.0
+2024,1,2024-08-31,regular,Florida,Miami,H,N,17,41,-24,2.5,2.5,DraftKings,-21.5
+2024,2,2024-09-07,regular,Florida,Samford,H,N,45,7,38,-37.0,-38.5,ESPN Bet,-0.5
+2024,3,2024-09-14,regular,Florida,Texas A&M,H,Y,20,33,-13,4.0,4.5,DraftKings,-8.5
+2024,4,2024-09-21,regular,Florida,Mississippi State,A,Y,45,28,17,,-6.5,DraftKings,10.5
+2024,6,2024-10-05,regular,Florida,UCF,H,N,24,13,11,1.0,1.0,DraftKings,12.0
+2024,7,2024-10-12,regular,Florida,Tennessee,A,Y,17,23,-6,10.0,14.0,DraftKings,8.0
+2024,8,2024-10-19,regular,Florida,Kentucky,H,Y,48,20,28,1.0,2.5,DraftKings,30.5
+2024,10,2024-11-02,regular,Florida,Georgia,N,Y,20,34,-14,21.0,14.5,DraftKings,0.5
+2024,11,2024-11-09,regular,Florida,Texas,A,Y,17,49,-32,17.5,23.0,DraftKings,-9.0
+2024,12,2024-11-16,regular,Florida,LSU,H,Y,27,16,11,5.5,3.0,DraftKings,14.0
+2024,13,2024-11-23,regular,Florida,Ole Miss,H,Y,24,17,7,6.5,13.0,DraftKings,20.0
+2024,14,2024-12-01,regular,Florida,Florida State,A,N,31,11,20,11.5,-17.0,DraftKings,3.0
+2024,1,2024-12-20,postseason,Florida,Tulane,N,N,33,8,25,,-10.0,DraftKings,15.0
+2024,1,2024-08-31,regular,Georgia,Clemson,N,N,34,3,31,-14.0,-14.0,DraftKings,17.0
+2024,2,2024-09-07,regular,Georgia,Tennessee Tech,H,N,48,3,45,-54.5,-54.5,DraftKings,-9.5
+2024,3,2024-09-14,regular,Georgia,Kentucky,A,Y,13,12,1,-18.0,-24.0,DraftKings,-23.0
+2024,5,2024-09-28,regular,Georgia,Alabama,A,Y,34,41,-7,-4.5,-2.0,DraftKings,-9.0
+2024,6,2024-10-05,regular,Georgia,Auburn,H,Y,31,13,18,-23.5,-21.0,DraftKings,-3.0
+2024,7,2024-10-12,regular,Georgia,Mississippi State,H,Y,41,31,10,-34.5,-34.0,DraftKings,-24.0
+2024,8,2024-10-19,regular,Georgia,Texas,A,Y,30,15,15,-2.0,4.0,DraftKings,19.0
+2024,10,2024-11-02,regular,Georgia,Florida,N,Y,34,20,14,-21.0,-14.5,DraftKings,-0.5
+2024,11,2024-11-09,regular,Georgia,Ole Miss,A,Y,10,28,-18,-7.0,-2.5,DraftKings,-20.5
+2024,12,2024-11-17,regular,Georgia,Tennessee,H,Y,31,17,14,-16.5,-8.5,DraftKings,5.5
+2024,13,2024-11-23,regular,Georgia,Massachusetts,H,N,59,21,38,-45.5,-42.5,DraftKings,-4.5
+2024,14,2024-11-30,regular,Georgia,Georgia Tech,H,N,44,42,2,-20.5,-17.0,DraftKings,-15.0
+2024,15,2024-12-07,regular,Georgia,Texas,N,Y,22,19,3,,3.0,DraftKings,6.0
+2024,1,2025-01-02,postseason,Georgia,Notre Dame,N,N,10,23,-13,,1.0,DraftKings,-12.0
+2024,1,2024-08-31,regular,Kentucky,Southern Miss,H,N,31,0,31,-25.5,-25.5,DraftKings,5.5
+2024,2,2024-09-07,regular,Kentucky,South Carolina,H,Y,6,31,-25,-9.0,-9.0,DraftKings,-34.0
+2024,3,2024-09-14,regular,Kentucky,Georgia,H,Y,12,13,-1,18.0,24.0,DraftKings,23.0
+2024,4,2024-09-21,regular,Kentucky,Ohio,H,N,41,6,35,,-21.5,DraftKings,13.5
+2024,5,2024-09-28,regular,Kentucky,Ole Miss,A,Y,20,17,3,16.5,15.0,DraftKings,18.0
+2024,7,2024-10-12,regular,Kentucky,Vanderbilt,H,Y,13,20,-7,-10.5,-12.5,DraftKings,-19.5
+2024,8,2024-10-19,regular,Kentucky,Florida,A,Y,20,48,-28,-1.0,-2.5,DraftKings,-30.5
+2024,9,2024-10-26,regular,Kentucky,Auburn,H,Y,10,24,-14,-3.5,-2.0,DraftKings,-16.0
+2024,10,2024-11-02,regular,Kentucky,Tennessee,A,Y,18,28,-10,13.0,17.5,DraftKings,7.5
+2024,12,2024-11-16,regular,Kentucky,Murray State,H,N,48,6,42,,-41.5,DraftKings,0.5
+2024,13,2024-11-23,regular,Kentucky,Texas,A,Y,14,31,-17,21.0,18.5,DraftKings,1.5
+2024,14,2024-11-30,regular,Kentucky,Louisville,H,N,14,41,-27,0.0,4.5,DraftKings,-22.5
+2024,1,2024-09-01,regular,LSU,USC,N,N,20,27,-7,-6.0,-4.0,DraftKings,-11.0
+2024,2,2024-09-07,regular,LSU,Nicholls,H,N,44,21,23,-50.5,-50.5,DraftKings,-27.5
+2024,3,2024-09-14,regular,LSU,South Carolina,A,Y,36,33,3,-9.5,-7.0,DraftKings,-4.0
+2024,4,2024-09-21,regular,LSU,UCLA,H,N,34,17,17,,-21.5,DraftKings,-4.5
+2024,5,2024-09-28,regular,LSU,South Alabama,H,N,42,10,32,-22.0,-21.0,DraftKings,11.0
+2024,7,2024-10-12,regular,LSU,Ole Miss,H,Y,29,26,3,-2.5,4.0,DraftKings,7.0
+2024,8,2024-10-19,regular,LSU,Arkansas,A,Y,34,10,24,-9.5,-3.0,DraftKings,21.0
+2024,9,2024-10-26,regular,LSU,Texas A&M,A,Y,23,38,-15,2.0,2.0,DraftKings,-13.0
+2024,11,2024-11-10,regular,LSU,Alabama,H,Y,13,42,-29,-1.0,2.5,DraftKings,-26.5
+2024,12,2024-11-16,regular,LSU,Florida,A,Y,16,27,-11,-5.5,-3.0,DraftKings,-14.0
+2024,13,2024-11-24,regular,LSU,Vanderbilt,H,Y,24,17,7,-11.0,-10.0,DraftKings,-3.0
+2024,14,2024-12-01,regular,LSU,Oklahoma,H,Y,37,17,20,-5.0,-6.0,DraftKings,14.0
+2024,1,2024-12-31,postseason,LSU,Baylor,N,N,44,31,13,,3.0,DraftKings,16.0
+2024,1,2024-08-31,regular,Mississippi State,Eastern Kentucky,H,N,56,7,49,,-26.5,ESPN Bet,22.5
+2024,2,2024-09-08,regular,Mississippi State,Arizona State,A,N,23,30,-7,4.5,5.5,DraftKings,-1.5
+2024,3,2024-09-14,regular,Mississippi State,Toledo,H,N,17,41,-24,-12.5,-13.0,DraftKings,-37.0
+2024,4,2024-09-21,regular,Mississippi State,Florida,H,Y,28,45,-17,,6.5,DraftKings,-10.5
+2024,5,2024-09-28,regular,Mississippi State,Texas,A,Y,13,35,-22,35.5,37.0,DraftKings,15.0
+2024,7,2024-10-12,regular,Mississippi State,Georgia,A,Y,31,41,-10,34.5,34.0,DraftKings,24.0
+2024,8,2024-10-19,regular,Mississippi State,Texas A&M,H,Y,24,34,-10,15.0,21.0,DraftKings,11.0
+2024,9,2024-10-26,regular,Mississippi State,Arkansas,H,Y,25,58,-33,8.5,7.5,DraftKings,-25.5
+2024,10,2024-11-02,regular,Mississippi State,Massachusetts,H,N,45,20,25,-22.5,-19.5,DraftKings,5.5
+2024,11,2024-11-10,regular,Mississippi State,Tennessee,A,Y,14,33,-19,23.0,26.0,DraftKings,7.0
+2024,13,2024-11-23,regular,Mississippi State,Missouri,H,Y,20,39,-19,6.5,9.5,DraftKings,-9.5
+2024,14,2024-11-29,regular,Mississippi State,Ole Miss,A,Y,14,26,-12,27.5,26.0,DraftKings,14.0
+2024,1,2024-08-30,regular,Missouri,Murray State,H,N,51,0,51,,-50.5,ESPN Bet,0.5
+2024,2,2024-09-07,regular,Missouri,Buffalo,H,N,38,0,38,-35.0,-34.5,DraftKings,3.5
+2024,3,2024-09-14,regular,Missouri,Boston College,H,N,27,21,6,-16.5,-16.5,DraftKings,-10.5
+2024,4,2024-09-21,regular,Missouri,Vanderbilt,H,Y,30,27,3,,-17.5,DraftKings,-14.5
+2024,6,2024-10-05,regular,Missouri,Texas A&M,A,Y,10,41,-31,4.0,3.0,DraftKings,-28.0
+2024,7,2024-10-12,regular,Missouri,Massachusetts,A,N,45,3,42,-28.5,-27.0,DraftKings,15.0
+2024,8,2024-10-19,regular,Missouri,Auburn,H,Y,21,17,4,-9.5,-3.5,DraftKings,0.5
+2024,9,2024-10-26,regular,Missouri,Alabama,A,Y,0,34,-34,8.5,16.0,DraftKings,-18.0
+2024,11,2024-11-10,regular,Missouri,Oklahoma,H,Y,30,23,7,-3.0,3.5,DraftKings,10.5
+2024,12,2024-11-16,regular,Missouri,South Carolina,A,Y,30,34,-4,13.0,10.5,DraftKings,6.5
+2024,13,2024-11-23,regular,Missouri,Mississippi State,A,Y,39,20,19,-6.5,-9.5,DraftKings,9.5
+2024,14,2024-11-30,regular,Missouri,Arkansas,H,Y,28,21,7,-3.0,-3.0,DraftKings,4.0
+2024,1,2024-12-30,postseason,Missouri,Iowa,N,N,27,24,3,,-1.0,DraftKings,2.0
+2024,1,2024-08-30,regular,Oklahoma,Temple,H,N,51,3,48,-42.5,-42.5,DraftKings,5.5
+2024,2,2024-09-07,regular,Oklahoma,Houston,H,N,16,12,4,-27.0,-28.0,DraftKings,-24.0
+2024,3,2024-09-14,regular,Oklahoma,Tulane,H,N,34,19,15,-13.5,-13.5,DraftKings,1.5
+2024,4,2024-09-21,regular,Oklahoma,Tennessee,H,Y,15,25,-10,-3.0,6.0,DraftKings,-4.0
+2024,5,2024-09-28,regular,Oklahoma,Auburn,A,Y,27,21,6,-2.5,2.0,DraftKings,8.0
+2024,7,2024-10-12,regular,Oklahoma,Texas,N,Y,3,34,-31,8.5,17.0,DraftKings,-14.0
+2024,8,2024-10-19,regular,Oklahoma,South Carolina,H,Y,9,35,-26,-7.5,1.0,DraftKings,-25.0
+2024,9,2024-10-26,regular,Oklahoma,Ole Miss,A,Y,14,26,-12,6.0,19.0,DraftKings,7.0
+2024,10,2024-11-02,regular,Oklahoma,Maine,H,N,59,14,45,,-37.5,DraftKings,7.5
+2024,11,2024-11-10,regular,Oklahoma,Missouri,A,Y,23,30,-7,3.0,-3.5,DraftKings,-10.5
+2024,13,2024-11-24,regular,Oklahoma,Alabama,H,Y,24,3,21,2.0,14.0,DraftKings,35.0
+2024,14,2024-12-01,regular,Oklahoma,LSU,A,Y,17,37,-20,5.0,6.0,DraftKings,-14.0
+2024,1,2024-12-27,postseason,Oklahoma,Navy,N,N,20,21,-1,,1.0,DraftKings,0.0
+2024,1,2024-08-31,regular,Ole Miss,Furman,H,N,76,0,76,,-45.5,ESPN Bet,30.5
+2024,2,2024-09-07,regular,Ole Miss,Middle Tennessee,H,N,52,3,49,-40.5,-43.0,DraftKings,6.0
+2024,3,2024-09-14,regular,Ole Miss,Wake Forest,A,N,40,6,34,-23.0,-23.5,DraftKings,10.5
+2024,4,2024-09-21,regular,Ole Miss,Georgia Southern,H,N,52,13,39,-36.0,-35.0,DraftKings,4.0
+2024,5,2024-09-28,regular,Ole Miss,Kentucky,H,Y,17,20,-3,-16.5,-15.0,DraftKings,-18.0
+2024,6,2024-10-05,regular,Ole Miss,South Carolina,A,Y,27,3,24,-11.5,-10.0,DraftKings,14.0
+2024,7,2024-10-12,regular,Ole Miss,LSU,A,Y,26,29,-3,2.5,-4.0,DraftKings,-7.0
+2024,9,2024-10-26,regular,Ole Miss,Oklahoma,H,Y,26,14,12,-6.0,-19.0,DraftKings,-7.0
+2024,10,2024-11-02,regular,Ole Miss,Arkansas,A,Y,63,31,32,-9.5,-8.0,DraftKings,24.0
+2024,11,2024-11-09,regular,Ole Miss,Georgia,H,Y,28,10,18,7.0,2.5,DraftKings,20.5
+2024,13,2024-11-23,regular,Ole Miss,Florida,A,Y,17,24,-7,-6.5,-13.0,DraftKings,-20.0
+2024,14,2024-11-29,regular,Ole Miss,Mississippi State,H,Y,26,14,12,-27.5,-26.0,DraftKings,-14.0
+2024,1,2025-01-03,postseason,Ole Miss,Duke,N,N,52,20,32,,-17.5,DraftKings,14.5
+2024,1,2024-08-31,regular,South Carolina,Old Dominion,H,N,23,19,4,-20.0,-20.0,DraftKings,-16.0
+2024,2,2024-09-07,regular,South Carolina,Kentucky,A,Y,31,6,25,9.0,9.0,DraftKings,34.0
+2024,3,2024-09-14,regular,South Carolina,LSU,H,Y,33,36,-3,9.5,7.0,DraftKings,4.0
+2024,4,2024-09-21,regular,South Carolina,Akron,H,N,50,7,43,-27.5,-25.0,DraftKings,18.0
+2024,6,2024-10-05,regular,South Carolina,Ole Miss,H,Y,3,27,-24,11.5,10.0,DraftKings,-14.0
+2024,7,2024-10-12,regular,South Carolina,Alabama,A,Y,25,27,-2,21.5,21.0,DraftKings,19.0
+2024,8,2024-10-19,regular,South Carolina,Oklahoma,A,Y,35,9,26,7.5,-1.0,DraftKings,25.0
+2024,10,2024-11-02,regular,South Carolina,Texas A&M,H,Y,44,20,24,4.0,3.0,DraftKings,27.0
+2024,11,2024-11-09,regular,South Carolina,Vanderbilt,A,Y,28,7,21,-1.5,-6.0,DraftKings,15.0
+2024,12,2024-11-16,regular,South Carolina,Missouri,H,Y,34,30,4,-13.0,-10.5,DraftKings,-6.5
+2024,13,2024-11-23,regular,South Carolina,Wofford,H,N,56,12,44,-42.5,-42.5,DraftKings,1.5
+2024,14,2024-11-30,regular,South Carolina,Clemson,A,N,17,14,3,4.5,3.0,DraftKings,6.0
+2024,1,2024-12-31,postseason,South Carolina,Illinois,N,N,17,21,-4,,-9.5,DraftKings,-13.5
+2024,1,2024-08-31,regular,Tennessee,Chattanooga,H,N,69,3,66,,-38.5,ESPN Bet,27.5
+2024,2,2024-09-07,regular,Tennessee,NC State,N,N,51,10,41,-4.5,-10.0,DraftKings,31.0
+2024,3,2024-09-14,regular,Tennessee,Kent State,H,N,71,0,71,-48.0,-47.5,DraftKings,23.5
+2024,4,2024-09-21,regular,Tennessee,Oklahoma,A,Y,25,15,10,3.0,-6.0,DraftKings,4.0
+2024,6,2024-10-05,regular,Tennessee,Arkansas,A,Y,14,19,-5,-10.5,-14.0,DraftKings,-19.0
+2024,7,2024-10-12,regular,Tennessee,Florida,H,Y,23,17,6,-10.0,-14.0,DraftKings,-8.0
+2024,8,2024-10-19,regular,Tennessee,Alabama,H,Y,24,17,7,2.5,3.5,DraftKings,10.5
+2024,10,2024-11-02,regular,Tennessee,Kentucky,H,Y,28,18,10,-13.0,-17.5,DraftKings,-7.5
+2024,11,2024-11-10,regular,Tennessee,Mississippi State,H,Y,33,14,19,-23.0,-26.0,DraftKings,-7.0
+2024,12,2024-11-17,regular,Tennessee,Georgia,A,Y,17,31,-14,16.5,8.5,DraftKings,-5.5
+2024,13,2024-11-23,regular,Tennessee,UTEP,H,N,56,0,56,-41.5,-41.5,DraftKings,14.5
+2024,14,2024-11-30,regular,Tennessee,Vanderbilt,A,Y,36,23,13,-10.5,-9.5,DraftKings,3.5
+2024,1,2024-12-22,postseason,Tennessee,Ohio State,A,N,17,42,-25,,7.5,DraftKings,-17.5
+2024,1,2024-08-31,regular,Texas,Colorado State,H,N,52,0,52,-35.5,-35.5,DraftKings,16.5
+2024,2,2024-09-07,regular,Texas,Michigan,A,N,31,12,19,-3.5,-7.0,DraftKings,12.0
+2024,3,2024-09-14,regular,Texas,UTSA,H,N,56,7,49,-34.5,-34.5,DraftKings,14.5
+2024,4,2024-09-22,regular,Texas,UL Monroe,H,N,51,3,48,-44.5,-43.5,DraftKings,4.5
+2024,5,2024-09-28,regular,Texas,Mississippi State,H,Y,35,13,22,-35.5,-37.0,DraftKings,-15.0
+2024,7,2024-10-12,regular,Texas,Oklahoma,N,Y,34,3,31,-8.5,-17.0,DraftKings,14.0
+2024,8,2024-10-19,regular,Texas,Georgia,H,Y,15,30,-15,2.0,-4.0,DraftKings,-19.0
+2024,9,2024-10-26,regular,Texas,Vanderbilt,A,Y,27,24,3,-21.0,-17.0,DraftKings,-14.0
+2024,11,2024-11-09,regular,Texas,Florida,H,Y,49,17,32,-17.5,-23.0,DraftKings,9.0
+2024,12,2024-11-16,regular,Texas,Arkansas,A,Y,20,10,10,-16.5,-13.0,DraftKings,-3.0
+2024,13,2024-11-23,regular,Texas,Kentucky,H,Y,31,14,17,-21.0,-18.5,DraftKings,-1.5
+2024,14,2024-12-01,regular,Texas,Texas A&M,A,Y,17,7,10,-4.5,-4.5,DraftKings,5.5
+2024,15,2024-12-07,regular,Texas,Georgia,N,Y,19,22,-3,,-3.0,DraftKings,-6.0
+2024,1,2024-12-21,postseason,Texas,Clemson,H,N,38,24,14,,-13.5,DraftKings,0.5
+2024,1,2025-01-01,postseason,Texas,Arizona State,N,N,39,31,8,,-13.5,DraftKings,-5.5
+2024,1,2025-01-11,postseason,Texas,Ohio State,N,N,14,28,-14,,6.5,DraftKings,-7.5
+2024,1,2024-08-31,regular,Texas A&M,Notre Dame,H,N,13,23,-10,-1.0,-2.5,DraftKings,-12.5
+2024,2,2024-09-07,regular,Texas A&M,McNeese,H,N,52,10,42,-48.0,-48.5,ESPN Bet,-6.5
+2024,3,2024-09-14,regular,Texas A&M,Florida,A,Y,33,20,13,-4.0,-4.5,DraftKings,8.5
+2024,4,2024-09-21,regular,Texas A&M,Bowling Green,H,N,26,20,6,,-21.0,DraftKings,-15.0
+2024,5,2024-09-28,regular,Texas A&M,Arkansas,N,Y,21,17,4,-10.5,-6.5,DraftKings,-2.5
+2024,6,2024-10-05,regular,Texas A&M,Missouri,H,Y,41,10,31,-4.0,-3.0,DraftKings,28.0
+2024,8,2024-10-19,regular,Texas A&M,Mississippi State,A,Y,34,24,10,-15.0,-21.0,DraftKings,-11.0
+2024,9,2024-10-26,regular,Texas A&M,LSU,H,Y,38,23,15,-2.0,-2.0,DraftKings,13.0
+2024,10,2024-11-02,regular,Texas A&M,South Carolina,A,Y,20,44,-24,-4.0,-3.0,DraftKings,-27.0
+2024,12,2024-11-17,regular,Texas A&M,New Mexico State,H,N,38,3,35,-42.0,-38.5,DraftKings,-3.5
+2024,13,2024-11-24,regular,Texas A&M,Auburn,A,Y,41,43,-2,-2.0,-2.5,DraftKings,-4.5
+2024,14,2024-12-01,regular,Texas A&M,Texas,H,Y,7,17,-10,4.5,4.5,DraftKings,-5.5
+2024,1,2024-12-28,postseason,Texas A&M,USC,N,N,31,35,-4,,-3.5,DraftKings,-7.5
+2024,1,2024-08-31,regular,Vanderbilt,Virginia Tech,H,N,34,27,7,13.0,13.5,DraftKings,20.5
+2024,2,2024-09-07,regular,Vanderbilt,Alcorn State,H,N,55,0,55,-31.0,-32.5,ESPN Bet,22.5
+2024,3,2024-09-14,regular,Vanderbilt,Georgia State,A,N,32,36,-4,-10.0,-10.0,DraftKings,-14.0
+2024,4,2024-09-21,regular,Vanderbilt,Missouri,A,Y,27,30,-3,,17.5,DraftKings,14.5
+2024,6,2024-10-05,regular,Vanderbilt,Alabama,H,Y,40,35,5,24.0,23.5,DraftKings,28.5
+2024,7,2024-10-12,regular,Vanderbilt,Kentucky,A,Y,20,13,7,10.5,12.5,DraftKings,19.5
+2024,8,2024-10-19,regular,Vanderbilt,Ball State,H,N,24,14,10,-24.5,-27.5,DraftKings,-17.5
+2024,9,2024-10-26,regular,Vanderbilt,Texas,H,Y,24,27,-3,21.0,17.0,DraftKings,14.0
+2024,10,2024-11-02,regular,Vanderbilt,Auburn,A,Y,17,7,10,5.0,7.5,DraftKings,17.5
+2024,11,2024-11-09,regular,Vanderbilt,South Carolina,H,Y,7,28,-21,1.5,6.0,DraftKings,-15.0
+2024,13,2024-11-24,regular,Vanderbilt,LSU,A,Y,17,24,-7,11.0,10.0,DraftKings,3.0
+2024,14,2024-11-30,regular,Vanderbilt,Tennessee,H,Y,23,36,-13,10.5,9.5,DraftKings,-3.5
+2024,1,2024-12-27,postseason,Vanderbilt,Georgia Tech,N,N,35,27,8,,3.0,DraftKings,11.0
+2025,1,2025-08-30,regular,Alabama,Florida State,A,N,17,31,-14,-13.5,-13.5,DraftKings,-27.5
+2025,2,2025-09-06,regular,Alabama,UL Monroe,H,N,73,0,73,-37.5,-34.0,Bovada,39.0
+2025,3,2025-09-13,regular,Alabama,Wisconsin,H,N,38,14,24,,-17.5,DraftKings,6.5
+2025,5,2025-09-27,regular,Alabama,Georgia,A,Y,24,21,3,4.0,2.5,DraftKings,5.5
+2025,6,2025-10-04,regular,Alabama,Vanderbilt,H,Y,30,14,16,-13.5,-13.5,DraftKings,2.5
+2025,7,2025-10-11,regular,Alabama,Missouri,A,Y,27,24,3,-6.5,-3.0,DraftKings,0.0
+2025,8,2025-10-18,regular,Alabama,Tennessee,H,Y,37,20,17,-12.5,-8.5,DraftKings,8.5
+2025,9,2025-10-25,regular,Alabama,South Carolina,A,Y,29,22,7,-7.5,-11.5,DraftKings,-4.5
+2025,11,2025-11-09,regular,Alabama,LSU,H,Y,20,9,11,-5.5,-10.0,DraftKings,1.0
+2025,12,2025-11-15,regular,Alabama,Oklahoma,H,Y,21,23,-2,-12.5,-6.5,DraftKings,-8.5
+2025,13,2025-11-22,regular,Alabama,Eastern Illinois,H,N,56,0,56,-50.5,-50.5,DraftKings,5.5
+2025,14,2025-11-30,regular,Alabama,Auburn,A,Y,27,20,7,-6.5,-7.0,DraftKings,0.0
+2025,15,2025-12-06,regular,Alabama,Georgia,N,N,7,28,-21,,1.5,DraftKings,-19.5
+2025,1,2025-12-20,postseason,Alabama,Oklahoma,A,N,34,24,10,,2.5,DraftKings,12.5
+2025,1,2026-01-01,postseason,Alabama,Indiana,N,N,3,38,-35,,7.5,DraftKings,-27.5
+2025,1,2025-08-30,regular,Arkansas,Alabama A&M,H,N,52,7,45,-46.5,-48.5,Bovada,-3.5
+2025,2,2025-09-06,regular,Arkansas,Arkansas State,N,N,56,14,42,-21.5,-23.5,Bovada,18.5
+2025,3,2025-09-13,regular,Arkansas,Ole Miss,A,Y,35,41,-6,,3.5,DraftKings,-2.5
+2025,4,2025-09-20,regular,Arkansas,Memphis,A,N,31,32,-1,-5.5,-7.0,DraftKings,-8.0
+2025,5,2025-09-27,regular,Arkansas,Notre Dame,H,N,13,56,-43,10.5,5.5,DraftKings,-37.5
+2025,7,2025-10-11,regular,Arkansas,Tennessee,A,Y,31,34,-3,13.5,10.0,DraftKings,7.0
+2025,8,2025-10-18,regular,Arkansas,Texas A&M,H,Y,42,45,-3,8.5,7.5,DraftKings,4.5
+2025,9,2025-10-25,regular,Arkansas,Auburn,H,Y,24,33,-9,-1.5,-2.5,DraftKings,-11.5
+2025,10,2025-11-01,regular,Arkansas,Mississippi State,H,Y,35,38,-3,-3.5,-5.5,DraftKings,-8.5
+2025,12,2025-11-15,regular,Arkansas,LSU,A,Y,22,23,-1,6.5,4.0,DraftKings,3.0
+2025,13,2025-11-22,regular,Arkansas,Texas,A,Y,37,52,-15,10.5,8.5,DraftKings,-6.5
+2025,14,2025-11-29,regular,Arkansas,Missouri,H,Y,17,31,-14,2.5,4.5,DraftKings,-9.5
+2025,1,2025-08-30,regular,Auburn,Baylor,A,N,38,24,14,-1.5,-1.5,DraftKings,12.5
+2025,2,2025-09-06,regular,Auburn,Ball State,H,N,42,3,39,-43.5,-43.0,Bovada,-4.0
+2025,3,2025-09-13,regular,Auburn,South Alabama,H,N,31,15,16,,-26.5,DraftKings,-10.5
+2025,4,2025-09-20,regular,Auburn,Oklahoma,A,Y,17,24,-7,4.5,6.5,DraftKings,-0.5
+2025,5,2025-09-27,regular,Auburn,Texas A&M,A,Y,10,16,-6,6.5,6.5,DraftKings,0.5
+2025,7,2025-10-11,regular,Auburn,Georgia,H,Y,10,20,-10,7.0,4.5,DraftKings,-5.5
+2025,8,2025-10-18,regular,Auburn,Missouri,H,Y,17,23,-6,-1.5,1.5,DraftKings,-4.5
+2025,9,2025-10-25,regular,Auburn,Arkansas,A,Y,33,24,9,1.5,2.5,DraftKings,11.5
+2025,10,2025-11-01,regular,Auburn,Kentucky,H,Y,3,10,-7,-10.0,-11.5,DraftKings,-18.5
+2025,11,2025-11-08,regular,Auburn,Vanderbilt,A,Y,38,45,-7,5.5,6.0,DraftKings,-1.0
+2025,13,2025-11-22,regular,Auburn,Mercer,H,N,62,17,45,,-26.5,DraftKings,18.5
+2025,14,2025-11-30,regular,Auburn,Alabama,H,Y,20,27,-7,6.5,7.0,DraftKings,0.0
+2025,1,2025-08-30,regular,Florida,Long Island University,H,N,55,0,55,-45.5,-47.0,Bovada,8.0
+2025,2,2025-09-06,regular,Florida,South Florida,H,N,16,18,-2,-18.0,-18.5,Bovada,-20.5
+2025,3,2025-09-13,regular,Florida,LSU,A,Y,10,20,-10,5.5,4.5,DraftKings,-5.5
+2025,4,2025-09-20,regular,Florida,Miami,A,N,7,26,-19,3.5,8.5,DraftKings,-10.5
+2025,6,2025-10-04,regular,Florida,Texas,H,Y,29,21,8,6.5,4.5,DraftKings,12.5
+2025,7,2025-10-11,regular,Florida,Texas A&M,A,Y,17,34,-17,9.5,7.0,DraftKings,-10.0
+2025,8,2025-10-18,regular,Florida,Mississippi State,H,Y,23,21,2,-9.5,-9.5,DraftKings,-7.5
+2025,10,2025-11-01,regular,Florida,Georgia,N,Y,20,24,-4,7.5,7.0,DraftKings,3.0
+2025,11,2025-11-09,regular,Florida,Kentucky,A,Y,7,38,-31,-4.5,-4.5,DraftKings,-35.5
+2025,12,2025-11-16,regular,Florida,Ole Miss,A,Y,24,34,-10,7.5,10.5,DraftKings,0.5
+2025,13,2025-11-23,regular,Florida,Tennessee,H,Y,11,31,-20,-4.0,3.5,DraftKings,-16.5
+2025,14,2025-11-29,regular,Florida,Florida State,H,N,40,21,19,-1.5,1.5,DraftKings,20.5
+2025,1,2025-08-30,regular,Georgia,Marshall,H,N,45,7,38,-39.5,-39.5,DraftKings,-1.5
+2025,2,2025-09-06,regular,Georgia,Austin Peay,H,N,28,6,22,-48.0,-47.0,Bovada,-25.0
+2025,3,2025-09-13,regular,Georgia,Tennessee,A,Y,44,41,3,-7.5,-3.5,DraftKings,-0.5
+2025,5,2025-09-27,regular,Georgia,Alabama,H,Y,21,24,-3,-4.0,-2.5,DraftKings,-5.5
+2025,6,2025-10-04,regular,Georgia,Kentucky,H,Y,35,14,21,-20.5,-19.5,DraftKings,1.5
+2025,7,2025-10-11,regular,Georgia,Auburn,A,Y,20,10,10,-7.0,-4.5,DraftKings,5.5
+2025,8,2025-10-18,regular,Georgia,Ole Miss,H,Y,43,35,8,-10.5,-7.5,DraftKings,0.5
+2025,10,2025-11-01,regular,Georgia,Florida,N,Y,24,20,4,-7.5,-7.0,DraftKings,-3.0
+2025,11,2025-11-08,regular,Georgia,Mississippi State,A,Y,41,21,20,-9.5,-9.5,DraftKings,10.5
+2025,12,2025-11-16,regular,Georgia,Texas,H,Y,35,10,25,-2.5,-3.5,DraftKings,21.5
+2025,13,2025-11-22,regular,Georgia,Charlotte,H,N,35,3,32,-44.5,-42.5,DraftKings,-10.5
+2025,14,2025-11-28,regular,Georgia,Georgia Tech,N,N,16,9,7,-12.5,-16.5,DraftKings,-9.5
+2025,15,2025-12-06,regular,Georgia,Alabama,N,N,28,7,21,,-1.5,DraftKings,19.5
+2025,1,2026-01-02,postseason,Georgia,Ole Miss,N,N,34,39,-5,,-6.0,DraftKings,-11.0
+2025,1,2025-08-30,regular,Kentucky,Toledo,H,N,24,16,8,-10.0,-10.0,DraftKings,-2.0
+2025,2,2025-09-06,regular,Kentucky,Ole Miss,H,Y,23,30,-7,8.5,8.0,Bovada,1.0
+2025,3,2025-09-13,regular,Kentucky,Eastern Michigan,H,N,48,23,25,,-26.5,DraftKings,-1.5
+2025,5,2025-09-27,regular,Kentucky,South Carolina,A,Y,13,35,-22,6.0,5.5,DraftKings,-16.5
+2025,6,2025-10-04,regular,Kentucky,Georgia,A,Y,14,35,-21,20.5,19.5,DraftKings,-1.5
+2025,8,2025-10-18,regular,Kentucky,Texas,H,Y,13,16,-3,13.5,12.5,DraftKings,9.5
+2025,9,2025-10-25,regular,Kentucky,Tennessee,H,Y,34,56,-22,9.5,7.5,DraftKings,-14.5
+2025,10,2025-11-01,regular,Kentucky,Auburn,A,Y,10,3,7,10.0,11.5,DraftKings,18.5
+2025,11,2025-11-09,regular,Kentucky,Florida,H,Y,38,7,31,4.5,4.5,DraftKings,35.5
+2025,12,2025-11-15,regular,Kentucky,Tennessee Tech,H,N,42,10,32,,-22.5,DraftKings,9.5
+2025,13,2025-11-22,regular,Kentucky,Vanderbilt,A,Y,17,45,-28,7.5,7.0,DraftKings,-21.0
+2025,14,2025-11-29,regular,Kentucky,Louisville,A,N,0,41,-41,6.5,-1.5,DraftKings,-42.5
+2025,1,2025-08-30,regular,LSU,Clemson,A,N,17,10,7,3.5,3.5,DraftKings,10.5
+2025,2,2025-09-06,regular,LSU,Louisiana Tech,H,N,23,7,16,-38.0,-36.5,Bovada,-20.5
+2025,3,2025-09-13,regular,LSU,Florida,H,Y,20,10,10,-5.5,-4.5,DraftKings,5.5
+2025,4,2025-09-20,regular,LSU,SE Louisiana,H,N,56,10,46,-40.5,-49.0,Bovada,-3.0
+2025,5,2025-09-27,regular,LSU,Ole Miss,A,Y,19,24,-5,-2.5,2.5,DraftKings,-2.5
+2025,7,2025-10-11,regular,LSU,South Carolina,H,Y,20,10,10,-10.5,-8.5,DraftKings,1.5
+2025,8,2025-10-18,regular,LSU,Vanderbilt,A,Y,24,31,-7,-3.5,1.5,DraftKings,-5.5
+2025,9,2025-10-25,regular,LSU,Texas A&M,H,Y,25,49,-24,-5.5,1.5,DraftKings,-22.5
+2025,11,2025-11-09,regular,LSU,Alabama,A,Y,9,20,-11,5.5,10.0,DraftKings,-1.0
+2025,12,2025-11-15,regular,LSU,Arkansas,H,Y,23,22,1,-6.5,-4.0,DraftKings,-3.0
+2025,13,2025-11-23,regular,LSU,Western Kentucky,H,N,13,10,3,-22.5,-24.5,DraftKings,-21.5
+2025,14,2025-11-29,regular,LSU,Oklahoma,A,Y,13,17,-4,8.5,11.5,DraftKings,7.5
+2025,1,2025-12-28,postseason,LSU,Houston,N,N,35,38,-3,,1.5,DraftKings,-1.5
+2025,1,2025-08-30,regular,Mississippi State,Southern Miss,A,N,34,17,17,-11.5,-11.5,DraftKings,5.5
+2025,2,2025-09-06,regular,Mississippi State,Arizona State,H,N,24,20,4,7.0,6.0,Bovada,10.0
+2025,3,2025-09-13,regular,Mississippi State,Alcorn State,H,N,63,0,63,-38.5,-42.5,DraftKings,20.5
+2025,4,2025-09-20,regular,Mississippi State,Northern Illinois,H,N,38,10,28,-21.5,-23.5,DraftKings,4.5
+2025,5,2025-09-27,regular,Mississippi State,Tennessee,H,Y,34,41,-7,10.0,7.5,DraftKings,0.5
+2025,6,2025-10-04,regular,Mississippi State,Texas A&M,A,Y,9,31,-22,13.5,17.5,DraftKings,-4.5
+2025,8,2025-10-18,regular,Mississippi State,Florida,A,Y,21,23,-2,9.5,9.5,DraftKings,7.5
+2025,9,2025-10-25,regular,Mississippi State,Texas,H,Y,38,45,-7,8.5,8.5,DraftKings,1.5
+2025,10,2025-11-01,regular,Mississippi State,Arkansas,A,Y,38,35,3,3.5,5.5,DraftKings,8.5
+2025,11,2025-11-08,regular,Mississippi State,Georgia,H,Y,21,41,-20,9.5,9.5,DraftKings,-10.5
+2025,12,2025-11-16,regular,Mississippi State,Missouri,A,Y,27,49,-22,,7.5,DraftKings,-14.5
+2025,14,2025-11-28,regular,Mississippi State,Ole Miss,H,Y,19,38,-19,9.5,7.5,DraftKings,-11.5
+2025,1,2026-01-03,postseason,Mississippi State,Wake Forest,N,N,29,43,-14,-3.0,-3.0,DraftKings,-17.0
+2025,1,2025-08-28,regular,Missouri,Central Arkansas,H,N,61,6,55,-36.5,-38.5,Bovada,16.5
+2025,2,2025-09-06,regular,Missouri,Kansas,H,N,42,31,11,-7.0,-7.0,DraftKings,4.0
+2025,3,2025-09-13,regular,Missouri,Louisiana,H,N,52,10,42,-27.5,-27.5,DraftKings,14.5
+2025,4,2025-09-20,regular,Missouri,South Carolina,H,Y,29,20,9,-3.0,-10.0,DraftKings,-1.0
+2025,5,2025-09-27,regular,Missouri,Massachusetts,H,N,42,6,36,-42.5,-44.5,DraftKings,-8.5
+2025,7,2025-10-11,regular,Missouri,Alabama,H,Y,24,27,-3,6.5,3.0,DraftKings,0.0
+2025,8,2025-10-18,regular,Missouri,Auburn,A,Y,23,17,6,1.5,-1.5,DraftKings,4.5
+2025,9,2025-10-25,regular,Missouri,Vanderbilt,A,Y,10,17,-7,1.5,3.0,DraftKings,-4.0
+2025,11,2025-11-08,regular,Missouri,Texas A&M,H,Y,17,38,-21,6.5,7.0,DraftKings,-14.0
+2025,12,2025-11-16,regular,Missouri,Mississippi State,H,Y,49,27,22,,-7.5,DraftKings,14.5
+2025,13,2025-11-22,regular,Missouri,Oklahoma,A,Y,6,17,-11,10.5,4.5,DraftKings,-6.5
+2025,14,2025-11-29,regular,Missouri,Arkansas,A,Y,31,17,14,-2.5,-4.5,DraftKings,9.5
+2025,1,2025-12-28,postseason,Missouri,Virginia,N,N,7,13,-6,,-4.0,DraftKings,-10.0
+2025,1,2025-08-30,regular,Oklahoma,Illinois State,H,N,35,3,32,-35.5,-39.5,Bovada,-7.5
+2025,2,2025-09-06,regular,Oklahoma,Michigan,H,N,24,13,11,-3.0,-3.0,DraftKings,8.0
+2025,3,2025-09-13,regular,Oklahoma,Temple,A,N,42,3,39,,-23.5,DraftKings,15.5
+2025,4,2025-09-20,regular,Oklahoma,Auburn,H,Y,24,17,7,-4.5,-6.5,DraftKings,0.5
+2025,6,2025-10-04,regular,Oklahoma,Kent State,H,N,44,0,44,-45.5,-46.5,DraftKings,-2.5
+2025,7,2025-10-11,regular,Oklahoma,Texas,N,Y,6,23,-17,9.5,2.5,DraftKings,-14.5
+2025,8,2025-10-18,regular,Oklahoma,South Carolina,A,Y,26,7,19,-3.5,-4.5,DraftKings,14.5
+2025,9,2025-10-25,regular,Oklahoma,Ole Miss,H,Y,26,34,-8,-2.5,-5.5,DraftKings,-13.5
+2025,10,2025-11-01,regular,Oklahoma,Tennessee,A,Y,33,27,6,2.5,3.0,DraftKings,9.0
+2025,12,2025-11-15,regular,Oklahoma,Alabama,A,Y,23,21,2,12.5,6.5,DraftKings,8.5
+2025,13,2025-11-22,regular,Oklahoma,Missouri,H,Y,17,6,11,-10.5,-4.5,DraftKings,6.5
+2025,14,2025-11-29,regular,Oklahoma,LSU,H,Y,17,13,4,-8.5,-11.5,DraftKings,-7.5
+2025,1,2025-12-20,postseason,Oklahoma,Alabama,H,N,24,34,-10,,-2.5,DraftKings,-12.5
+2025,1,2025-08-30,regular,Ole Miss,Georgia State,H,N,63,7,56,-38.5,-38.5,DraftKings,17.5
+2025,2,2025-09-06,regular,Ole Miss,Kentucky,A,Y,30,23,7,-8.5,-8.0,Bovada,-1.0
+2025,3,2025-09-13,regular,Ole Miss,Arkansas,H,Y,41,35,6,,-3.5,DraftKings,2.5
+2025,4,2025-09-20,regular,Ole Miss,Tulane,H,N,45,10,35,-13.5,-12.5,DraftKings,22.5
+2025,5,2025-09-27,regular,Ole Miss,LSU,H,Y,24,19,5,2.5,-2.5,DraftKings,2.5
+2025,7,2025-10-11,regular,Ole Miss,Washington State,H,N,24,21,3,-32.5,-33.5,DraftKings,-30.5
+2025,8,2025-10-18,regular,Ole Miss,Georgia,A,Y,35,43,-8,10.5,7.5,DraftKings,-0.5
+2025,9,2025-10-25,regular,Ole Miss,Oklahoma,A,Y,34,26,8,2.5,5.5,DraftKings,13.5
+2025,10,2025-11-01,regular,Ole Miss,South Carolina,H,Y,30,14,16,-13.5,-12.5,DraftKings,3.5
+2025,11,2025-11-08,regular,Ole Miss,The Citadel,H,N,49,0,49,-51.5,-51.5,DraftKings,-2.5
+2025,12,2025-11-16,regular,Ole Miss,Florida,H,Y,34,24,10,-7.5,-10.5,DraftKings,-0.5
+2025,14,2025-11-28,regular,Ole Miss,Mississippi State,A,Y,38,19,19,-9.5,-7.5,DraftKings,11.5
+2025,1,2025-12-20,postseason,Ole Miss,Tulane,H,N,41,10,31,,-16.5,DraftKings,14.5
+2025,1,2026-01-02,postseason,Ole Miss,Georgia,N,N,39,34,5,,6.0,DraftKings,11.0
+2025,1,2026-01-09,postseason,Ole Miss,Miami,N,N,27,31,-4,,3.0,DraftKings,-1.0
+2025,1,2025-08-31,regular,South Carolina,Virginia Tech,N,N,24,11,13,-8.5,-8.5,DraftKings,4.5
+2025,2,2025-09-06,regular,South Carolina,South Carolina State,H,N,38,10,28,-42.5,-43.0,Bovada,-15.0
+2025,3,2025-09-13,regular,South Carolina,Vanderbilt,H,Y,7,31,-24,,-3.0,DraftKings,-27.0
+2025,4,2025-09-20,regular,South Carolina,Missouri,A,Y,20,29,-9,3.0,10.0,DraftKings,1.0
+2025,5,2025-09-27,regular,South Carolina,Kentucky,H,Y,35,13,22,-6.0,-5.5,DraftKings,16.5
+2025,7,2025-10-11,regular,South Carolina,LSU,A,Y,10,20,-10,10.5,8.5,DraftKings,-1.5
+2025,8,2025-10-18,regular,South Carolina,Oklahoma,H,Y,7,26,-19,3.5,4.5,DraftKings,-14.5
+2025,9,2025-10-25,regular,South Carolina,Alabama,H,Y,22,29,-7,7.5,11.5,DraftKings,4.5
+2025,10,2025-11-01,regular,South Carolina,Ole Miss,A,Y,14,30,-16,13.5,12.5,DraftKings,-3.5
+2025,12,2025-11-15,regular,South Carolina,Texas A&M,A,Y,30,31,-1,18.5,16.5,DraftKings,15.5
+2025,13,2025-11-22,regular,South Carolina,Coastal Carolina,H,N,51,7,44,-23.5,-23.5,DraftKings,20.5
+2025,14,2025-11-29,regular,South Carolina,Clemson,H,N,14,28,-14,2.5,-2.5,DraftKings,-16.5
+2025,1,2025-08-30,regular,Tennessee,Syracuse,N,N,45,26,19,-13.5,-13.5,DraftKings,5.5
+2025,2,2025-09-06,regular,Tennessee,East Tennessee State,H,N,72,17,55,-41.0,-39.5,Bovada,15.5
+2025,3,2025-09-13,regular,Tennessee,Georgia,H,Y,41,44,-3,7.5,3.5,DraftKings,0.5
+2025,4,2025-09-20,regular,Tennessee,UAB,H,N,56,24,32,-41.5,-39.5,DraftKings,-7.5
+2025,5,2025-09-27,regular,Tennessee,Mississippi State,A,Y,41,34,7,-10.0,-7.5,DraftKings,-0.5
+2025,7,2025-10-11,regular,Tennessee,Arkansas,H,Y,34,31,3,-13.5,-10.0,DraftKings,-7.0
+2025,8,2025-10-18,regular,Tennessee,Alabama,A,Y,20,37,-17,12.5,8.5,DraftKings,-8.5
+2025,9,2025-10-25,regular,Tennessee,Kentucky,A,Y,56,34,22,-9.5,-7.5,DraftKings,14.5
+2025,10,2025-11-01,regular,Tennessee,Oklahoma,H,Y,27,33,-6,-2.5,-3.0,DraftKings,-9.0
+2025,12,2025-11-15,regular,Tennessee,New Mexico State,H,N,42,9,33,-39.5,-41.5,DraftKings,-8.5
+2025,13,2025-11-23,regular,Tennessee,Florida,A,Y,31,11,20,4.0,-3.5,DraftKings,16.5
+2025,14,2025-11-29,regular,Tennessee,Vanderbilt,H,Y,24,45,-21,-5.5,-2.5,DraftKings,-23.5
+2025,1,2025-12-30,postseason,Tennessee,Illinois,N,N,28,30,-2,-5.5,-3.0,DraftKings,-5.0
+2025,1,2025-08-30,regular,Texas,Ohio State,A,N,7,14,-7,3.0,3.0,DraftKings,-4.0
+2025,2,2025-09-06,regular,Texas,San José State,H,N,38,7,31,-36.0,-37.0,Bovada,-6.0
+2025,3,2025-09-13,regular,Texas,UTEP,H,N,27,10,17,,-39.5,DraftKings,-22.5
+2025,4,2025-09-21,regular,Texas,Sam Houston,H,N,55,0,55,-40.5,-39.5,DraftKings,15.5
+2025,6,2025-10-04,regular,Texas,Florida,A,Y,21,29,-8,-6.5,-4.5,DraftKings,-12.5
+2025,7,2025-10-11,regular,Texas,Oklahoma,N,Y,23,6,17,-9.5,-2.5,DraftKings,14.5
+2025,8,2025-10-18,regular,Texas,Kentucky,A,Y,16,13,3,-13.5,-12.5,DraftKings,-9.5
+2025,9,2025-10-25,regular,Texas,Mississippi State,A,Y,45,38,7,-8.5,-8.5,DraftKings,-1.5
+2025,10,2025-11-01,regular,Texas,Vanderbilt,H,Y,34,31,3,-3.5,-3.5,DraftKings,-0.5
+2025,12,2025-11-16,regular,Texas,Georgia,A,Y,10,35,-25,2.5,3.5,DraftKings,-21.5
+2025,13,2025-11-22,regular,Texas,Arkansas,H,Y,52,37,15,-10.5,-8.5,DraftKings,6.5
+2025,14,2025-11-29,regular,Texas,Texas A&M,H,Y,27,17,10,2.5,2.5,DraftKings,12.5
+2025,1,2025-12-31,postseason,Texas,Michigan,N,N,41,27,14,,-4.0,DraftKings,10.0
+2025,1,2025-08-30,regular,Texas A&M,UTSA,H,N,42,24,18,-21.5,-21.5,DraftKings,-3.5
+2025,2,2025-09-06,regular,Texas A&M,Utah State,H,N,44,22,22,-29.5,-34.5,Bovada,-12.5
+2025,3,2025-09-13,regular,Texas A&M,Notre Dame,A,N,41,40,1,7.0,6.5,DraftKings,7.5
+2025,5,2025-09-27,regular,Texas A&M,Auburn,H,Y,16,10,6,-6.5,-6.5,DraftKings,-0.5
+2025,6,2025-10-04,regular,Texas A&M,Mississippi State,H,Y,31,9,22,-13.5,-17.5,DraftKings,4.5
+2025,7,2025-10-11,regular,Texas A&M,Florida,H,Y,34,17,17,-9.5,-7.0,DraftKings,10.0
+2025,8,2025-10-18,regular,Texas A&M,Arkansas,A,Y,45,42,3,-8.5,-7.5,DraftKings,-4.5
+2025,9,2025-10-25,regular,Texas A&M,LSU,A,Y,49,25,24,5.5,-1.5,DraftKings,22.5
+2025,11,2025-11-08,regular,Texas A&M,Missouri,A,Y,38,17,21,-6.5,-7.0,DraftKings,14.0
+2025,12,2025-11-15,regular,Texas A&M,South Carolina,H,Y,31,30,1,-18.5,-16.5,DraftKings,-15.5
+2025,13,2025-11-22,regular,Texas A&M,Samford,H,N,48,0,48,-54.5,-54.5,DraftKings,-6.5
+2025,14,2025-11-29,regular,Texas A&M,Texas,A,Y,17,27,-10,-2.5,-2.5,DraftKings,-12.5
+2025,1,2025-12-20,postseason,Texas A&M,Miami,H,N,3,10,-7,,-3.0,DraftKings,-10.0
+2025,1,2025-08-30,regular,Vanderbilt,Charleston Southern,H,N,45,3,42,-37.5,-37.5,Bovada,4.5
+2025,2,2025-09-06,regular,Vanderbilt,Virginia Tech,A,N,44,20,24,1.0,1.5,Bovada,25.5
+2025,3,2025-09-13,regular,Vanderbilt,South Carolina,A,Y,31,7,24,,3.0,DraftKings,27.0
+2025,4,2025-09-20,regular,Vanderbilt,Georgia State,H,N,70,21,49,-26.5,-27.5,DraftKings,21.5
+2025,5,2025-09-27,regular,Vanderbilt,Utah State,H,N,55,35,20,-21.5,-23.5,DraftKings,-3.5
+2025,6,2025-10-04,regular,Vanderbilt,Alabama,A,Y,14,30,-16,13.5,13.5,DraftKings,-2.5
+2025,8,2025-10-18,regular,Vanderbilt,LSU,H,Y,31,24,7,3.5,-1.5,DraftKings,5.5
+2025,9,2025-10-25,regular,Vanderbilt,Missouri,H,Y,17,10,7,-1.5,-3.0,DraftKings,4.0
+2025,10,2025-11-01,regular,Vanderbilt,Texas,A,Y,31,34,-3,3.5,3.5,DraftKings,0.5
+2025,11,2025-11-08,regular,Vanderbilt,Auburn,H,Y,45,38,7,-5.5,-6.0,DraftKings,1.0
+2025,13,2025-11-22,regular,Vanderbilt,Kentucky,H,Y,45,17,28,-7.5,-7.0,DraftKings,21.0
+2025,14,2025-11-29,regular,Vanderbilt,Tennessee,A,Y,45,24,21,5.5,2.5,DraftKings,23.5
+2025,1,2025-12-31,postseason,Vanderbilt,Iowa,N,N,27,34,-7,-4.0,-3.0,DraftKings,-10.0
