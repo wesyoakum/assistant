@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "cfb:pull": "cd tools/cfb && python pull_sec_lines.py",
+    "cfb:pull": "cd tools/cfb && python pull_sec_lines.py && python pull_sec_seasons.py",
     "cfb:build": "cd tools/cfb && python build_cfbanalysis.py && node -e \"require('fs').mkdirSync('../../public/cfbanalysis',{recursive:true});require('fs').copyFileSync('cfbanalysis.html','../../public/cfbanalysis/index.html')\"",
     "cfb:refresh": "npm run cfb:pull && npm run cfb:build"
   }
