@@ -1,5 +1,16 @@
-import csv, os, sys, time, re
-def norm(d): return {re.sub(r'([A-Z])', lambda m: '_' + m.group(1).lower(), k): v for k, v in d.items()}
+"""
+Games, kickoff/opening point spreads, postgame win probability, pregame Elo and
+box-score turnovers for the 16 current SEC programs, 2016-2025, from
+CollegeFootballData.com.
+
+    python pull_sec_lines.py          (needs CFBD_KEY; writes sec_games_2016_2025.csv)
+
+Call budget: 4 calls per season (games, lines, box scores for SEC, box scores for
+the Big 12 while Texas/Oklahoma were there) -> about 40 calls for ten seasons.
+Responses are cached per season in cache/ so a rerun only fetches seasons that
+are missing or in progress (the latest season is always refetched).
+"""
+import csv, json, os, sys, time, re
 import requests
 
 KEY = os.environ.get("CFBD_KEY")
@@ -8,11 +19,16 @@ if not KEY:
 
 BASE = "https://api.collegefootballdata.com"
 H = {"Authorization": f"Bearer {KEY}"}
-SEASONS = range(2021, 2026)
+SEASONS = range(2016, 2026)
+REFETCH = {max(SEASONS)}          # in-progress season: never trust the cache
 TEAMS = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
          "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
          "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
+BIG12_UNTIL = 2023                # Texas and Oklahoma joined the SEC in 2024
 PROVIDER_ORDER = ["consensus", "DraftKings", "Bovada", "ESPN Bet", "teamrankings", "numberfire"]
+CACHE = "cache"; os.makedirs(CACHE, exist_ok=True)
+
+def norm(d): return {re.sub(r'([A-Z])', lambda m: '_' + m.group(1).lower(), k): v for k, v in d.items()}
 
 def get(path, **params):
     err = None
@@ -22,25 +38,40 @@ def get(path, **params):
             if r.status_code == 200:
                 return r.json()
             err = f"{r.status_code} {r.text[:200]}"
+            if r.status_code == 429 and "quota" in r.text.lower():
+                break             # monthly quota: retrying will not help
         except requests.RequestException as e:
             err = repr(e)
         time.sleep(3 * (attempt + 1))
     sys.exit(f"Request failed: {path} {params} -> {err}")
 
+def cached(name, year, fetch):
+    """Load cache/<name>_<year>.json, or fetch and store it."""
+    f = os.path.join(CACHE, f"{name}_{year}.json")
+    if year not in REFETCH and os.path.exists(f):
+        return json.load(open(f, encoding="utf-8"))
+    data = fetch(); json.dump(data, open(f, "w", encoding="utf-8")); time.sleep(0.3)
+    return data
+
 rows = []
 for year in SEASONS:
+    games = cached("games", year, lambda: get("/games", year=year, seasonType="both"))
+    lines = cached("lines", year, lambda: get("/lines", year=year, seasonType="both"))
+    box = cached("box_sec", year, lambda: get("/games/teams", year=year, conference="SEC", seasonType="both"))
+    if year <= BIG12_UNTIL:
+        box = box + cached("box_b12", year, lambda: get("/games/teams", year=year, conference="B12", seasonType="both"))
+    games = {g["id"]: norm(g) for g in games}
+    lines = {l["id"]: l for l in lines}
+    tos = {}
+    for bx in box:
+        for side in bx.get("teams", []):
+            st = {x.get("category"): x.get("stat") for x in side.get("stats", [])}
+            if st.get("turnovers") is not None:
+                tos[(bx["id"], side.get("team"))] = int(st["turnovers"])
     for team in TEAMS:
-        games = {g["id"]: norm(g) for g in get("/games", year=year, team=team, seasonType="both")}
-        lines = {l["id"]: l for l in get("/lines", year=year, team=team, seasonType="both")}
-        # per-game box score: turnovers for each side
-        tos = {}
-        for bx in get("/games/teams", year=year, team=team, seasonType="both"):
-            for side in bx.get("teams", []):
-                st = {x.get("category"): x.get("stat") for x in side.get("stats", [])}
-                if st.get("turnovers") is not None:
-                    tos[(bx["id"], side.get("team"))] = int(st["turnovers"])
+        n = 0
         for gid, g in games.items():
-            if g.get("home_points") is None:
+            if team not in (g.get("home_team"), g.get("away_team")) or g.get("home_points") is None:
                 continue
             is_home = g["home_team"] == team
             opp = g["away_team"] if is_home else g["home_team"]
@@ -61,24 +92,25 @@ for year in SEASONS:
                     opening = sign * float(l["spreadOpen"]) if l.get("spreadOpen") is not None else None
                     provider = p
                     break
+            if spread is None:
+                continue          # the page needs an expected margin for every game
             rows.append({
                 "season": year, "week": g.get("week"), "date": g["start_date"][:10],
                 "season_type": g.get("season_type"), "team": team, "opponent": opp,
                 "site": site, "conf_game": "Y" if g.get("conference_game") else "N",
                 "team_pts": tp, "opp_pts": op, "actual_margin": tp - op,
                 "open_spread": opening, "close_spread": spread, "provider": provider,
-                "cover_margin": (tp - op + spread) if spread is not None else None,
+                "cover_margin": tp - op + spread,
                 "post_wp": post_wp, "pre_elo": pre_elo, "opp_pre_elo": opp_pre_elo,
                 "turnovers": team_to, "opp_turnovers": opp_to,
                 "to_margin": (opp_to - team_to) if team_to is not None and opp_to is not None else None,
                 "excitement": g.get("excitement_index"),
             })
-        print(f"{year} {team}: {len(games)} games", flush=True)
-        time.sleep(0.3)
+            n += 1
+        print(f"{year} {team}: {n} games with a spread", flush=True)
 
-out = "sec_games_2021_2025.csv"
-with open(out, "w", newline="") as f:
+out = "sec_games_2016_2025.csv"
+with open(out, "w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
     w.writeheader(); w.writerows(rows)
 print(f"Wrote {len(rows)} rows to {out}")
-
