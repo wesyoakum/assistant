@@ -4,20 +4,26 @@ Build the SEC against-the-spread page.
     python build_cfbanalysis.py      (reads sec_games_2021_2025.csv, writes cfbanalysis.html)
 Rename/copy cfbanalysis.html to public/cfbanalysis/index.html in the web app.
 """
-import pandas as pd, numpy as np, html as H
+import pandas as pd, numpy as np, html as H, math
 d=pd.read_csv('sec_games_2021_2025.csv',encoding='latin-1')
 d['res']=np.where(d.cover_margin>0,'Cover',np.where(d.cover_margin<0,'No Cover','Push'))
 d['fav']=np.where(d.close_spread<0,'Favorite',np.where(d.close_spread>0,'Underdog','Pick'))
 d['move']=d.close_spread-d.open_spread  # negative = line moved toward team (team became bigger fav)
 d['su']=np.where(d.actual_margin>0,'W','L')
+SIG=d.cover_margin.std()  # observed std dev of (actual margin - spread); ~15 points in this data
+d['p']=[0.5*(1+math.erf(-sp/(SIG*math.sqrt(2)))) for sp in d.close_spread]  # spread-implied pre-game win probability
 COLORS={"Alabama":"#9E1B32","Arkansas":"#9D2235","Auburn":"#0C2340","Florida":"#0021A5","Georgia":"#BA0C2F","Kentucky":"#0033A0","LSU":"#461D7C","Mississippi State":"#5D1725","Missouri":"#F1B82D","Oklahoma":"#841617","Ole Miss":"#14213D","South Carolina":"#73000A","Tennessee":"#FF8200","Texas":"#BF5700","Texas A&M":"#500000","Vanderbilt":"#866D4B"}
 TEAMS=sorted(COLORS)
 def slug(t): return t.lower().replace(' ','-').replace('&','')
 def stats(g):
     n=len(g); c=(g.res=='Cover').sum(); nc=(g.res=='No Cover').sum(); p=(g.res=='Push').sum()
+    fv=g[g.fav=='Favorite']; ud=g[g.fav=='Underdog']
     return dict(n=n,c=c,nc=nc,p=p,pct=(c+0.5*p)/n*100 if n else np.nan,cm=g.cover_margin.mean() if n else np.nan,
-                w=(g.su=='W').sum(),l=(g.su=='L').sum())
+                w=(g.su=='W').sum(),l=(g.su=='L').sum(),xw=g.p.sum() if n else np.nan,
+                fw=(fv.su=='W').sum(),fl=(fv.su=='L').sum(),uw=(ud.su=='W').sum(),ul=(ud.su=='L').sum())
 def rec(s): return f"{s['c']}-{s['nc']}-{s['p']}"
+def xrec(s): return f"{s['xw']:.1f}-{s['n']-s['xw']:.1f}"
+def dw(s): return s['w']-s['xw']
 
 # ---------- charts
 def scatter(g,color):
@@ -58,6 +64,29 @@ def strip(g):
             s.append(f'<text x="{x:.1f}" y="{base+50}" class="oppl" text-anchor="middle" transform="rotate(-38 {x:.1f} {base+50})">{H.escape(nm[:16])}</text>')
     s.append('</svg>'); return ''.join(s)
 
+def xwchart(g,color):
+    seasons=sorted(g.season.unique()); W,rh=720,34; L,R=70,170; Hh=rh*len(seasons)+50
+    xmin,xmax=0,15; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Actual versus expected wins by season">']
+    for v in range(0,16,3): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="grid"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v}</text>')
+    for i,yr in enumerate(seasons):
+        y=22+i*rh; st=stats(g[g.season==yr]); a=st['w']; e=st['xw']
+        s.append(f'<text x="{L-10}" y="{y+5}" class="tname" text-anchor="end">{yr}</text>')
+        s.append(f'<line x1="{X(e):.1f}" y1="{y}" x2="{X(a):.1f}" y2="{y}" class="stem"/>')
+        s.append(f'<circle cx="{X(e):.1f}" cy="{y}" r="6" fill="none" stroke="{color}" stroke-width="2.5"><title>{yr} expected: {xrec(st)}</title></circle>')
+        s.append(f'<circle cx="{X(a):.1f}" cy="{y}" r="6" fill="{color}"><title>{yr} actual: {a}-{st["l"]}</title></circle>')
+        s.append(f'<text x="{W-R+14}" y="{y+4}" class="tick">{a}-{st["l"]}, {a-e:+.1f} vs expected</text>')
+    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-0}" class="axis" text-anchor="middle">Wins</text></svg>'); return ''.join(s)
+
+def surprises(g):
+    def row(r):
+        loc={'H':'vs','A':'at','N':'vs (N)'}[r.site]
+        return f"<tr><td>{r.season} {loc} {H.escape(r.opponent)}</td><td>{r.su} {r.team_pts}-{r.opp_pts}</td><td>{r.close_spread:+g}</td><td>{r.p*100:.0f}%</td></tr>"
+    hdr="<tr><th>Game</th><th>Result</th><th>Line</th><th>Win prob.</th></tr>"
+    wins=''.join(row(r) for _,r in g[g.su=='W'].nsmallest(4,'p').iterrows())
+    losses=''.join(row(r) for _,r in g[g.su=='L'].nlargest(4,'p').iterrows())
+    return f"<h3>Unlikeliest wins</h3><div class='wrap'><table>{hdr}{wins}</table></div><h3>Most surprising losses</h3><div class='wrap'><table>{hdr}{losses}</table></div>"
+
 def split_table(g):
     rows=[]
     for lab,sub in [('All games',g),('As favorite',g[g.fav=='Favorite']),('As underdog',g[g.fav=='Underdog']),
@@ -70,6 +99,7 @@ def split_table(g):
 def team_section(t):
     g=d[d.team==t].sort_values('date'); st=stats(g); col=COLORS[t]
     seasons=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{rec(s)}</td><td>{s['pct']:.0f}%</td><td>{s['cm']:+.1f}</td></tr>" for yr,s in ((yr,stats(g[g.season==yr])) for yr in sorted(g.season.unique())))
+    xseasons=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{xrec(s)}</td><td>{dw(s):+.1f}</td><td>{s['fw']}-{s['fl']}</td><td>{s['uw']}-{s['ul']}</td></tr>" for yr,s in ((yr,stats(g[g.season==yr])) for yr in sorted(g.season.unique())))
     mv=g.dropna(subset=['move']); mvtxt=''
     if len(mv)>20:
         toward=mv[mv.move<0]; away=mv[mv.move>0]
@@ -89,6 +119,11 @@ def team_section(t):
 <h2>Splits</h2>
 {split_table(g)}
 {mvtxt}
+<h2>Wins versus expectation</h2>
+<p>Each closing spread implies a win probability; adding those up gives the number of wins the market expected. {H.escape(t)} won {st['w']} of {st['n']} games against an expectation of {st['xw']:.1f}, {abs(dw(st)):.1f} wins {'above' if dw(st)>=0 else 'below'} the market. Filled dot is actual wins, open circle is expected.</p>
+{xwchart(g,col)}
+<div class="wrap"><table><tr><th>Season</th><th>Record</th><th>Expected</th><th>&plusmn;</th><th>As favorite</th><th>As underdog</th></tr>{xseasons}</table></div>
+{surprises(g)}
 </section>'''
 
 # ---------- conference page
@@ -97,6 +132,7 @@ fav={t:stats(d[(d.team==t)&(d.fav=='Favorite')]) for t in TEAMS}
 dog={t:stats(d[(d.team==t)&(d.fav=='Underdog')]) for t in TEAMS}
 mvs={t:d[(d.team==t)].move.mean() for t in TEAMS}
 order=sorted(TEAMS,key=lambda t:tot[t]['cm'],reverse=True)
+xorder=sorted(TEAMS,key=lambda t:dw(tot[t]),reverse=True)
 def dotplot():
     W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50
     xmin,xmax=-4,4; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
@@ -122,6 +158,18 @@ def favdog():
         s.append(f'<circle cx="{X(u):.1f}" cy="{y}" r="6" fill="none" stroke="{COLORS[t]}" stroke-width="2.5"><title>{H.escape(t)} as underdog: {rec(dog[t])} ({u:.0f}%)</title></circle>')
     s.append('</svg>'); return ''.join(s)
 
+def xwplot():
+    W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50; xmin,xmax=-8,8; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Wins above expectation by team">']
+    for v in range(-8,9,2): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
+    for i,t in enumerate(xorder):
+        y=20+i*rh; v=dw(tot[t])
+        s.append(f'<text x="{L-10}" y="{y+5}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
+        s.append(f'<line x1="{X(0):.1f}" y1="{y}" x2="{X(v):.1f}" y2="{y}" class="stem"/>')
+        s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(t)}: {tot[t]["w"]}-{tot[t]["l"]} actual, {xrec(tot[t])} expected</title></circle>')
+        s.append(f'<text x="{X(v)+(12 if v>=0 else -12):.1f}" y="{y+4}" class="tick" text-anchor="{"start" if v>=0 else "end"}">{v:+.1f}</text>')
+    s.append('</svg>'); return ''.join(s)
+
 def heat():
     yrs=[2021,2022,2023,2024,2025]; cw=100; L=150; W=L+cw*5+20; rh=30; Hh=rh*len(TEAMS)+40
     s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Cover rate by team and season">']
@@ -136,14 +184,15 @@ def heat():
     s.append('</svg>'); return ''.join(s)
 
 conf_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{rec(tot[t])}</td><td>{tot[t]['pct']:.0f}%</td><td>{tot[t]['cm']:+.1f}</td><td>{fav[t]['pct']:.0f}%</td><td>{dog[t]['pct']:.0f}%</td><td>{mvs[t]:+.2f}</td></tr>" for t in order)
-allst=stats(d); am=tot['Texas A&M']; rank=order.index('Texas A&M')+1
+allst=stats(d); am=tot['Texas A&M']; rank=order.index('Texas A&M')+1; xrank=xorder.index('Texas A&M')+1
+xw_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{xrec(tot[t])}</td><td>{dw(tot[t]):+.1f}</td><td>{tot[t]['fw']}-{tot[t]['fl']}</td><td>{tot[t]['uw']}-{tot[t]['ul']}</td></tr>" for t in xorder)
 sd=d.groupby('team').cover_margin.mean().std()
 opts=''.join(f'<option value="{slug(t)}">{H.escape(t)}</option>' for t in TEAMS)
 
 conf=f'''<section class="team" id="sec" style="--accent:#1c1a1a">
 <h1>The SEC against the spread</h1>
 <p class="sub">Sixteen current SEC programs, 2021 through 2025: {len(d):,} team-games, every one with a closing line. Texas and Oklahoma's Big 12 seasons are included so each program has the same five-year window.</p>
-<div class="big"><div><b>{allst['pct']:.1f}%</b><span>league-wide cover rate</span></div><div><b>{am['pct']:.0f}%</b><span>Texas A&amp;M cover rate</span></div><div><b>{rank} of 16</b><span>A&amp;M rank by avg cover margin</span></div></div>
+<div class="big"><div><b>{allst['pct']:.1f}%</b><span>league-wide cover rate</span></div><div><b>{am['pct']:.0f}%</b><span>Texas A&amp;M cover rate</span></div><div><b>{rank} of 16</b><span>A&amp;M rank by avg cover margin</span></div><div><b>{dw(am):+.1f}</b><span>A&amp;M wins vs expected, {xrank} of 16</span></div></div>
 <h2>Who the market gets wrong</h2>
 <p>Average cover margin per team. Positive means the program beat its closing number on average; negative means the market was consistently too generous. The spread of the whole league is under {sd*2:.0f} points end to end, so small differences here are mostly noise.</p>
 {dotplot()}
@@ -153,10 +202,14 @@ conf=f'''<section class="team" id="sec" style="--accent:#1c1a1a">
 <h2>Season by season</h2>
 <p>ATS record per team-season. Maroon shading is above 50%, tan is below; deeper color is further from even.</p>
 {heat()}
+<h2>Wins versus expectation</h2>
+<p>Covering is one question; winning is another. Each closing spread implies a pre-game win probability (a normal curve centered on the spread with a {SIG:.0f}-point standard deviation, the observed scatter of outcomes in this data), and summing those over five years gives the wins the market expected. Positive means the program won more often than it was priced to. A team can sit high here while covering rarely if it keeps winning close as a favorite.</p>
+{xwplot()}
+<div class="wrap"><table><tr><th>Team</th><th>Record</th><th>Expected</th><th>&plusmn;</th><th>As favorite</th><th>As underdog</th></tr>{xw_rows}</table></div>
 <h2>All sixteen</h2>
 <p>Line move is the average change from opening to closing spread from the team's perspective; negative means bettors pushed the number further in the team's favor. About half of games have an opening line on file.</p>
 <div class="wrap"><table><tr><th>Team</th><th>SU</th><th>ATS</th><th>Cover %</th><th>Avg cover margin</th><th>As fav</th><th>As dog</th><th>Line move</th></tr>{conf_rows}</table></div>
-<p class="note">Data: CollegeFootballData.com games and lines endpoints, closing spread from consensus or DraftKings where available. Spreads are from the listed team's side, negative = favored. Cover margin = actual margin + spread. Conference games appear once for each side, so league-wide cover margin nets to roughly zero by construction; per-team numbers are unaffected.</p>
+<p class="note">Data: CollegeFootballData.com games and lines endpoints, closing spread from consensus or DraftKings where available. Spreads are from the listed team's side, negative = favored. Cover margin = actual margin + spread. Conference games appear once for each side, so league-wide cover margin nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each closing spread to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them.</p>
 </section>'''
 
 page=f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -177,6 +230,7 @@ select{{font:inherit;font-size:16px;padding:6px 10px;background:var(--panel);col
 select:focus{{outline:2px solid var(--accent,#500000);outline-offset:1px}}
 h1{{font-family:"Barlow Condensed","Arial Narrow",Arial,sans-serif;font-weight:700;font-size:clamp(38px,8vw,64px);line-height:.95;margin:0 0 6px;letter-spacing:-.01em}}
 h2{{font-family:"Barlow Condensed","Arial Narrow",Arial,sans-serif;font-weight:700;font-size:26px;margin:44px 0 4px}}
+h3{{font-family:"Barlow Condensed","Arial Narrow",Arial,sans-serif;font-weight:700;font-size:19px;margin:24px 0 0}}
 .sub{{color:var(--mute);margin:0 0 26px;max-width:60ch}} p{{max-width:64ch}}
 .big{{display:flex;gap:28px;flex-wrap:wrap;margin:10px 0 6px;border-top:2px solid var(--accent);padding-top:12px}}
 .big div{{min-width:120px}} .big b{{font-family:"Barlow Condensed",Arial,sans-serif;font-size:44px;line-height:1;display:block}} .big span{{color:var(--mute);font-size:14px}}
@@ -206,5 +260,6 @@ var init=(h&&document.getElementById(h))?h:'sec';show(init)}})();
 </script></body></html>'''
 open('cfbanalysis.html','w',encoding='utf-8').write(page)
 print(len(page)//1024,'KB'); print(pd.DataFrame({t:tot[t] for t in order}).T[['n','c','nc','p','pct','cm']].round(1).to_string())
+print('sigma',round(SIG,2),'A&M W/xW',tot['Texas A&M']['w'],round(tot['Texas A&M']['xw'],1))
 print('fav/dog A&M',fav['Texas A&M']['pct'],dog['Texas A&M']['pct'],'move',mvs['Texas A&M'])
 
