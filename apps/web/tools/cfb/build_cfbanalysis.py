@@ -4,7 +4,7 @@ Build the SEC against-the-spread page.
     python build_cfbanalysis.py      (reads sec_games_2021_2025.csv, writes cfbanalysis.html)
 Rename/copy cfbanalysis.html to public/cfbanalysis/index.html in the web app.
 """
-import pandas as pd, numpy as np, html as H, math
+import pandas as pd, numpy as np, html as H, math, os
 d=pd.read_csv('sec_games_2021_2025.csv',encoding='latin-1')
 d['res']=np.where(d.cover_margin>0,'Cover',np.where(d.cover_margin<0,'No Cover','Push'))
 d['fav']=np.where(d.close_spread<0,'Favorite',np.where(d.close_spread>0,'Underdog','Pick'))
@@ -12,6 +12,19 @@ d['move']=d.close_spread-d.open_spread  # negative = line moved toward team (tea
 d['su']=np.where(d.actual_margin>0,'W','L')
 SIG=d.cover_margin.std()  # observed std dev of (actual margin - spread); ~15 points in this data
 d['p']=[0.5*(1+math.erf(-sp/(SIG*math.sqrt(2)))) for sp in d.close_spread]  # spread-implied pre-game win probability
+for c in ['post_wp','to_margin','pre_elo']:
+    if c not in d: d[c]=np.nan
+d['sow']=d.post_wp.fillna(d.p)   # deserved-win credit per game: CFBD postgame win probability, spread-implied p where CFBD has none
+d['onescore']=d.actual_margin.abs()<=8
+SFILE='sec_seasons_2021_2025.csv'; HAS_S=os.path.exists(SFILE)
+S=pd.read_csv(SFILE) if HAS_S else pd.DataFrame(columns=['season','team'])
+def srow(t,yr):
+    r=S[(S.team==t)&(S.season==yr)]
+    return r.iloc[0] if len(r) else pd.Series(dtype=float)
+def fr(v,fmt='{:.0f}',dash='–'):
+    try:
+        return dash if v is None or pd.isna(v) else fmt.format(v)
+    except Exception: return dash
 COLORS={"Alabama":"#9E1B32","Arkansas":"#9D2235","Auburn":"#0C2340","Florida":"#0021A5","Georgia":"#BA0C2F","Kentucky":"#0033A0","LSU":"#461D7C","Mississippi State":"#5D1725","Missouri":"#F1B82D","Oklahoma":"#841617","Ole Miss":"#14213D","South Carolina":"#73000A","Tennessee":"#FF8200","Texas":"#BF5700","Texas A&M":"#500000","Vanderbilt":"#866D4B"}
 TEAMS=sorted(COLORS)
 def slug(t): return t.lower().replace(' ','-').replace('&','')
@@ -20,10 +33,15 @@ def stats(g):
     fv=g[g.fav=='Favorite']; ud=g[g.fav=='Underdog']
     return dict(n=n,c=c,nc=nc,p=p,pct=(c+0.5*p)/n*100 if n else np.nan,cm=g.cover_margin.mean() if n else np.nan,
                 w=(g.su=='W').sum(),l=(g.su=='L').sum(),xw=g.p.sum() if n else np.nan,
-                fw=(fv.su=='W').sum(),fl=(fv.su=='L').sum(),uw=(ud.su=='W').sum(),ul=(ud.su=='L').sum())
+                fw=(fv.su=='W').sum(),fl=(fv.su=='L').sum(),uw=(ud.su=='W').sum(),ul=(ud.su=='L').sum(),
+                sow=g.sow.sum() if n else np.nan,wp_missing=g.post_wp.isna().sum(),
+                osw=((g.onescore)&(g.su=='W')).sum(),osl=((g.onescore)&(g.su=='L')).sum(),
+                tom=g.to_margin.sum() if g.to_margin.notna().any() else np.nan)
 def rec(s): return f"{s['c']}-{s['nc']}-{s['p']}"
 def xrec(s): return f"{s['xw']:.1f}-{s['n']-s['xw']:.1f}"
-def dw(s): return s['w']-s['xw']
+def dw(s): return round(s['w']-s['xw'],1)+0.0
+def luck(s): return round(s['w']-s['sow'],1)+0.0
+def mgap(s): return round(s['xw']-s['sow'],1)+0.0
 
 # ---------- charts
 def scatter(g,color):
@@ -74,9 +92,46 @@ def xwchart(g,color):
         s.append(f'<text x="{L-10}" y="{y+5}" class="tname" text-anchor="end">{yr}</text>')
         s.append(f'<line x1="{X(e):.1f}" y1="{y}" x2="{X(a):.1f}" y2="{y}" class="stem"/>')
         s.append(f'<circle cx="{X(e):.1f}" cy="{y}" r="6" fill="none" stroke="{color}" stroke-width="2.5"><title>{yr} expected: {xrec(st)}</title></circle>')
+        sw=st['sow']; s.append(f'<rect x="{X(sw)-5:.1f}" y="{y-5}" width="10" height="10" fill="{color}" opacity=".45"><title>{yr} deserved (second-order wins): {sw:.1f}</title></rect>')
         s.append(f'<circle cx="{X(a):.1f}" cy="{y}" r="6" fill="{color}"><title>{yr} actual: {a}-{st["l"]}</title></circle>')
-        s.append(f'<text x="{W-R+14}" y="{y+4}" class="tick">{a}-{st["l"]}, {a-e:+.1f} vs expected</text>')
+        s.append(f'<text x="{W-R+14}" y="{y+4}" class="tick">{a}-{st["l"]}, {round(a-e,1)+0.0:+.1f} vs market, {round(a-sw,1)+0.0:+.1f} vs play</text>')
     s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-0}" class="axis" text-anchor="middle">Wins</text></svg>'); return ''.join(s)
+
+def rankchart(t):
+    ss=S[S.team==t].sort_values('season'); yrs=list(ss.season); W,Hh=720,300; L,R,T,B=56,20,20,40; YM=60
+    X=lambda i:L+(i+0.5)/len(yrs)*(W-L-R); Y=lambda r:T+(min(r,YM)-1)/(YM-1)*(Hh-T-B)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="National rank by season: talent, SP+, preseason AP">']
+    for r in [1,10,20,30,40,50,60]: s.append(f'<line x1="{L}" y1="{Y(r):.1f}" x2="{W-R}" y2="{Y(r):.1f}" class="grid"/><text x="{L-8}" y="{Y(r)+4:.1f}" class="tick" text-anchor="end">{"60+" if r==60 else r}</text>')
+    for i,yr in enumerate(yrs): s.append(f'<text x="{X(i):.1f}" y="{Hh-B+20}" class="tick" text-anchor="middle">{yr}</text>')
+    s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">National rank</text>')
+    for col,lab,stroke,dash in [('talent_rank','Talent composite','var(--accent)',''),('sp_rank','SP+','var(--ink)',''),('ap_pre','Preseason AP','var(--push)','6 4')]:
+        if col not in ss: continue
+        pts=[(i,v) for i,v in enumerate(ss[col]) if pd.notna(v)]
+        runs=[];
+        for i,v in pts:
+            if runs and runs[-1][-1][0]==i-1: runs[-1].append((i,v))
+            else: runs.append([(i,v)])
+        for run in runs:
+            if len(run)>1: s.append(f'<polyline points="{" ".join(f"{X(i):.1f},{Y(v):.1f}" for i,v in run)}" fill="none" stroke="{stroke}" stroke-width="2" stroke-dasharray="{dash}"/>')
+        for i,v in pts: s.append(f'<circle cx="{X(i):.1f}" cy="{Y(v):.1f}" r="5" fill="{stroke}"><title>{yrs[i]} {lab}: No. {v:.0f}</title></circle>')
+    s.append('</svg>'); return ''.join(s)
+
+def ctx_table(t,g):
+    rows=[]
+    for yr in sorted(g.season.unique()):
+        st=stats(g[g.season==yr]); r=srow(t,yr)
+        rows.append(f"<tr><td>{yr}</td><td>{fr(r.get('talent_rank'))}</td><td>{fr(r.get('recruit_rank'))}</td><td>{fr(r.get('ap_pre'))}</td><td>{fr(r.get('sp_rank'))}</td><td>{fr(r.get('sp_off_rank'))}</td><td>{fr(r.get('sp_def_rank'))}</td><td>{st['w']}-{st['l']}</td><td>{st['sow']:.1f}</td><td>{st['xw']:.1f}</td><td>{st['osw']}-{st['osl']}</td><td>{fr(st['tom'],'{:+.0f}')}</td></tr>")
+    return "<div class='wrap'><table><tr><th>Season</th><th>Talent</th><th>Recruiting</th><th>Pre AP</th><th>SP+</th><th>Off</th><th>Def</th><th>Record</th><th>Deserved W</th><th>Market W</th><th>One-score</th><th>TO margin</th></tr>"+''.join(rows)+"</table></div>"
+
+def verdict(t,g,st):
+    ss=S[S.team==t]; tal=ss.talent_rank.mean() if 'talent_rank' in ss and ss.talent_rank.notna().any() else np.nan
+    sp=ss.sp_rank.mean() if 'sp_rank' in ss and ss.sp_rank.notna().any() else np.nan
+    out=[]
+    if pd.notna(tal) and pd.notna(sp):
+        gap=tal-sp; out.append(f"Over five seasons {H.escape(t)} carried the No. {tal:.0f} roster by talent on average and finished No. {sp:.0f} in SP+, so it played {'above' if gap>0 else 'below'} its talent by about {abs(gap):.0f} spots.")
+    lk=luck(st); mg=mgap(st)
+    out.append(f"Its play deserved about {st['sow']:.1f} wins. It won {st['w']} ({lk:+.1f}, {'overperformed' if lk>=0 else 'underperformed'}) and the market priced it for {st['xw']:.1f} ({mg:+.1f}, {'overrated' if mg>=0 else 'underrated'} by the closing lines). One-score games: {st['osw']}-{st['osl']}.")
+    return '<p>'+' '.join(out)+'</p>'
 
 def surprises(g):
     def row(r):
@@ -120,10 +175,16 @@ def team_section(t):
 {split_table(g)}
 {mvtxt}
 <h2>Wins versus expectation</h2>
-<p>Each closing spread implies a win probability; adding those up gives the number of wins the market expected. {H.escape(t)} won {st['w']} of {st['n']} games against an expectation of {st['xw']:.1f}, {abs(dw(st)):.1f} wins {'above' if dw(st)>=0 else 'below'} the market. Filled dot is actual wins, open circle is expected.</p>
+<p>Each closing spread implies a win probability; adding those up gives the number of wins the market expected. {H.escape(t)} won {st['w']} of {st['n']} games against an expectation of {st['xw']:.1f}, {abs(dw(st)):.1f} wins {'above' if dw(st)>=0 else 'below'} the market. Filled dot is actual wins, open circle is what the market expected, and the square is what the play deserved (second-order wins: each game's postgame win probability, summed).</p>
 {xwchart(g,col)}
 <div class="wrap"><table><tr><th>Season</th><th>Record</th><th>Expected</th><th>&plusmn;</th><th>As favorite</th><th>As underdog</th></tr>{xseasons}</table></div>
 {surprises(g)}
+<h2>Talent, quality, and luck</h2>
+<p>Three ways to rank a team: the roster it recruited (247 talent composite), how well it actually played (SP+), and what the polls expected in August. A team whose SP+ line sits below its talent line is getting more out of its players than the recruiting rankings promised; above it, less.</p>
+{rankchart(t) if HAS_S else ''}
+<div class="key"><span><i style="background:var(--accent)"></i>Talent composite</span><span><i style="background:var(--ink)"></i>SP+ (quality of play)</span><span><i style="background:var(--push)"></i>Preseason AP (blank = unranked)</span></div>
+{verdict(t,g,st)}
+{ctx_table(t,g)}
 </section>'''
 
 # ---------- conference page
@@ -133,6 +194,12 @@ dog={t:stats(d[(d.team==t)&(d.fav=='Underdog')]) for t in TEAMS}
 mvs={t:d[(d.team==t)].move.mean() for t in TEAMS}
 order=sorted(TEAMS,key=lambda t:tot[t]['cm'],reverse=True)
 xorder=sorted(TEAMS,key=lambda t:dw(tot[t]),reverse=True)
+tal={t:(S[S.team==t].talent_rank.mean() if HAS_S and 'talent_rank' in S else np.nan) for t in TEAMS}
+spr={t:(S[S.team==t].sp_rank.mean() if HAS_S and 'sp_rank' in S else np.nan) for t in TEAMS}
+dev={t:(tal[t]-spr[t] if pd.notna(tal[t]) and pd.notna(spr[t]) else 0) for t in TEAMS}
+dorder=sorted(TEAMS,key=lambda t:dev[t],reverse=True)
+morder=sorted(TEAMS,key=lambda t:mgap(tot[t]),reverse=True)
+ctx_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{fr(tal[t])}</td><td>{fr(spr[t])}</td><td>{fr(dev[t],'{:+.0f}')}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{tot[t]['sow']:.1f}</td><td>{tot[t]['xw']:.1f}</td><td>{luck(tot[t]):+.1f}</td><td>{mgap(tot[t]):+.1f}</td></tr>" for t in morder)
 def dotplot():
     W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50
     xmin,xmax=-4,4; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
@@ -168,6 +235,37 @@ def xwplot():
         s.append(f'<line x1="{X(0):.1f}" y1="{y}" x2="{X(v):.1f}" y2="{y}" class="stem"/>')
         s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(t)}: {tot[t]["w"]}-{tot[t]["l"]} actual, {xrec(tot[t])} expected</title></circle>')
         s.append(f'<text x="{X(v)+(12 if v>=0 else -12):.1f}" y="{y+4}" class="tick" text-anchor="{"start" if v>=0 else "end"}">{v:+.1f}</text>')
+    s.append('</svg>'); return ''.join(s)
+
+def quad():
+    W,Hh=720,540; L,R,T,B=56,20,24,48
+    pts={t:(luck(tot[t]),mgap(tot[t])) for t in TEAMS}
+    m=max(6,math.ceil(max(max(abs(x),abs(y)) for x,y in pts.values())+0.5))
+    X=lambda v:L+(v+m)/(2*m)*(W-L-R); Y=lambda v:T+(m-v)/(2*m)*(Hh-T-B)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Overrated versus underrated and overperforming versus underperforming">']
+    step=2 if m<=8 else 4
+    for v in range(-m,m+1,step):
+        s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{v:+d}</text>')
+        s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="{"zero" if v==0 else "grid"}"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{v:+d}</text>')
+    for x,y,a,txt in [(L+8,T+14,'start','Overrated, underperformed'),(W-R-8,T+14,'end','Overrated, overperformed'),(L+8,Hh-B-8,'start','Underrated, underperformed'),(W-R-8,Hh-B-8,'end','Underrated, overperformed')]:
+        s.append(f'<text x="{x}" y="{y}" class="lbl faint" text-anchor="{a}">{txt}</text>')
+    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Actual wins minus deserved wins (overperformed to the right)</text>')
+    s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Market-expected minus deserved wins (overrated is up)</text>')
+    for t in sorted(TEAMS,key=lambda t:pts[t][1]):
+        x,y=pts[t]; s.append(f'<circle cx="{X(x):.1f}" cy="{Y(y):.1f}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(t)}: won {tot[t]["w"]}, deserved {tot[t]["sow"]:.1f}, market expected {tot[t]["xw"]:.1f}</title></circle>')
+        s.append(f'<text x="{X(x)+10:.1f}" y="{Y(y)+4:.1f}" class="tname{" hi" if t=="Texas A&M" else ""}" style="font-size:12px">{H.escape(t)}</text>')
+    s.append('</svg>'); return ''.join(s)
+
+def devplot():
+    W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50; m=30; X=lambda v:L+(v+m)/(2*m)*(W-L-R)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Talent rank minus SP+ rank by team">']
+    for v in range(-m,m+1,10): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
+    for i,t in enumerate(dorder):
+        y=20+i*rh; v=max(-m,min(m,dev[t]))
+        s.append(f'<text x="{L-10}" y="{y+5}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
+        s.append(f'<line x1="{X(0):.1f}" y1="{y}" x2="{X(v):.1f}" y2="{y}" class="stem"/>')
+        s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(t)}: avg talent rank {tal[t]:.0f}, avg SP+ rank {spr[t]:.0f}</title></circle>')
+        s.append(f'<text x="{X(v)+(12 if v>=0 else -12):.1f}" y="{y+4}" class="tick" text-anchor="{"start" if v>=0 else "end"}">{dev[t]:+.0f}</text>')
     s.append('</svg>'); return ''.join(s)
 
 def heat():
@@ -206,10 +304,17 @@ conf=f'''<section class="team" id="sec" style="--accent:#1c1a1a">
 <p>Covering is one question; winning is another. Each closing spread implies a pre-game win probability (a normal curve centered on the spread with a {SIG:.0f}-point standard deviation, the observed scatter of outcomes in this data), and summing those over five years gives the wins the market expected. Positive means the program won more often than it was priced to. A team can sit high here while covering rarely if it keeps winning close as a favorite.</p>
 {xwplot()}
 <div class="wrap"><table><tr><th>Team</th><th>Record</th><th>Expected</th><th>&plusmn;</th><th>As favorite</th><th>As underdog</th></tr>{xw_rows}</table></div>
+<h2>Overrated, underrated, lucky, unlucky</h2>
+<p>Spread results alone cannot tell an overrated team from an unlucky one. This separates them with a third number: deserved wins, the sum of each game's postgame win probability (CFBD's play-by-play estimate of how often a team playing that way wins that game). Up and down is what the market expected minus what the play deserved: up is overrated. Left and right is actual wins minus deserved wins: right is overperforming, usually close games and turnover luck.</p>
+{quad()}
+<h2>Playing above or below the roster</h2>
+<p>Average talent-composite rank minus average SP+ rank across the five seasons. Positive means the program has played better than its recruiting rankings would predict; negative means the roster has been better than the results. Ranks are among all FBS programs.</p>
+{devplot() if HAS_S else ''}
+<div class="wrap"><table><tr><th>Team</th><th>Talent rk</th><th>SP+ rk</th><th>Talent&minus;SP+</th><th>Record</th><th>Deserved</th><th>Market</th><th>Luck</th><th>Market gap</th></tr>{ctx_rows}</table></div>
 <h2>All sixteen</h2>
 <p>Line move is the average change from opening to closing spread from the team's perspective; negative means bettors pushed the number further in the team's favor. About half of games have an opening line on file.</p>
 <div class="wrap"><table><tr><th>Team</th><th>SU</th><th>ATS</th><th>Cover %</th><th>Avg cover margin</th><th>As fav</th><th>As dog</th><th>Line move</th></tr>{conf_rows}</table></div>
-<p class="note">Data: CollegeFootballData.com games and lines endpoints, closing spread from consensus or DraftKings where available. Spreads are from the listed team's side, negative = favored. Cover margin = actual margin + spread. Conference games appear once for each side, so league-wide cover margin nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each closing spread to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them.</p>
+<p class="note">Data: CollegeFootballData.com games and lines endpoints, closing spread from consensus or DraftKings where available. Spreads are from the listed team's side, negative = favored. Cover margin = actual margin + spread. Conference games appear once for each side, so league-wide cover margin nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each closing spread to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them. Deserved wins sum CFBD's postgame win probability per game; where CFBD has no play-by-play for a game ({int(d.post_wp.isna().sum())} of {len(d)}), the spread-implied probability stands in. Talent composite, recruiting ranks, SP+, and AP polls are CFBD's season tables.</p>
 </section>'''
 
 page=f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -260,6 +365,7 @@ var init=(h&&document.getElementById(h))?h:'sec';show(init)}})();
 </script></body></html>'''
 open('cfbanalysis.html','w',encoding='utf-8').write(page)
 print(len(page)//1024,'KB'); print(pd.DataFrame({t:tot[t] for t in order}).T[['n','c','nc','p','pct','cm']].round(1).to_string())
+print('season file:',HAS_S,'post_wp missing:',int(d.post_wp.isna().sum()),'to_margin missing:',int(d.to_margin.isna().sum()))
 print('sigma',round(SIG,2),'A&M W/xW',tot['Texas A&M']['w'],round(tot['Texas A&M']['xw'],1))
 print('fav/dog A&M',fav['Texas A&M']['pct'],dog['Texas A&M']['pct'],'move',mvs['Texas A&M'])
 
