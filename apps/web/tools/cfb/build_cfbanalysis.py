@@ -11,7 +11,8 @@ import pandas as pd, numpy as np, html as H, math, os, shutil
 GAMES='sec_games_2016_2025.csv' if os.path.exists('sec_games_2016_2025.csv') else 'sec_games_2021_2025.csv'
 SFILE='sec_seasons_2016_2025.csv' if os.path.exists('sec_seasons_2016_2025.csv') else 'sec_seasons_2021_2025.csv'
 EXCLUDE={2020}; BASE='/cfbanalysis/'
-d=pd.read_csv(GAMES,encoding='latin-1')
+try: d=pd.read_csv(GAMES,encoding='utf-8')
+except UnicodeDecodeError: d=pd.read_csv(GAMES,encoding='latin-1')
 d=d[~d.season.isin(EXCLUDE)].copy()
 d['res']=np.where(d.cover_margin>0,'Cover',np.where(d.cover_margin<0,'No Cover','Push'))
 d['fav']=np.where(d.close_spread<0,'Favorite',np.where(d.close_spread>0,'Underdog','Pick'))
@@ -251,23 +252,27 @@ def _yr_ext(ys,f,hi=True):
 
 def take_expect(t,st,ys):
     T=H.escape(t); mg=mgap(st); xw=st['xw']; sw=st['sow']; se=st['se_mg']
-    if mg>=1.5:
-        yr,v=_yr_ext(ys,mgap); body=f"The public kept expecting more of {T} than the play delivered: {xw:.1f} wins expected against {sw:.1f} deserved over {NSEAS} seasons. The widest gap was {yr}, {ys[yr]['xw']:.1f} expected against {ys[yr]['sow']:.1f} deserved. On this evidence the expectations were too optimistic."
-    elif mg<=-1.5:
-        yr,v=_yr_ext(ys,mgap,hi=False); body=f"The public kept expecting less of {T} than the play delivered: {xw:.1f} wins expected against {sw:.1f} deserved. The widest gap was {yr}, {ys[yr]['sow']:.1f} deserved against {ys[yr]['xw']:.1f} expected. The expectations were too pessimistic."
+    z=abs(mg)/se if se else 0
+    if mg>0:
+        yr,v=_yr_ext(ys,mgap); body=f"The public expected more of {T} than the play delivered: {xw:.1f} wins expected against {sw:.1f} deserved over {NSEAS} seasons. The widest gap was {yr}, {ys[yr]['xw']:.1f} expected against {ys[yr]['sow']:.1f} deserved."
+        body+=(" On this evidence the expectations were too optimistic." if z>=2 else " The expectations were probably too optimistic, though the gap is not far outside the noise." if z>=1 else " The gap is inside the noise, so call the expectations about right.")
+    elif mg<0:
+        yr,v=_yr_ext(ys,mgap,hi=False); body=f"The public expected less of {T} than the play delivered: {xw:.1f} wins expected against {sw:.1f} deserved. The widest gap was {yr}, {ys[yr]['sow']:.1f} deserved against {ys[yr]['xw']:.1f} expected."
+        body+=(" The expectations were too pessimistic." if z>=2 else " The expectations were probably too pessimistic, though the gap is not far outside the noise." if z>=1 else " The gap is inside the noise, so call the expectations about right.")
     else:
-        body=f"Expectations for {T} have matched the play: {xw:.1f} wins expected, {sw:.1f} deserved. The expectations were about right."
+        body=f"Expectations for {T} have matched the play exactly: {xw:.1f} wins expected, {sw:.1f} deserved."
     return take(body,f"One standard error on this gap is about &plusmn;{se:.1f} wins over {st['n']} games, so {mg:+.1f} is {sig(mg,se)}.")
 
 def take_luck(t,st,ys):
     T=H.escape(t); lk=luck(st); w=st['w']; sw=st['sow']; tom=fr(st['tom'],'{:+.0f}'); se=st['se_lk']
     by,bv=_yr_ext(ys,luck); wy,wv=_yr_ext(ys,luck,hi=False)
-    if abs(lk)<1.5:
+    z=abs(lk)/se if se else 0
+    if z<1:
         body=f"Luck is not the story. {T} won {w} games against {sw:.1f} deserved over {NSEAS} seasons. The swing seasons roughly cancel, {by} ({bv:+.1f}) against {wy} ({wv:+.1f}). One-score games went {st['osw']}-{st['osl']} and the turnover margin was {tom}."
-    elif lk<=-1.5:
-        body=f"{T} won {w} games against {sw:.1f} deserved, {abs(lk):.1f} wins short, with a {st['osw']}-{st['osl']} record in one-score games and a turnover margin of {tom}. {wy} was the worst of it ({wv:+.1f})."
+    elif lk<0:
+        body=f"{T} won {w} games against {sw:.1f} deserved, {abs(lk):.1f} wins short{'' if z>=2 else ', a gap only a little outside the noise'}, with a {st['osw']}-{st['osl']} record in one-score games and a turnover margin of {tom}. {wy} was the worst of it ({wv:+.1f})."
     else:
-        body=f"The bounces have gone {T}'s way: {w} wins against {sw:.1f} deserved, {lk:.1f} to the good, with a {st['osw']}-{st['osl']} record in one-score games and a turnover margin of {tom}. {by} was the best of it ({bv:+.1f})."
+        body=f"The bounces have gone {T}'s way: {w} wins against {sw:.1f} deserved, {lk:.1f} to the good{'' if z>=2 else ', a gap only a little outside the noise'}, with a {st['osw']}-{st['osl']} record in one-score games and a turnover margin of {tom}. {by} was the best of it ({bv:+.1f})."
     return take(body,f"One standard error on luck is about &plusmn;{se:.1f} wins over {NSEAS} seasons, so {lk:+.1f} is {sig(lk,se)}. Luck needs far more than {st['n']} games to measure; anything under about {2*se:.0f} wins here cannot be told from nothing.")
 
 def take_roster(t,st):
@@ -528,10 +533,10 @@ def first_year_split():
 FY=first_year_split()
 
 def _axis(st):
-    mg=mgap(st); lk=luck(st)
-    a='overrated' if mg>=1.5 else 'underrated' if mg<=-1.5 else 'expected about right'
-    b='unlucky' if lk<=-1.5 else 'lucky' if lk>=1.5 else 'neither lucky nor unlucky'
-    return f"{a} and {b}"
+    mg=mgap(st); lk=luck(st); zm=abs(mg)/st['se_mg']; zl=abs(lk)/st['se_lk']
+    a=('overrated' if mg>0 else 'underrated') if zm>=2 else ('leaning overrated' if mg>0 else 'leaning underrated') if zm>=1 else 'expected about right'
+    b=('lucky' if lk>0 else 'unlucky') if zl>=2 else ('a little lucky' if lk>0 else 'a little unlucky') if zl>=1 else 'neither lucky nor unlucky'
+    return f"{a}, {b}"
 def _names(ts): return ', '.join(H.escape(t) for t in ts) if ts else 'no team'
 def take_quad():
     mo,mu,lo,lu=morder[0],morder[-1],lorder[0],lorder[-1]; a=tot['Texas A&M']
