@@ -17,6 +17,14 @@ EXCLUDE={2020}; BASE='/cfbanalysis/'+('' if WKEY=='all' else WKEY+'/')
 try: d=pd.read_csv(GAMES,encoding='utf-8')
 except UnicodeDecodeError: d=pd.read_csv(GAMES,encoding='latin-1')
 S_ALL=pd.read_csv(SFILE) if os.path.exists(SFILE) else pd.DataFrame(columns=['season','team','coach','coach_first_year'])
+PFILE='sec_players_2016_2025.csv'; HAS_P=os.path.exists(PFILE)
+if HAS_P:
+    _P=pd.read_csv(PFILE); S_ALL=S_ALL.merge(_P,on=['team','season'],how='left')
+for _c in ['draft_rank','draft_capital','draft_picks','draft_r1','played','played_off','played_def','roster_top44','played_gap','rating_coverage']:
+    if _c not in S_ALL: S_ALL[_c]=np.nan
+def stars(r):
+    """247 composite rating -> star-equivalent label"""
+    return '–' if pd.isna(r) else ('five-star' if r>=0.98 else 'high four-star' if r>=0.94 else 'four-star' if r>=0.90 else 'high three-star' if r>=0.86 else 'three-star' if r>=0.80 else 'two-star')
 CUR_FIRST={}
 for _t,_g in S_ALL.groupby('team'):
     _last=_g.sort_values('season').iloc[-1]; CUR_FIRST[_t]=int(_last.coach_first_year) if pd.notna(_last.get('coach_first_year',np.nan)) else -1
@@ -136,6 +144,12 @@ def enrich(x):
     x['recruit']=(x['tal_in']-x['tal_later']) if pd.notna(x['tal_in']) and pd.notna(x['tal_later']) else np.nan   # + = roster got better
     x['turn']=(x['sp_in']-x['sp_out']) if pd.notna(x['sp_in']) and pd.notna(x['sp_out']) else np.nan            # + = program got better
     n=len(x['yrs']); x['n']=n; x['dev_se']=11/math.sqrt(n); x['dw_ps']=dw(x['st'])/n; x['lk_ps']=luck(x['st'])/n
+    own_in=S[(S.team==t)&(S.coach==x['coach'])&(S.coach_first_year==f)]
+    x['drk']=own_in.draft_rank.mean() if 'draft_rank' in own_in and own_in.draft_rank.notna().any() else np.nan
+    late_=own_in[own_in.coach_tenure_year>=3]
+    x['drk3']=late_.draft_rank.mean() if len(late_) and late_.draft_rank.notna().any() else np.nan
+    x['conv3']=(late_.talent_rank.mean()-x['drk3']) if pd.notna(x['drk3']) else np.nan   # raw; shown against CONV_FIELD
+    x['pgap']=own_in.played_gap.mean() if 'played_gap' in own_in and own_in.played_gap.notna().any() else np.nan
     x['label']=f"{x['last']} ({short(t)})"; x['hi']=(t=='Texas A&M')
     return x
 TEN={t:[enrich(x) for x in tenures_for(t)] for t in ALLTEAMS}
@@ -213,7 +227,7 @@ def rankchart(t):
     for r in [1,10,20,30,40,50,60]: s.append(f'<line x1="{L}" y1="{Y(r):.1f}" x2="{W-R}" y2="{Y(r):.1f}" class="grid"/><text x="{L-8}" y="{Y(r)+4:.1f}" class="tick" text-anchor="end">{"60+" if r==60 else r}</text>')
     for i,yr in enumerate(yrs): s.append(f'<text x="{X(i):.1f}" y="{Hh-B+20}" class="tick" text-anchor="middle">{yr}</text>')
     s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">National rank</text>')
-    for col,lab,stroke,dash in [('talent_rank','Talent composite','var(--accent)',''),('sp_rank','SP+','var(--ink)',''),('ap_pre','Preseason AP','var(--push)','6 4')]:
+    for col,lab,stroke,dash in [('talent_rank','Talent composite','var(--accent)',''),('sp_rank','SP+','var(--ink)',''),('draft_rank','Draft capital (next spring)','var(--nocover)','2 3'),('ap_pre','Preseason AP','var(--push)','6 4')]:
         if col not in ss: continue
         pts_=[(i,v) for i,v in enumerate(ss[col]) if pd.notna(v)]
         rr=[]
@@ -275,7 +289,7 @@ def coach_table(tens,show_team=False):
     return "<div class='wrap'><table><tr><th>Coach</th><th>Seasons here</th><th>#</th><th>Record</th><th>Expected</th><th>Deserved</th><th>Won vs expected</th><th>Won vs deserved</th><th>Expected vs deserved</th><th>Talent rk</th><th>SP+ rk</th><th>Talent&minus;SP+</th></tr>"+''.join(rows)+"</table></div>"
 
 # ---------- text
-GLOSS='<details class="gloss"><summary>Terms used on this page</summary><dl><dt>Expected margin</dt><dd>How many points the team was expected to win or lose by, according to the point spread the sportsbooks posted just before kickoff. It sums up what oddsmakers, bettors, and the public expected, with money behind it, so this page uses it as the measure of expectations. A week-earlier version (the opening number) also exists; when the two differ, opinion moved during the week.</dd><dt>Expected wins</dt><dd>Each game\'s expected margin converted to a chance of winning, then added up. The record the public thought was coming.</dd><dt>Deserved wins</dt><dd>Each game\'s postgame win probability, from CollegeFootballData\'s play-by-play model, added up. How many games a team that played that way usually wins. The gap between actual and deserved wins is what most people call luck.</dd><dt>SP+</dt><dd>Bill Connelly\'s efficiency rating of how well a team actually played, adjusted for opponent. Used here as the measure of quality, separate from the record.</dd><dt>Talent composite</dt><dd>247Sports\' rating of the whole roster\'s recruiting pedigree. Used here as the measure of what the players were supposed to be.</dd><dt>Beat expectations (by)</dt><dd>Won by more than the expected margin, or lost by less. "Beat by" is the actual margin minus the expected margin: +7 means seven points better than expected. A bettor would say the team covered.</dd><dt>One-score game</dt><dd>Decided by eight points or fewer.</dd><dt>Head coach, tenure year</dt><dd>The head coach who worked the most games that season, and how many seasons into his run at the school it was, counting seasons before this page\'s window and the 2020 season.</dd><dt>Standard error</dt><dd>The size of gap that random variation alone produces about a third of the time. A number within one standard error is noise. Beyond two, it is probably real. Each takeaway has a "How sure is this?" note that says which.</dd></dl></details>'
+GLOSS='<details class="gloss"><summary>Terms used on this page</summary><dl><dt>Expected margin</dt><dd>How many points the team was expected to win or lose by, according to the point spread the sportsbooks posted just before kickoff. It sums up what oddsmakers, bettors, and the public expected, with money behind it, so this page uses it as the measure of expectations. A week-earlier version (the opening number) also exists; when the two differ, opinion moved during the week.</dd><dt>Expected wins</dt><dd>Each game\'s expected margin converted to a chance of winning, then added up. The record the public thought was coming.</dd><dt>Deserved wins</dt><dd>Each game\'s postgame win probability, from CollegeFootballData\'s play-by-play model, added up. How many games a team that played that way usually wins. The gap between actual and deserved wins is what most people call luck.</dd><dt>SP+</dt><dd>Bill Connelly\'s efficiency rating of how well a team actually played, adjusted for opponent. Used here as the measure of quality, separate from the record.</dd><dt>Talent composite</dt><dd>247Sports\' rating of the whole roster\'s recruiting pedigree. Used here as the measure of what the players were supposed to be.</dd><dt>Beat expectations (by)</dt><dd>Won by more than the expected margin, or lost by less. "Beat by" is the actual margin minus the expected margin: +7 means seven points better than expected. A bettor would say the team covered.</dd><dt>One-score game</dt><dd>Decided by eight points or fewer.</dd><dt>Draft capital, draft rank</dt><dd>NFL draft picks produced in the draft after the season, weighted 5 for round one, 3 for round two, 2 for round three and 1 after that, ranked nationally. Every pick credits the player\'s final college season. It is the outside world\'s verdict on how good the players who played actually were.</dd><dt>Who played</dt><dd>The average 247 recruiting rating of the players who took the snaps: offensive skill players weighted by their share of the team\'s plays, defenders by tackles and other involvements, and the five highest-rated linemen presumed to have played because box scores do not record linemen. Compared with the roster\'s top 44 to show whether the best-rated players were the ones on the field.</dd><dt>Head coach, tenure year</dt><dd>The head coach who worked the most games that season, and how many seasons into his run at the school it was, counting seasons before this page\'s window and the 2020 season.</dd><dt>Standard error</dt><dd>The size of gap that random variation alone produces about a third of the time. A number within one standard error is noise. Beyond two, it is probably real. Each takeaway has a "How sure is this?" note that says which.</dd></dl></details>'
 
 def intro_team(t,st):
     T=H.escape(t); v=dw(st)
@@ -335,6 +349,25 @@ def take_roster(t,st):
     body+=f" The comparison that matters is the peer group: the average gap across {'the SEC' if LGN=='SEC' else 'all the programs on this site'} is {LG_DEV:+.0f} spots, because the talent composite rates elite rosters higher than they play, so {judge}"
     return take(body,f"{ns(t)} seasons of rank averages carry roughly &plusmn;{rk_se(ns(t)):.0f} spots of noise; single-season gaps of 20 or more spots are well outside it. The peer comparison is the fair one, since the talent composite is generous to every roster here.")
 
+def take_pros(t,st):
+    T=H.escape(t); ss=S[S.team==t]
+    if not HAS_P or not len(ss) or ss.draft_rank.isna().all(): return ''
+    tal=ss.talent_rank.mean(); dr=ss.draft_rank.mean(); conv=tal-dr; picks=int(ss.draft_picks.fillna(0).sum()); r1=int(ss.draft_r1.fillna(0).sum())
+    best=ss.loc[ss.draft_capital.idxmax()] if ss.draft_capital.notna().any() else None
+    pl=ss.played.mean(); ro=ss.roster_top44.mean(); gapv=ss.played_gap.mean(); cov=ss.rating_coverage.mean()
+    body=f"By what the NFL took, the roster ranked No. {dr:.0f} on average against No. {tal:.0f} by recruiting pedigree: {picks} players drafted over {len(ss)} seasons, {r1} in the first round"+(f", most from the {int(best.season)} team ({int(best.draft_picks)} picks)" if best is not None and best.draft_picks>0 else "")+". "
+    relc=conv-CONV_FIELD
+    body+=(f"Allowing for the field average of {CONV_FIELD:+.0f} (elite recruiting ranks are hard to match in a national draft ranking), the recruits became pros beyond their rankings ({relc:+.0f} against the field)." if relc>=8 else
+           f"Allowing for the field average of {CONV_FIELD:+.0f}, the recruits became pros at a lower rate than their rankings promised ({relc:+.0f} against the field)." if relc<=-8 else
+           f"Against a field average of {CONV_FIELD:+.0f} that is typical: the recruits became pros about as their rankings promised, by the standards of the programs here.")
+    if pd.notna(pl):
+        body+=f" The players who actually took the snaps rated {pl:.3f} on the 247 scale ({stars(pl)}), against {ro:.3f} for the roster's top 44. "
+        relp=gapv-PGAP_FIELD
+        body+=(f"The best-rated players were on the field more than at most programs here ({relp*1000:+.0f} thousandths against the field average)." if relp>=0.004 else
+               f"Lower-rated players than the roster's best got the snaps more than at most programs here ({relp*1000:+.0f} thousandths against the field average): either the top recruits did not win jobs or the ratings were wrong about who could play." if relp<=-0.004 else
+               "That gap is typical of the programs here; the players on the field rate a little below the roster's best everywhere, from attrition, injuries and freshmen who are not ready.")
+    return take(body,f"Draft rank is the national rank of round-weighted draft picks (5 for round 1, 3, 2, then 1) in the draft after each season, so it credits every pick to the player's final season. One standard error on a {len(ss)}-season rank average is about &plusmn;{rk_se(len(ss)):.0f} spots. \"Who played\" weights offensive skill players by season usage share (5% of plays or more counts in full), defenders by tackles plus sacks, tackles for loss, passes defended and interceptions (15 or more counts in full), and presumes the five highest-rated linemen played because the box score cannot see linemen. Ratings were known for {cov*100:.0f}% of that weight; the rest, mostly walk-ons, are filled in at the roster's lowest-quartile rating.")
+
 def take_coaches(t):
     T=H.escape(t); tens=[x for x in TEN[t] if len(x['yrs'])>=2 and pd.notna(gap(x))]
     if not TEN[t]: return ''
@@ -373,6 +406,11 @@ def bottom(t,st,g):
            f'The roster has outplayed its rankings by {peer} standards ({dv:+.0f} spots against {art} {peer} average of {LG_DEV:+.0f})' if rel>=5 else
            f'The roster-to-play gap ({dv:+.0f} spots) is the {peer} norm ({LG_DEV:+.0f}); the talent rankings flatter every elite roster, not just {T}')
     else: r='No roster data'
+    pr=''
+    if HAS_P and len(ss) and ss.draft_rank.notna().any():
+        conv=ss.talent_rank.mean()-ss.draft_rank.mean(); relc=conv-CONV_FIELD
+        if relc>=8: pr=f' The recruits became pros beyond their rankings ({conv:+.0f} spots against a field average of {CONV_FIELD:+.0f}).'
+        elif relc<=-8: pr=f' The recruits became pros at a lower rate than their rankings promised ({conv:+.0f} spots against a field average of {CONV_FIELD:+.0f}).'
     diff,se,th=trend(g); tr=''; wd,sew=wtrend(th)
     if pd.notna(diff) and abs(diff)>=2*se: tr=f" Late-season form has been {'better' if diff>0 else 'worse'} than early-season form by {abs(diff):.0f} points a game, and that is outside the noise."
     elif pd.notna(wd) and abs(wd)>=2*sew: tr=f" Late in seasons {T} has {'won' if wd>0 else 'lost'} more than expected relative to its early-season results, by {abs(wd):.1f} wins, and that is outside the noise even though the margins are not."
@@ -380,7 +418,7 @@ def bottom(t,st,g):
     if len(tens)>=2:
         b=max(tens,key=gap); w=min(tens,key=gap)
         if gap(b)-gap(w)>=10: ct=f" By coach, the roster-to-play gap ran from {gap(b):+.0f} under {H.escape(b['last'])} to {gap(w):+.0f} under {H.escape(w['last'])}."
-    return f'<div class="take bottom"><p><b>Bottom line:</b> {e}. {l}. {r}.{ct}{tr}</p></div>'
+    return f'<div class="take bottom"><p><b>Bottom line:</b> {e}. {l}. {r}.{pr}{ct}{tr}</p></div>'
 
 def team_section(t):
     g=d[d.team==t].sort_values('date'); st=stats(g); col=COLORS[t]
@@ -393,7 +431,7 @@ def team_section(t):
         return f' ({int(v)})' if pd.notna(v) else ''
     t1=''.join(f"<tr><td>{yr}</td><td class=mute>{cl(yr)}</td><td>{s['w']}-{s['l']}</td><td>{xrec(s)}</td><td>{s['sow']:.1f}-{s['n']-s['sow']:.1f}</td><td>{dw(s):+.1f}</td><td>{luck(s):+.1f}</td><td>{s['fw']}-{s['fl']}</td><td>{s['uw']}-{s['ul']}</td></tr>" for yr,s in ys.items())
     t2=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{s['osw']}-{s['osl']}</td><td>{fr(s['tom'],'{:+.0f}')}</td><td>{luck(s):+.1f}</td></tr>" for yr,s in ys.items())
-    t3=''.join(f"<tr><td>{yr}</td><td class=mute>{cl(yr)}{cty(yr)}</td><td>{fr(r.get('talent_rank'))}</td><td>{fr(r.get('recruit_rank'))}</td><td>{fr(r.get('ap_pre'))}</td><td>{fr(r.get('sp_rank'))}</td><td>{fr(r.get('sp_off_rank'))}</td><td>{fr(r.get('sp_def_rank'))}</td><td>{ys[yr]['w']}-{ys[yr]['l']}</td></tr>" for yr in yrs for r in [srow(t,yr)])
+    t3=''.join(f"<tr><td>{yr}</td><td class=mute>{cl(yr)}{cty(yr)}</td><td>{fr(r.get('talent_rank'))}</td><td>{fr(r.get('recruit_rank'))}</td><td>{fr(r.get('ap_pre'))}</td><td>{fr(r.get('sp_rank'))}</td><td>{fr(r.get('sp_off_rank'))}</td><td>{fr(r.get('sp_def_rank'))}</td><td>{fr(r.get('draft_rank'))} <span class=mute>({fr(r.get('draft_picks'))}{(' / '+fr(r.get('draft_r1'))+' R1') if fr(r.get('draft_r1'))!='–' and r.get('draft_r1',0)>0 else ''})</span></td><td>{fr(r.get('played'),'{:.3f}')} <span class=mute>{stars(r.get('played'))}</span></td><td>{fr(r.get('played_gap'),'{:+.3f}')}</td><td>{ys[yr]['w']}-{ys[yr]['l']}</td></tr>" for yr in yrs for r in [srow(t,yr)])
     t4=''.join(f"<tr><td>{yr}</td><td>{s['w']}-{s['l']}</td><td>{rec(s)}</td><td>{s['pct']:.0f}%</td><td>{s['cm']:+.1f}</td></tr>" for yr,s in ys.items())
     mv=g.dropna(subset=['move']); mvtxt=''
     if len(mv)>20:
@@ -427,9 +465,10 @@ def team_section(t):
 <h2>3. Was it the roster?</h2>
 <p>Three national rankings side by side: the roster's recruiting pedigree (247Sports talent composite), how well the team actually played (SP+), and where the preseason AP poll had it. Lower is better. When the play line sits below the talent line, the roster gave less than its rankings promised. Above it, more. Shaded bands mark head-coaching eras.</p>
 {rankchart(t) if HAS_S else ''}
-<div class="key"><span><i style="background:var(--accent)"></i>Talent composite</span><span><i style="background:var(--ink)"></i>SP+ (quality of play)</span><span><i style="background:var(--push)"></i>Preseason AP (blank = unranked)</span></div>
-<div class="wrap"><table><tr><th>Season</th><th>Coach (year)</th><th>Talent</th><th>Recruiting class</th><th>Preseason AP</th><th>SP+</th><th>Offense</th><th>Defense</th><th>Record</th></tr>{t3}</table></div>
+<div class="key"><span><i style="background:var(--accent)"></i>Talent composite</span><span><i style="background:var(--ink)"></i>SP+ (quality of play)</span><span><i style="background:var(--nocover)"></i>Draft capital produced (next spring's draft)</span><span><i style="background:var(--push)"></i>Preseason AP (blank = unranked)</span></div>
+<div class="wrap"><table><tr><th>Season</th><th>Coach (year)</th><th>Talent</th><th>Recruiting class</th><th>Preseason AP</th><th>SP+</th><th>Offense</th><th>Defense</th><th>Draft rk (picks)</th><th>Who played</th><th>vs roster</th><th>Record</th></tr>{t3}</table></div>
 {take_roster(t,st)}
+{take_pros(t,st)}
 {coach_block}
 <h2>4. Does it change as the season goes on?</h2>
 <p>Each faint line is one season, game by game: how many points {H.escape(t)} beat expectations by, or fell short. The heavy line is the {ns(t)}-season average for that game of the year. The table pools the seasons into early, middle, and late stretches. The expected margin already moves week to week as opinion changes, so a pattern here says the public was slow to adjust, in one direction or the other.</p>
@@ -460,6 +499,12 @@ tal={t:(S[S.team==t].talent_rank.mean() if HAS_S and 'talent_rank' in S else np.
 spr={t:(S[S.team==t].sp_rank.mean() if HAS_S and 'sp_rank' in S else np.nan) for t in ALLTEAMS}
 dev={t:(tal[t]-spr[t] if pd.notna(tal[t]) and pd.notna(spr[t]) else 0) for t in ALLTEAMS}
 DEV_SEC=float(np.mean([dev[t] for t in SEC])); DEV_ALL=float(np.mean([dev[t] for t in ALLTEAMS]))
+drk={t:(S[S.team==t].draft_rank.mean() if HAS_P else np.nan) for t in ALLTEAMS}
+conv={t:(tal[t]-drk[t] if pd.notna(tal[t]) and pd.notna(drk[t]) else np.nan) for t in ALLTEAMS}
+played={t:(S[S.team==t].played.mean() if HAS_P else np.nan) for t in ALLTEAMS}
+pgap={t:(S[S.team==t].played_gap.mean() if HAS_P else np.nan) for t in ALLTEAMS}
+CONV_FIELD=float(np.nanmean([conv[t] for t in ALLTEAMS])) if HAS_P else 0.0
+PGAP_FIELD=float(np.nanmean([pgap[t] for t in ALLTEAMS])) if HAS_P else 0.0
 tot={t:stats(d[d.team==t]) for t in ALLTEAMS}
 fav={t:stats(d[(d.team==t)&(d.fav=='Favorite')]) for t in ALLTEAMS}
 dog={t:stats(d[(d.team==t)&(d.fav=='Underdog')]) for t in ALLTEAMS}
@@ -481,7 +526,7 @@ def build_league(KEY,TITLE,SUB,INTRO,TL):
     morder=sorted(TEAMS,key=lambda t:mgap(tot[t]),reverse=True)
     lorder=sorted(TEAMS,key=lambda t:luck(tot[t]),reverse=True)
     torder=sorted(TEAMS,key=lambda t:trd[t][0],reverse=True)
-    ctx_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{fr(tal[t])}</td><td>{fr(spr[t])}</td><td>{fr(dev[t],'{:+.0f}')}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{tot[t]['sow']:.1f}</td><td>{tot[t]['xw']:.1f}</td><td>{luck(tot[t]):+.1f}</td><td>{mgap(tot[t]):+.1f}</td></tr>" for t in morder)
+    ctx_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{fr(tal[t])}</td><td>{fr(spr[t])}</td><td>{fr(dev[t],'{:+.0f}')}</td><td>{fr(drk[t])}</td><td>{fr(conv[t],'{:+.0f}')}</td><td>{fr(played[t],'{:.3f}')}</td><td>{fr(pgap[t],'{:+.3f}')}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{tot[t]['sow']:.1f}</td><td>{tot[t]['xw']:.1f}</td><td>{luck(tot[t]):+.1f}</td><td>{mgap(tot[t]):+.1f}</td></tr>" for t in morder)
 
     def lollipop(keys,val,label,xr,step,fmt='{:+.1f}',aria=''):
         W,rh=720,30; L,R=150,30; Hh=rh*len(keys)+50; xmin,xmax=xr; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
@@ -608,6 +653,25 @@ def build_league(KEY,TITLE,SUB,INTRO,TL):
         return take(f'The {"league" if KEY=="sec" else "field"} average is {LG_DEV:+.0f} spots: the talent composite rates elite rosters higher than they play, so the fair baseline is the peer group, not zero. '
                     f'Clearly above that baseline: {_names(pos)}. Clearly below it: {_names(neg)}. Texas A&amp;M at {a:+.0f} is {"even with" if abs(a-LG_DEV)<1 else f"{a-LG_DEV:+.0f} against"} the {"league" if KEY=="sec" else "field"} average, {"typical of the group" if abs(a-LG_DEV)<5 else "outside the pack"}.',
                     f'{NSEAS} seasons of rank averages carry roughly &plusmn;{RK_SE:.0f} spots of noise, so gaps inside that are not worth arguing about. Gaps of 15 or more against the league average are well outside it.')
+    def convplot(): return lollipop(sorted(TEAMS,key=lambda t:(conv[t] if pd.notna(conv[t]) else -99),reverse=True),lambda t:((conv[t]-CONV_FIELD) if pd.notna(conv[t]) else 0),lambda t:f"{t}: talent rank {tal[t]:.0f}, draft rank {drk[t]:.0f} ({conv[t]:+.0f}; field average {CONV_FIELD:+.0f})",(-30,30),10,'{:+.0f}',aria='Talent rank minus draft rank, against the field average, by team')
+    def pgapplot(): return lollipop(sorted(TEAMS,key=lambda t:(pgap[t] if pd.notna(pgap[t]) else -9),reverse=True),lambda t:(((pgap[t]-PGAP_FIELD) if pd.notna(pgap[t]) else 0)*1000),lambda t:f"{t}: who played {played[t]:.3f}, roster top 44 {played[t]-pgap[t]:.3f} ({pgap[t]*1000:+.0f} thousandths; field average {PGAP_FIELD*1000:+.0f})",(-12,12),4,'{:+.0f}',aria='Who played minus roster rating, against the field average, in thousandths, by team')
+    def take_pros_lg():
+        ok=[t for t in TEAMS if pd.notna(conv[t])]
+        if not ok: return ''
+        up=sorted(ok,key=lambda t:-conv[t])[:3]; dn=sorted(ok,key=lambda t:conv[t])[:3]; a='Texas A&M'
+        pk=[t for t in TEAMS if pd.notna(pgap[t])]; pu=sorted(pk,key=lambda t:-pgap[t])[:3]; pdn=sorted(pk,key=lambda t:pgap[t])[:3]
+        nm=lambda ts,f:', '.join(f"{H.escape(t)} ({f(t)})" for t in ts)
+        body=(f"Both numbers are shown against the field average, because a national draft ranking and a top-44 roster average are both stricter than a talent rank: every program here comes out negative in raw terms. Recruits who became pros beyond their rankings, relative to the field: {nm(up,lambda t:f'{conv[t]-CONV_FIELD:+.0f}')}. Recruits who fell furthest short: {nm(dn,lambda t:f'{conv[t]-CONV_FIELD:+.0f}')}. Texas A&amp;M is {conv[a]-CONV_FIELD:+.0f}. "
+              f"On who actually played, the programs where the best-rated players took the snaps most: {nm(pu,lambda t:f'{(pgap[t]-PGAP_FIELD)*1000:+.0f}')}; where lower-rated players got the snaps most: {nm(pdn,lambda t:f'{(pgap[t]-PGAP_FIELD)*1000:+.0f}')}. Texas A&amp;M is {(pgap[a]-PGAP_FIELD)*1000:+.0f}, with the players on the field rating {played[a]:.3f} ({stars(played[a])}).")
+        return take(body,f"Draft rank is a national rank of round-weighted picks in the draft after each season. One standard error on a {NSEAS}-season rank average is about &plusmn;{RK_SE:.0f} spots, and draft output lags recruiting by two to four years, so a coach's first seasons show his predecessor's recruits. \"Who played\" is on the 247 rating scale, where 0.01 is roughly the gap between a four-star and a high four-star; it weights offensive skill players by usage share and defenders by tackles, presumes the five best-rated linemen played, and compares only the programs on this site.")
+    def pros_section():
+        if not HAS_P: return ''
+        return f'''<h2>What the recruits became</h2>
+    <p>Two checks on the recruiting rankings, each shown against the field average. First: talent rank minus draft rank, where draft rank is a national ranking of round-weighted NFL draft picks produced in the draft after each season. Right of the line means the recruits turned into more pro talent than their rankings promised, by the standards of the programs here. Second: the rating of the players who actually took the snaps minus the roster's top-44 rating, in thousandths of a 247 point. Left of the line means lower-rated players than the roster's best were on the field more than usual.</p>
+    {convplot()}
+    {pgapplot()}
+    {take_pros_lg()}'''
+
     def take_coach_lg():
         tens=[x for x in LONG if len(x['yrs'])>=3 and pd.notna(gap(x))]
         if len(tens)<4: return ''
@@ -655,8 +719,9 @@ def build_league(KEY,TITLE,SUB,INTRO,TL):
     <h2>Playing above or below the roster</h2>
     <p>Average talent-composite rank minus average SP+ rank {OVER}. Positive means the program has played better than its recruiting rankings would predict; negative means the roster has been better than the play. Ranks are among all FBS programs.</p>
     {devplot() if HAS_S else ''}
-    <div class="wrap"><table><tr><th>Team</th><th>Talent rank</th><th>SP+ rank</th><th>Talent&minus;SP+</th><th>Record</th><th>Deserved</th><th>Expected</th><th>Won vs deserved</th><th>Expected vs deserved</th></tr>{ctx_rows}</table></div>
+    <div class="wrap"><table><tr><th>Team</th><th>Talent rank</th><th>SP+ rank</th><th>Talent&minus;SP+</th><th>Draft rank</th><th>Talent&minus;draft</th><th>Who played</th><th>vs roster</th><th>Record</th><th>Deserved</th><th>Expected</th><th>Won vs deserved</th><th>Expected vs deserved</th></tr>{ctx_rows}</table></div>
     {take_dev()}
+    {pros_section()}
     {coach_section}
     <h2>Wins versus expectation</h2>
     <p>Actual wins minus the wins the public expected, {SEASW} totals. Positive means the program won more often than expected. This mixes the first two questions together; the quadrant chart above pulls them apart.</p>
@@ -735,12 +800,31 @@ def coach_turn():
         s.append(f'<text x="{X(max(a,b))+9:.1f}" y="{y+4}" class="tick">{x["turn"]:+.0f}</text>')
     s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-0}" class="axis" text-anchor="middle">SP+ national rank (best at left)</text></svg>'); return ''.join(s)
 
+def coach_conv():
+    ks=sorted([x for x in CT if pd.notna(x['conv3'])],key=lambda x:x['conv3'],reverse=True); W,rh=720,26; L,R=170,30; Hh=rh*len(ks)+50; m=40; X=lambda v:L+(v+m)/(2*m)*(W-L-R)
+    if not ks: return ''
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Talent rank minus draft rank from the coach\'s third season on, against the field average">']
+    for v in range(-m,m+1,10): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
+    for i,x in enumerate(ks):
+        y=18+i*rh; v=max(-m,min(m,x['conv3']-CONV_FIELD))
+        s.append(f'<text x="{L-10}" y="{y+4}" class="tname{" hi" if x["hi"] else ""}" style="font-size:12px" text-anchor="end">{H.escape(x["label"])}</text>')
+        s.append(f'<line x1="{X(0):.1f}" y1="{y}" x2="{X(v):.1f}" y2="{y}" class="stem"/>')
+        s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="5.5" fill="{COLORS[x["team"]]}"><title>{H.escape(x["coach"])}, {H.escape(x["team"])}: from year 3, draft rank {x["drk3"]:.0f}; {x["conv3"]-CONV_FIELD:+.0f} against the field average</title></circle>')
+        s.append(f'<text x="{X(v)+(10 if v>=0 else -10):.1f}" y="{y+4}" class="tick" text-anchor="{"start" if v>=0 else "end"}">{x["conv3"]-CONV_FIELD:+.0f}</text>')
+    s.append('</svg>'); return ''.join(s)
+def take_coach_conv():
+    ks=[x for x in CT if pd.notna(x['conv3'])]
+    if len(ks)<4: return ''
+    up=sorted(ks,key=lambda x:-x['conv3'])[:3]; dn=sorted(ks,key=lambda x:x['conv3'])[:3]
+    nm=lambda xs:', '.join(f"{H.escape(x['last'])} ({short(x['team'])}, {x['conv3']-CONV_FIELD:+.0f})" for x in xs)
+    return take(f"Counting only seasons from a coach's third year, when the roster is mostly his, and measured against the field average of {CONV_FIELD:+.0f}: recruits who became pros beyond their rankings under {nm(up)}; recruits who fell short of them under {nm(dn)}. This is the coach's development record as the NFL saw it, independent of wins.",
+                "Draft picks credit a player's final season, so even from year three some picks are inherited recruits. Rank averages over two or three seasons carry about &plusmn;7 spots. Programs that recruit at the very top cannot show a large positive number because there is no rank above No. 1.")
 def coach_full_table():
     rows=[]
     for x in sorted(CT,key=gap,reverse=True):
         st=x['st']; yrs=x['yrs']
-        rows.append(f"<tr{' class=hi' if x['hi'] else ''}><td>{H.escape(x['coach'])} <span class=mute>{H.escape(x['team'])}</span></td><td>{yrs[0]}–{yrs[-1]}{' <span class=mute>(since '+str(x['first'])+')</span>' if x['first']<yrs[0] else ''}</td><td>{x['n']}</td><td>{st['w']}-{st['l']}</td><td>{fr(x['tal'])}</td><td>{fr(x['sp'])}</td><td>{fr(gap(x),'{:+.0f}')} <span class=mute>&plusmn;{x['dev_se']:.0f}</span></td><td>{fr(x['tal_in'])}&rarr;{fr(x['tal_later'])}{'<span class=mute>*</span>' if x['tal_short'] else ''}</td><td>{fr(x['sp_in'])}&rarr;{fr(x['sp_out'])}</td><td>{x['dw_ps']:+.1f}</td><td>{x['lk_ps']:+.1f}</td></tr>")
-    return "<div class='wrap'><table><tr><th>Coach</th><th>Seasons</th><th>#</th><th>Record</th><th>Talent rk</th><th>SP+ rk</th><th>Play above roster</th><th>Roster: inherited&rarr;later</th><th>SP+: inherited&rarr;left</th><th>Won vs expected, per season</th><th>Won vs deserved, per season</th></tr>"+''.join(rows)+"</table></div>"
+        rows.append(f"<tr{' class=hi' if x['hi'] else ''}><td>{H.escape(x['coach'])} <span class=mute>{H.escape(x['team'])}</span></td><td>{yrs[0]}–{yrs[-1]}{' <span class=mute>(since '+str(x['first'])+')</span>' if x['first']<yrs[0] else ''}</td><td>{x['n']}</td><td>{st['w']}-{st['l']}</td><td>{fr(x['tal'])}</td><td>{fr(x['sp'])}</td><td>{fr(gap(x),'{:+.0f}')} <span class=mute>&plusmn;{x['dev_se']:.0f}</span></td><td>{fr(x['tal_in'])}&rarr;{fr(x['tal_later'])}{'<span class=mute>*</span>' if x['tal_short'] else ''}</td><td>{fr(x['sp_in'])}&rarr;{fr(x['sp_out'])}</td><td>{fr(x['drk3'])} <span class=mute>({fr((x['conv3']-CONV_FIELD) if pd.notna(x['conv3']) else np.nan,'{:+.0f}')})</span></td><td>{fr(x['pgap'],'{:+.3f}')}</td><td>{x['dw_ps']:+.1f}</td><td>{x['lk_ps']:+.1f}</td></tr>")
+    return "<div class='wrap'><table><tr><th>Coach</th><th>Seasons</th><th>#</th><th>Record</th><th>Talent rk</th><th>SP+ rk</th><th>Play above roster</th><th>Roster: inherited&rarr;later</th><th>SP+: inherited&rarr;left</th><th>Draft rk from yr 3 (vs field)</th><th>Who played vs roster</th><th>Won vs expected, per season</th><th>Won vs deserved, per season</th></tr>"+''.join(rows)+"</table></div>"
 
 def _cl(x): return f"{H.escape(x['coach'])} at {H.escape(x['team'])}"
 def take_coach_quad():
@@ -764,7 +848,7 @@ def coach_bottom():
     if not am: return ''
     parts=[]
     for x in sorted(am,key=lambda x:x['yrs'][0]):
-        parts.append(f"{H.escape(x['coach'])} ({x['yrs'][0]}–{x['yrs'][-1]}): roster No. {x['tal']:.0f}, play No. {x['sp']:.0f}, {gap(x):+.0f} vs roster ({gap(x)-DEV_FIELD:+.0f} vs the field); "+(f"roster No. {x['tal_in']:.0f} inherited to No. {x['tal_later']:.0f}{' over a short tenure' if x['tal_short'] else ' from year 3'}; " if pd.notna(x['recruit']) else "")+(f"program SP+ No. {x['sp_in']:.0f} inherited to No. {x['sp_out']:.0f}; " if pd.notna(x['turn']) else "")+f"{x['dw_ps']:+.1f} wins a season against expectations")
+        parts.append(f"{H.escape(x['coach'])} ({x['yrs'][0]}–{x['yrs'][-1]}): roster No. {x['tal']:.0f}, play No. {x['sp']:.0f}, {gap(x):+.0f} vs roster ({gap(x)-DEV_FIELD:+.0f} vs the field); "+(f"draft rank No. {x['drk']:.0f} ({x['tal']-x['drk']-CONV_FIELD:+.0f} vs talent, against the field); " if pd.notna(x['drk']) else "")+(f"who played vs roster {x['pgap']:+.3f}; " if pd.notna(x['pgap']) else "")+(f"roster No. {x['tal_in']:.0f} inherited to No. {x['tal_later']:.0f}{' over a short tenure' if x['tal_short'] else ' from year 3'}; " if pd.notna(x['recruit']) else "")+(f"program SP+ No. {x['sp_in']:.0f} inherited to No. {x['sp_out']:.0f}; " if pd.notna(x['turn']) else "")+f"{x['dw_ps']:+.1f} wins a season against expectations")
     return f'<div class="take bottom"><p><b>Bottom line for Texas A&amp;M:</b> {". ".join(parts)}.</p></div>'
 
 coaches_page=f'''<section class="team" id="coaches" style="--accent:{MAROON}">
@@ -784,6 +868,10 @@ coaches_page=f'''<section class="team" id="coaches" style="--accent:{MAROON}">
 <p>Where the program stood in SP+ in the two seasons before the coach arrived (open circle) and in his last two seasons, or latest two if he is still there (filled dot). Best is to the left. Sorted by improvement.</p>
 {coach_turn()}
 {take_coach_turn()}
+<h2>What the recruits became</h2>
+<p>Talent rank minus draft rank, counting only seasons from the coach's third year on and shown against the field average. Positive means the players he coached were drafted beyond what their recruiting rankings promised, by the standards of the programs here.</p>
+{coach_conv()}
+{take_coach_conv()}
 <h2>All tenures</h2>
 <p>Sorted by play above roster. An asterisk on roster improvement means the tenure never reached a third season, so the whole tenure stands in for "later".</p>
 {coach_full_table()}
