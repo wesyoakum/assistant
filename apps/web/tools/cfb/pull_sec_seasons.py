@@ -15,9 +15,13 @@ if not KEY:
 BASE = "https://api.collegefootballdata.com"
 H = {"Authorization": f"Bearer {KEY}"}
 SEASONS = range(2016, 2026)
-TEAMS = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
-         "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
-         "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
+SEC = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
+       "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
+       "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
+EXTRA = ["Ohio State", "Indiana", "Michigan", "Clemson", "Notre Dame"]
+TEAMS = SEC + EXTRA
+REFETCH = {max(SEASONS)}
+CACHE = "cache"; os.makedirs(CACHE, exist_ok=True)
 
 def get(path, optional=False, **params):
     err = None
@@ -34,6 +38,15 @@ def get(path, optional=False, **params):
         print(f"  warn: {path} {params} -> {err}; leaving blank", flush=True)
         return []
     sys.exit(f"Request failed: {path} {params} -> {err}")
+
+def cached(name, year, fetch):
+    """Load cache/<name>_<year>.json, or fetch and store it (the latest season is always refetched)."""
+    import json
+    f = os.path.join(CACHE, f"{name}_{year}.json")
+    if year not in REFETCH and os.path.exists(f):
+        return json.load(open(f, encoding="utf-8"))
+    data = fetch(); json.dump(data, open(f, "w", encoding="utf-8")); time.sleep(0.3)
+    return data
 
 def team_of(r):
     return r.get("team") or r.get("school")
@@ -67,7 +80,7 @@ for year in SEASONS:
         rows[(year, t)] = {"season": year, "team": t}
     R = lambda t: rows[(year, t)]
 
-    for r in get("/ratings/sp", year=year):
+    for r in cached("sp", year, lambda: get("/ratings/sp", year=year)):
         t = team_of(r)
         if (year, t) in rows:
             o, d = r.get("offense") or {}, r.get("defense") or {}
@@ -75,14 +88,14 @@ for year in SEASONS:
                         sp_off_rank=o.get("ranking"), sp_def_rank=d.get("ranking"))
     time.sleep(0.3)
 
-    for r in get("/ratings/fpi", year=year, optional=True):
+    for r in cached("fpi", year, lambda: get("/ratings/fpi", year=year, optional=True)):
         t = team_of(r)
         if (year, t) in rows:
             rr = r.get("resumeRanks") or {}
             R(t).update(fpi=r.get("fpi"), fpi_rank=rr.get("fpi"), fpi_sor_rank=rr.get("strengthOfRecord"))
     time.sleep(0.3)
 
-    tal = get("/talent", year=year, optional=True)
+    tal = cached("talent", year, lambda: get("/talent", year=year, optional=True))
     trank = ranks(tal, "talent")
     for r in tal:
         t = team_of(r)
@@ -90,25 +103,25 @@ for year in SEASONS:
             R(t).update(talent=r.get("talent"), talent_rank=trank.get(t))
     time.sleep(0.3)
 
-    for r in get("/recruiting/teams", year=year, optional=True):
+    for r in cached("recruit", year, lambda: get("/recruiting/teams", year=year, optional=True)):
         t = team_of(r)
         if (year, t) in rows:
             R(t).update(recruit_rank=r.get("rank"), recruit_points=r.get("points"))
     time.sleep(0.3)
 
-    pre = ap(get("/rankings", year=year, seasonType="regular", week=1, optional=True))
-    fin = ap(get("/rankings", year=year, seasonType="postseason", optional=True))
+    pre = ap(cached("ap_pre", year, lambda: get("/rankings", year=year, seasonType="regular", week=1, optional=True)))
+    fin = ap(cached("ap_final", year, lambda: get("/rankings", year=year, seasonType="postseason", optional=True)))
     for t in TEAMS:
         R(t).update(ap_pre=pre.get(t), ap_final=fin.get(t))
     time.sleep(0.3)
 
-    for r in get("/player/returning", year=year, optional=True):
+    for r in cached("returning", year, lambda: get("/player/returning", year=year, optional=True)):
         t = team_of(r)
         if (year, t) in rows:
             R(t).update(ret_ppa_pct=r.get("percentPPA"), ret_usage_pct=r.get("usage"))
     time.sleep(0.3)
 
-    for r in get("/stats/season/advanced", year=year, excludeGarbageTime="true", optional=True):
+    for r in cached("advanced", year, lambda: get("/stats/season/advanced", year=year, excludeGarbageTime="true", optional=True)):
         t = team_of(r)
         if (year, t) in rows:
             o, d = r.get("offense") or {}, r.get("defense") or {}
@@ -120,7 +133,7 @@ for year in SEASONS:
 # ---- head coaches: one call per school, all years, so tenure counts seasons before the window (and 2020)
 for t in TEAMS:
     seasons = []   # (year, coach, games)
-    for c in get("/coaches", team=t, optional=True):
+    for c in cached(f"coaches_{t.lower().replace(' ', '_')}", 0, lambda: get("/coaches", team=t, optional=True)):
         name = f"{c.get('firstName','')} {c.get('lastName','')}".strip()
         for sn in c.get("seasons", []):
             if sn.get("school") == t and sn.get("year") is not None:
