@@ -51,13 +51,18 @@ def srow(t,yr):
     return r.iloc[0] if len(r) else pd.Series(dtype=float)
 def fr(v,fmt='{:.0f}',dash='–'):
     try:
-        return dash if v is None or pd.isna(v) else fmt.format(v)
+        if v is None or pd.isna(v): return dash
+        if '.0f' in fmt: v=round(float(v))+0.0
+        return fmt.format(v)
     except Exception: return dash
 def xmtxt(sp):
     """plain-English expected margin from the team's spread"""
     return 'even' if sp==0 else (f'expected to win by {-sp:g}' if sp<0 else f'expected to lose by {sp:g}')
-COLORS={"Alabama":"#9E1B32","Arkansas":"#9D2235","Auburn":"#0C2340","Florida":"#0021A5","Georgia":"#BA0C2F","Kentucky":"#0033A0","LSU":"#461D7C","Mississippi State":"#5D1725","Missouri":"#F1B82D","Oklahoma":"#841617","Ole Miss":"#14213D","South Carolina":"#73000A","Tennessee":"#FF8200","Texas":"#BF5700","Texas A&M":"#500000","Vanderbilt":"#866D4B"}
-TEAMS=sorted(COLORS); MAROON='#500000'
+COLORS={"Alabama":"#9E1B32","Arkansas":"#9D2235","Auburn":"#0C2340","Florida":"#0021A5","Georgia":"#BA0C2F","Kentucky":"#0033A0","LSU":"#461D7C","Mississippi State":"#5D1725","Missouri":"#F1B82D","Oklahoma":"#841617","Ole Miss":"#14213D","South Carolina":"#73000A","Tennessee":"#FF8200","Texas":"#BF5700","Texas A&M":"#500000","Vanderbilt":"#866D4B",
+        "Ohio State":"#BB0000","Indiana":"#990000","Michigan":"#00274C","Clemson":"#F56600","Notre Dame":"#0C2340"}
+SEC=sorted(["Alabama","Arkansas","Auburn","Florida","Georgia","Kentucky","LSU","Mississippi State","Missouri","Oklahoma","Ole Miss","South Carolina","Tennessee","Texas","Texas A&M","Vanderbilt"])
+EXTRA=sorted([t for t in COLORS if t not in SEC and t in set(d.team)])
+ALLTEAMS=SEC+EXTRA; TEAMS=ALLTEAMS; MAROON='#500000'
 def slug(t): return t.lower().replace(' ','-').replace('&','')
 def stats(g):
     n=len(g); c=(g.res=='Cover').sum(); nc=(g.res=='No Cover').sum(); p=(g.res=='Push').sum()
@@ -99,8 +104,8 @@ def tenures_for(t):
         out.append(dict(team=t,coach=coach,last=coach.split()[-1],first=int(first),yrs=yrs,st=stats(g),
                         tal=grp.talent_rank.mean(),sp=grp.sp_rank.mean()))
     out.sort(key=lambda x:x['yrs'][0]); return out
-TEN={t:tenures_for(t) for t in TEAMS}
-ALLTEN=[x for t in TEAMS for x in TEN[t]]
+TEN={t:tenures_for(t) for t in ALLTEAMS}
+ALLTEN=[x for t in ALLTEAMS for x in TEN[t]]
 def gap(x): return (x['tal']-x['sp']) if pd.notna(x['tal']) and pd.notna(x['sp']) else np.nan
 
 # ---------- charts (team)
@@ -275,8 +280,10 @@ def take_luck(t,st,ys):
         body=f"The bounces have gone {T}'s way: {w} wins against {sw:.1f} deserved, {lk:.1f} to the good{'' if z>=2 else ', a gap only a little outside the noise'}, with a {st['osw']}-{st['osl']} record in one-score games and a turnover margin of {tom}. {by} was the best of it ({bv:+.1f})."
     return take(body,f"One standard error on luck is about &plusmn;{se:.1f} wins over {NSEAS} seasons, so {lk:+.1f} is {sig(lk,se)}. Luck needs far more than {st['n']} games to measure; anything under about {2*se:.0f} wins here cannot be told from nothing.")
 
+def lg_dev_for(t): return DEV_SEC if t in SEC else DEV_ALL
+def lg_name_for(t): return 'SEC' if t in SEC else 'field'
 def take_roster(t,st):
-    T=H.escape(t); ss=S[S.team==t]
+    T=H.escape(t); ss=S[S.team==t]; LG_DEV=lg_dev_for(t); LGN=lg_name_for(t)
     if not HAS_S or not len(ss) or ss.talent_rank.isna().all() or ss.sp_rank.isna().all(): return ''
     ta=ss.talent_rank.mean(); sp=ss.sp_rank.mean(); dv=ta-sp; off=ss.sp_off_rank.mean(); de=ss.sp_def_rank.mean()
     gp=(ss.talent_rank-ss.sp_rank); i=gp.idxmin() if dv<0 else gp.idxmax(); r=ss.loc[i]
@@ -287,11 +294,12 @@ def take_roster(t,st):
         body=f"{T} has played above its roster: No. {sp:.0f} in play against a No. {ta:.0f} roster, {dv:.0f} spots better than the recruiting rankings would predict, in {len(ss)-below} of {len(ss)} seasons. {int(r.season)} was the high point, a No. {r.talent_rank:.0f} roster that played like No. {r.sp_rank:.0f}. The offense averaged No. {off:.0f} and the defense No. {de:.0f}."
     else:
         body=f"{T} has played about like its roster: No. {sp:.0f} in play against a No. {ta:.0f} roster. The offense averaged No. {off:.0f} and the defense No. {de:.0f}."
-    if rel<=-5: judge="even by SEC standards the roster has underdelivered."
-    elif rel>=5: judge="by SEC standards this roster has overdelivered."
-    else: judge=f"against that baseline {T} is typical of the conference. The absolute gap is real; the relative one is not."
-    body+=f" The comparison that matters is the league: the average SEC gap is {LG_DEV:+.0f} spots, because the talent composite rates SEC rosters higher than they play, so {judge}"
-    return take(body,f"{NSEAS} seasons of rank averages carry roughly &plusmn;{RK_SE:.0f} spots of noise; single-season gaps of 20 or more spots are well outside it. The league comparison is the fair one, since the talent composite is generous to every SEC roster.")
+    peers='the conference' if LGN=='SEC' else 'the programs on this site'
+    if rel<=-5: judge=f"even by the standards of {peers} the roster has underdelivered."
+    elif rel>=5: judge=f"by the standards of {peers} this roster has overdelivered."
+    else: judge=f"against that baseline {T} is typical of {peers}. The absolute gap is real; the relative one is not."
+    body+=f" The comparison that matters is the peer group: the average gap across {'the SEC' if LGN=='SEC' else 'all the programs on this site'} is {LG_DEV:+.0f} spots, because the talent composite rates elite rosters higher than they play, so {judge}"
+    return take(body,f"{NSEAS} seasons of rank averages carry roughly &plusmn;{RK_SE:.0f} spots of noise; single-season gaps of 20 or more spots are well outside it. The peer comparison is the fair one, since the talent composite is generous to every roster here.")
 
 def take_coaches(t):
     T=H.escape(t); tens=[x for x in TEN[t] if len(x['yrs'])>=2 and pd.notna(gap(x))]
@@ -317,7 +325,7 @@ def take_trend(t,st,g):
     return take(body,f"One standard error on the early-versus-late margin difference is about &plusmn;{se:.1f} points a game ({e['n']} early games, {l['n']} late), so {diff:+.1f} is {sig(diff,se)}. On the wins comparison one standard error is about &plusmn;{sew:.1f} wins, so {wd:+.1f} is {sig(wd,sew)}. Single-game swings of 20 points are routine, which is why the faint season lines look so jagged.")
 
 def bottom(t,st,g):
-    T=H.escape(t); mg=mgap(st); lk=luck(st); ss=S[S.team==t]
+    T=H.escape(t); mg=mgap(st); lk=luck(st); ss=S[S.team==t]; LG_DEV=lg_dev_for(t); LGN=lg_name_for(t)
     zm=abs(mg)/st['se_mg']; zl=abs(lk)/st['se_lk']
     dirn='too high' if mg>0 else 'too low'
     if zm>=2: e=f'Expectations for {T} have clearly run {dirn} ({mg:+.1f} wins, {strength(mg,st["se_mg"])})'
@@ -325,10 +333,11 @@ def bottom(t,st,g):
     else: e=f'Expectations for {T} have been about right ({mg:+.1f} wins, within the noise)'
     l=(f'Luck has been a non-factor ({lk:+.1f} wins, within the noise)' if zl<1 else (('It has clearly been ' if zl>=2 else 'It has probably been ')+('unlucky' if lk<0 else 'lucky')+f' ({lk:+.1f} wins, {strength(lk,st["se_lk"])})'))
     if HAS_S and len(ss) and ss.talent_rank.notna().any():
-        dv=ss.talent_rank.mean()-ss.sp_rank.mean(); rel=dv-LG_DEV
-        r=(f'The roster has underdelivered even by SEC standards ({dv:+.0f} spots against a league average of {LG_DEV:+.0f})' if rel<=-5 else
-           f'The roster has outplayed its rankings by SEC standards ({dv:+.0f} spots against a league average of {LG_DEV:+.0f})' if rel>=5 else
-           f'The roster-to-play gap ({dv:+.0f} spots) is the SEC norm ({LG_DEV:+.0f}); the talent rankings flatter the whole league, not just {T}')
+        dv=round(ss.talent_rank.mean()-ss.sp_rank.mean())+0.0; rel=dv-LG_DEV
+        peer='SEC' if LGN=='SEC' else 'peer-group'
+        r=(f'The roster has underdelivered even by {peer} standards ({dv:+.0f} spots against a {peer} average of {LG_DEV:+.0f})' if rel<=-5 else
+           f'The roster has outplayed its rankings by {peer} standards ({dv:+.0f} spots against a {peer} average of {LG_DEV:+.0f})' if rel>=5 else
+           f'The roster-to-play gap ({dv:+.0f} spots) is the {peer} norm ({LG_DEV:+.0f}); the talent rankings flatter every elite roster, not just {T}')
     else: r='No roster data'
     diff,se,th=trend(g); tr=''; wd,sew=wtrend(th)
     if pd.notna(diff) and abs(diff)>=2*se: tr=f" Late-season form has been {'better' if diff>0 else 'worse'} than early-season form by {abs(diff):.0f} points a game, and that is outside the noise."
@@ -407,229 +416,239 @@ def team_section(t):
 {split_table(g)}
 {mvtxt}
 {take(f"A {st['pct']:.0f}% rate of beating expectations over {st['n']} games, against an even split. Over {NSEAS} seasons the public's expected margins for {H.escape(t)} have been {'too optimistic by' if st['cm']<-1.5 else 'too pessimistic by' if st['cm']>1.5 else 'close to right, off by'} {abs(st['cm']):.1f} points a game on average.", f"The rate is {sig(st['pct']-50,st['se_pct'])} against an even split; one standard error is about &plusmn;{st['se_pct']:.0f} points at this sample size. The splits above are smaller samples still and should be treated as anecdotes.")}
-<p class="more"><a href="{BASE}sec/">Compare with the rest of the SEC</a></p>
+<p class="more">{'<a href="'+BASE+'sec/">Compare with the rest of the SEC</a> · ' if t in SEC else ''}<a href="{BASE}national/">Compare across the SEC and the national field</a></p>
 </section>'''
 
-# ---------- conference page
-tot={t:stats(d[d.team==t]) for t in TEAMS}
-fav={t:stats(d[(d.team==t)&(d.fav=='Favorite')]) for t in TEAMS}
-dog={t:stats(d[(d.team==t)&(d.fav=='Underdog')]) for t in TEAMS}
-mvs={t:d[(d.team==t)].move.mean() for t in TEAMS}
-trd={t:trend(d[d.team==t]) for t in TEAMS}
-order=sorted(TEAMS,key=lambda t:tot[t]['cm'],reverse=True)
-xorder=sorted(TEAMS,key=lambda t:dw(tot[t]),reverse=True)
-tal={t:(S[S.team==t].talent_rank.mean() if HAS_S and 'talent_rank' in S else np.nan) for t in TEAMS}
-spr={t:(S[S.team==t].sp_rank.mean() if HAS_S and 'sp_rank' in S else np.nan) for t in TEAMS}
-dev={t:(tal[t]-spr[t] if pd.notna(tal[t]) and pd.notna(spr[t]) else 0) for t in TEAMS}
-dorder=sorted(TEAMS,key=lambda t:dev[t],reverse=True)
-LG_DEV=float(np.mean([dev[t] for t in TEAMS]))
-morder=sorted(TEAMS,key=lambda t:mgap(tot[t]),reverse=True)
-lorder=sorted(TEAMS,key=lambda t:luck(tot[t]),reverse=True)
-torder=sorted(TEAMS,key=lambda t:trd[t][0],reverse=True)
-ctx_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{fr(tal[t])}</td><td>{fr(spr[t])}</td><td>{fr(dev[t],'{:+.0f}')}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{tot[t]['sow']:.1f}</td><td>{tot[t]['xw']:.1f}</td><td>{luck(tot[t]):+.1f}</td><td>{mgap(tot[t]):+.1f}</td></tr>" for t in morder)
-
-def lollipop(keys,val,label,xr,step,fmt='{:+.1f}',aria=''):
-    W,rh=720,30; L,R=150,30; Hh=rh*len(keys)+50; xmin,xmax=xr; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="{aria}">']
-    for v in range(xmin,xmax+1,step): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
-    for i,t in enumerate(keys):
-        y=20+i*rh; raw=val(t); v=max(xmin,min(xmax,raw))
-        s.append(f'<text x="{L-10}" y="{y+5}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
-        s.append(f'<line x1="{X(0):.1f}" y1="{y}" x2="{X(v):.1f}" y2="{y}" class="stem"/>')
-        s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(label(t))}</title></circle>')
-        s.append(f'<text x="{X(v)+(12 if v>=0 else -12):.1f}" y="{y+4}" class="tick" text-anchor="{"start" if v>=0 else "end"}">{fmt.format(raw)}</text>')
-    s.append('</svg>'); return ''.join(s)
-def dotplot(): return lollipop(order,lambda t:tot[t]['cm'],lambda t:f"{t}: {rec(tot[t])} vs expectations, {tot[t]['pct']:.0f}%, avg {tot[t]['cm']:+.2f}",(-4,4),1,aria='Average beat-expectations margin by team')
-def xwplot():
-    m=max(8,int(math.ceil(max(abs(dw(tot[t])) for t in TEAMS)/4)*4)); return lollipop(xorder,lambda t:dw(tot[t]),lambda t:f"{t}: {tot[t]['w']}-{tot[t]['l']} actual, {xrec(tot[t])} expected",(-m,m),4 if m>8 else 2,aria='Wins above expectation by team')
-def devplot(): return lollipop(dorder,lambda t:dev[t],lambda t:f"{t}: avg talent rank {tal[t]:.0f}, avg SP+ rank {spr[t]:.0f}",(-30,30),10,'{:+.0f}',aria='Talent rank minus SP+ rank by team')
-def trendplot(): return lollipop(torder,lambda t:trd[t][0],lambda t:f"{t}: early {trd[t][2][THIRDS[0]]['cm']:+.1f}, late {trd[t][2][THIRDS[2]]['cm']:+.1f} points a game vs expectations",(-12,12),4,aria='Late-season minus early-season margin against expectations, by team')
-
-def favdog():
-    W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50; xmin,xmax=20,80; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Beat-expectations rate when expected to win versus expected to lose">']
-    for v in range(20,81,10): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==50 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v}%</text>')
-    for i,t in enumerate(sorted(TEAMS,key=lambda t:fav[t]['pct'],reverse=True)):
-        y=20+i*rh; f=fav[t]['pct']; u=dog[t]['pct']
-        s.append(f'<text x="{L-10}" y="{y+5}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
-        s.append(f'<line x1="{X(f):.1f}" y1="{y}" x2="{X(u):.1f}" y2="{y}" class="stem"/>')
-        s.append(f'<circle cx="{X(f):.1f}" cy="{y}" r="6" fill="{COLORS[t]}"><title>{H.escape(t)} when expected to win: {rec(fav[t])} ({f:.0f}%)</title></circle>')
-        s.append(f'<circle cx="{X(u):.1f}" cy="{y}" r="6" fill="none" stroke="{COLORS[t]}" stroke-width="2.5"><title>{H.escape(t)} when expected to lose: {rec(dog[t])} ({u:.0f}%)</title></circle>')
-    s.append('</svg>'); return ''.join(s)
-
-def quad():
-    W,Hh=720,540; L,R,T,B=56,20,24,48
-    pts_={t:(luck(tot[t]),mgap(tot[t])) for t in TEAMS}
-    m=max(6,math.ceil(max(max(abs(x),abs(y)) for x,y in pts_.values())+0.5))
-    X=lambda v:L+(v+m)/(2*m)*(W-L-R); Y=lambda v:T+(m-v)/(2*m)*(Hh-T-B)
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Overrated versus underrated and overperforming versus underperforming">']
-    step=2 if m<=8 else 4
-    for v in range(-m,m+1,step):
-        s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{v:+d}</text>')
-        s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="{"zero" if v==0 else "grid"}"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{v:+d}</text>')
-    for x,y,a,txt in [(L+8,T+14,'start','Overrated, underperformed'),(W-R-8,T+14,'end','Overrated, overperformed'),(L+8,Hh-B-8,'start','Underrated, underperformed'),(W-R-8,Hh-B-8,'end','Underrated, overperformed')]:
-        s.append(f'<text x="{x}" y="{y}" class="lbl faint" text-anchor="{a}">{txt}</text>')
-    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Actual wins minus deserved wins (overperformed to the right)</text>')
-    s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Expected minus deserved wins (overrated is up)</text>')
-    for t in sorted(TEAMS,key=lambda t:pts_[t][1]):
-        x,y=pts_[t]; s.append(f'<circle cx="{X(x):.1f}" cy="{Y(y):.1f}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(t)}: won {tot[t]["w"]}, deserved {tot[t]["sow"]:.1f}, public expected {tot[t]["xw"]:.1f}</title></circle>')
-        s.append(f'<text x="{X(x)+10:.1f}" y="{Y(y)+4:.1f}" class="tname{" hi" if t=="Texas A&M" else ""}" style="font-size:12px">{H.escape(t)}</text>')
-    s.append('</svg>'); return ''.join(s)
-
-def coachplot():
-    tens=[x for x in ALLTEN if len(x['yrs'])>=3 and pd.notna(gap(x))]
-    if not tens: return ''
-    W,Hh=720,600; L,R,T,B=56,20,24,48; M=70
-    X=lambda v:L+(min(v,M)-1)/(M-1)*(W-L-R); Y=lambda v:T+(min(v,M)-1)/(M-1)*(Hh-T-B)
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Head-coaching tenures: roster talent rank against SP+ rank">']
-    for v in [1,10,20,30,40,50,60,70]:
-        s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="grid"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{"70+" if v==70 else v}</text>')
-        s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="grid"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{"70+" if v==70 else v}</text>')
-    s.append(f'<line x1="{X(1):.1f}" y1="{Y(1):.1f}" x2="{X(70):.1f}" y2="{Y(70):.1f}" class="fair"/>')
-    s.append(f'<text x="{X(68):.1f}" y="{Y(52):.1f}" class="lbl faint" text-anchor="end">Played worse than the roster ↓</text><text x="{X(48):.1f}" y="{Y(2)+10:.1f}" class="lbl faint" text-anchor="end">↑ Played better than the roster</text>')
-    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Roster talent, average national rank (best at left)</text>')
-    s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Quality of play (SP+), average national rank (best at top)</text>')
-    for x in sorted(tens,key=lambda x:x['sp']):
-        hi=x['team']=='Texas A&M'
-        s.append(f'<circle cx="{X(x["tal"]):.1f}" cy="{Y(x["sp"]):.1f}" r="{7 if hi else 6}" fill="{COLORS[x["team"]]}" class="dot"><title>{H.escape(x["coach"])}, {H.escape(x["team"])} {x["yrs"][0]}–{x["yrs"][-1]}: talent No. {x["tal"]:.0f}, SP+ No. {x["sp"]:.0f}, {x["st"]["w"]}-{x["st"]["l"]}</title></circle>')
-        s.append(f'<text x="{X(x["tal"])+9:.1f}" y="{Y(x["sp"])+4:.1f}" class="tname{" hi" if hi else ""}" style="font-size:11px">{H.escape(x["last"])}</text>')
-    s.append('</svg>'); return ''.join(s)
-
-def heat():
-    yrs=YEARS; cw=(720-150-20)/len(yrs); L=150; W=720; rh=30; Hh=rh*len(TEAMS)+40
-    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Record against expectations by team and season">']
-    for j,y in enumerate(yrs): s.append(f'<text x="{L+j*cw+cw/2:.1f}" y="20" class="tick" text-anchor="middle">{y}</text>')
-    for i,t in enumerate(order):
-        y=30+i*rh; s.append(f'<text x="{L-10}" y="{y+19}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
-        for j,yr in enumerate(yrs):
-            st=stats(d[(d.team==t)&(d.season==yr)]); p=st['pct']; a=min(1,abs(p-50)/30)
-            fill=f'rgba(80,0,0,{a:.2f})' if p>=50 else f'rgba(184,168,143,{a:.2f})'
-            s.append(f'<rect x="{L+j*cw+2:.1f}" y="{y+2}" width="{cw-4:.1f}" height="{rh-4}" fill="{fill}" class="cell"><title>{H.escape(t)} {yr}: {rec(st)} vs expectations, {st["w"]}-{st["l"]} won-lost, beat by {st["cm"]:+.1f} avg</title></rect>')
-            s.append(f'<text x="{L+j*cw+cw/2:.1f}" y="{y+19}" class="cellt" style="font-size:{11 if len(yrs)>6 else 12}px" text-anchor="middle">{rec(st)}</text>')
-    s.append('</svg>'); return ''.join(s)
-
-conf_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{rec(tot[t])}</td><td>{tot[t]['pct']:.0f}%</td><td>{tot[t]['cm']:+.1f}</td><td>{fav[t]['pct']:.0f}%</td><td>{dog[t]['pct']:.0f}%</td><td>{mvs[t]:+.2f}</td></tr>" for t in order)
-allst=stats(d); am=tot['Texas A&M']; rank=order.index('Texas A&M')+1; xrank=xorder.index('Texas A&M')+1
-mrank=morder.index('Texas A&M')+1; lrank=lorder.index('Texas A&M')+1; drank=dorder.index('Texas A&M')+1; trank=torder.index('Texas A&M')+1
-xw_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{xrec(tot[t])}</td><td>{dw(tot[t]):+.1f}</td><td>{tot[t]['fw']}-{tot[t]['fl']}</td><td>{tot[t]['uw']}-{tot[t]['ul']}</td></tr>" for t in xorder)
-trend_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{trd[t][2][THIRDS[0]]['cm']:+.1f}</td><td>{trd[t][2][THIRDS[1]]['cm']:+.1f}</td><td>{trd[t][2][THIRDS[2]]['cm']:+.1f}</td><td>{trd[t][0]:+.1f}</td><td>{trd[t][2][THIRDS[0]]['w']}-{trd[t][2][THIRDS[0]]['l']}</td><td>{trd[t][2][THIRDS[2]]['w']}-{trd[t][2][THIRDS[2]]['l']}</td></tr>" for t in torder)
-lg_th={th:stats(d[d.third==th]) for th in THIRDS}; lg_nc={th:stats(d[(d.third==th)&(d.conf_game=='N')]) for th in THIRDS}
+# ---------- shared across pages
+tal={t:(S[S.team==t].talent_rank.mean() if HAS_S and 'talent_rank' in S else np.nan) for t in ALLTEAMS}
+spr={t:(S[S.team==t].sp_rank.mean() if HAS_S and 'sp_rank' in S else np.nan) for t in ALLTEAMS}
+dev={t:(tal[t]-spr[t] if pd.notna(tal[t]) and pd.notna(spr[t]) else 0) for t in ALLTEAMS}
+DEV_SEC=float(np.mean([dev[t] for t in SEC])); DEV_ALL=float(np.mean([dev[t] for t in ALLTEAMS]))
+tot={t:stats(d[d.team==t]) for t in ALLTEAMS}
+fav={t:stats(d[(d.team==t)&(d.fav=='Favorite')]) for t in ALLTEAMS}
+dog={t:stats(d[(d.team==t)&(d.fav=='Underdog')]) for t in ALLTEAMS}
+mvs={t:d[(d.team==t)].move.mean() for t in ALLTEAMS}
+trd={t:trend(d[d.team==t]) for t in ALLTEAMS}
 sd=d.groupby('team').cover_margin.mean().std()
-LONG=[x for x in ALLTEN if len(x['yrs'])>=2]; LONG.sort(key=lambda x:gap(x) if pd.notna(gap(x)) else -99,reverse=True)
+lg_th={th:stats(d[d.third==th]) for th in THIRDS}; lg_nc={th:stats(d[(d.third==th)&(d.conf_game=='N')]) for th in THIRDS}
 
-# first-year coaches league-wide
-def first_year_split():
-    if not HAS_S or 'coach_tenure_year' not in S or S.coach_tenure_year.isna().all(): return None
-    ts=[]
-    for (t,yr),grp in S.groupby(['team','season']):
-        g=d[(d.team==t)&(d.season==yr)]
-        if not len(g) or pd.isna(grp.iloc[0].coach_tenure_year): continue
-        st=stats(g); ts.append(dict(team=t,season=yr,ty=grp.iloc[0].coach_tenure_year,dw=dw(st),mg=mgap(st),lk=luck(st),dev=grp.iloc[0].talent_rank-grp.iloc[0].sp_rank))
-    ts=pd.DataFrame(ts); a=ts[ts.ty==1]; b=ts[ts.ty>1]
-    if len(a)<3 or len(b)<3: return None
-    def cmp(col):
-        diff=a[col].mean()-b[col].mean(); se=math.sqrt(a[col].var()/len(a)+b[col].var()/len(b)); return a[col].mean(),b[col].mean(),diff,se
-    return dict(n1=len(a),n2=len(b),dw=cmp('dw'),mg=cmp('mg'),lk=cmp('lk'),dev=cmp('dev'))
-FY=first_year_split()
+def build_league(KEY,TITLE,SUB,INTRO,TL):
+    global TEAMS,LG_DEV,ALLTEN,order,xorder,dorder,morder,lorder,torder,ctx_rows,conf_rows,allst,am,rank,xrank,mrank,lrank,drank,trank,xw_rows,trend_rows,LONG,FY,coach_section,conf
+    TEAMS=TL
+    global lg_th,lg_nc
+    lg_th={th:stats(d[(d.third==th)&(d.team.isin(TEAMS))]) for th in THIRDS}; lg_nc={th:stats(d[(d.third==th)&(d.conf_game=='N')&(d.team.isin(TEAMS))]) for th in THIRDS}
+    order=sorted(TEAMS,key=lambda t:tot[t]['cm'],reverse=True)
+    xorder=sorted(TEAMS,key=lambda t:dw(tot[t]),reverse=True)
+    dorder=sorted(TEAMS,key=lambda t:dev[t],reverse=True)
+    LG_DEV=DEV_SEC if KEY=='sec' else DEV_ALL
+    ALLTEN=[x for t in TEAMS for x in TEN[t]]
+    morder=sorted(TEAMS,key=lambda t:mgap(tot[t]),reverse=True)
+    lorder=sorted(TEAMS,key=lambda t:luck(tot[t]),reverse=True)
+    torder=sorted(TEAMS,key=lambda t:trd[t][0],reverse=True)
+    ctx_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{fr(tal[t])}</td><td>{fr(spr[t])}</td><td>{fr(dev[t],'{:+.0f}')}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{tot[t]['sow']:.1f}</td><td>{tot[t]['xw']:.1f}</td><td>{luck(tot[t]):+.1f}</td><td>{mgap(tot[t]):+.1f}</td></tr>" for t in morder)
 
-def _axis(st):
-    mg=mgap(st); lk=luck(st); zm=abs(mg)/st['se_mg']; zl=abs(lk)/st['se_lk']
-    a=('overrated' if mg>0 else 'underrated') if zm>=2 else ('leaning overrated' if mg>0 else 'leaning underrated') if zm>=1 else 'expected about right'
-    b=('lucky' if lk>0 else 'unlucky') if zl>=2 else ('a little lucky' if lk>0 else 'a little unlucky') if zl>=1 else 'neither lucky nor unlucky'
-    return f"{a}, {b}"
-def _names(ts): return ', '.join(H.escape(t) for t in ts) if ts else 'no team'
-def take_quad():
-    mo,mu,lo,lu=morder[0],morder[-1],lorder[0],lorder[-1]; a=tot['Texas A&M']
-    sem=np.mean([tot[t]['se_mg'] for t in TEAMS]); sel=np.mean([tot[t]['se_lk'] for t in TEAMS])
-    clear=[t for t in TEAMS if abs(mgap(tot[t]))>=2*tot[t]['se_mg'] or abs(luck(tot[t]))>=2*tot[t]['se_lk']]
-    sugg=[t for t in TEAMS if t not in clear and (abs(mgap(tot[t]))>=tot[t]['se_mg'] or abs(luck(tot[t]))>=tot[t]['se_lk'])]
-    return take(f'By this measure {H.escape(mo)} is the most overrated program in the league ({mgap(tot[mo]):+.1f} wins) and {H.escape(mu)} the most underrated ({mgap(tot[mu]):+.1f}). '
-                f'{H.escape(lo)} has won the most beyond what its play deserved ({luck(tot[lo]):+.1f}) and {H.escape(lu)} the least ({luck(tot[lu]):+.1f}). '
-                f'Texas A&amp;M sits at {mgap(a):+.1f} on the expectation axis and {luck(a):+.1f} on the luck axis: {_axis(a)}. The league as a whole clusters near the middle; the corners are a handful of programs.',
-                f'One standard error is about &plusmn;{sem:.1f} wins up and down and &plusmn;{sel:.1f} left and right. Beyond two standard errors on either axis: {_names(clear)}. Between one and two: {_names(sugg)}. Everyone else is inside the noise, and the luck axis in particular needs many seasons to say much.')
-def take_dev():
-    pos=[t for t in dorder if dev[t]-LG_DEV>=5]; neg=[t for t in dorder if dev[t]-LG_DEV<=-5]; a=dev['Texas A&M']
-    return take(f'The league average is {LG_DEV:+.0f} spots: the talent composite rates SEC rosters higher than they play, so the fair baseline is the conference, not zero. '
-                f'Clearly above that baseline: {_names(pos)}. Clearly below it: {_names(neg)}. Texas A&amp;M at {a:+.0f} is {"even with" if abs(a-LG_DEV)<1 else f"{a-LG_DEV:+.0f} against"} the league average, {"typical of the conference" if abs(a-LG_DEV)<5 else "outside the pack"}.',
-                f'{NSEAS} seasons of rank averages carry roughly &plusmn;{RK_SE:.0f} spots of noise, so gaps inside that are not worth arguing about. Gaps of 15 or more against the league average are well outside it.')
-def take_coach_lg():
-    tens=[x for x in LONG if len(x['yrs'])>=3 and pd.notna(gap(x))]
-    if len(tens)<4: return ''
-    best=tens[:3]; worst=tens[-3:]
-    def lst(xs): return ', '.join(f"{H.escape(x['last'])} at {H.escape(x['team'])} ({gap(x):+.0f})" for x in xs)
-    fy=''
-    if FY:
-        m1,m2,df,se=FY['dw']; g1,g2,dg,seg=FY['mg']; v1,v2,dv,sev=FY['dev']
-        fy=(f" First-year head coaches ({FY['n1']} debut seasons) have finished {m1:+.1f} wins a season against expectations, versus {m2:+.1f} for everyone else; the public has {'over' if g1>g2 else 'under'}rated them relative to established coaches by {abs(dg):.1f} wins a season, and their rosters played {'better' if dv>0 else 'worse'} relative to talent by {abs(dv):.0f} spots.")
-    return take(f"Among tenures of three or more seasons, the most out of a roster: {lst(best)}. The least: {lst(worst)}. The league average is {LG_DEV:+.0f}, so read every tenure against that.{fy}",
-                (f"Three-season tenures are about 38 games: roughly &plusmn;{SDG*math.sqrt(38):.1f} wins on the expectation gap, &plusmn;{math.sqrt(38*0.16):.1f} on luck, and &plusmn;7 spots on a rank average. "+
-                 (f"On the first-year split, one standard error is about &plusmn;{FY['dw'][3]:.1f} wins a season on the results gap ({sig(FY['dw'][2],FY['dw'][3])}), &plusmn;{FY['mg'][3]:.1f} on the expectation gap ({sig(FY['mg'][2],FY['mg'][3])}), and &plusmn;{FY['dev'][3]:.0f} spots on the roster gap ({sig(FY['dev'][2],FY['dev'][3])})." if FY else "")))
-def take_xw():
-    se=np.mean([tot[t]['se_lk'] for t in TEAMS]); clear=[t for t in TEAMS if abs(dw(tot[t]))>=2*se]
-    return take(f'{H.escape(xorder[0])} and {H.escape(xorder[1])} have beaten expectations by the most ({dw(tot[xorder[0]]):+.1f}, {dw(tot[xorder[1]]):+.1f}); {H.escape(xorder[-1])} and {H.escape(xorder[-2])} have fallen furthest short ({dw(tot[xorder[-1]]):+.1f}, {dw(tot[xorder[-2]]):+.1f}). Texas A&amp;M is {dw(tot["Texas A&M"]):+.1f}, {xrank} of 16. This number mixes the first two questions together; the quadrant chart above is the one that separates them.',
-                f'One standard error is about &plusmn;{se:.1f} wins, so only {_names(clear)} {"is" if len(clear)==1 else "are"} clearly outside the noise.')
-def take_trend_lg():
-    clear=[t for t in torder if abs(trd[t][0])>=2*trd[t][1]]; sugg=[t for t in torder if t not in clear and abs(trd[t][0])>=trd[t][1]]
-    e,l=lg_th[THIRDS[0]],lg_th[THIRDS[2]]; ne,nl=lg_nc[THIRDS[0]],lg_nc[THIRDS[2]]; a=trd['Texas A&M']
-    return take(f'{H.escape(torder[0])} ({trd[torder[0]][0]:+.1f} points a game) and {H.escape(torder[1])} ({trd[torder[1]][0]:+.1f}) finish seasons strongest relative to expectations; {H.escape(torder[-1])} ({trd[torder[-1]][0]:+.1f}) and {H.escape(torder[-2])} ({trd[torder[-2]][0]:+.1f}) fade the most. Texas A&amp;M is {a[0]:+.1f}, {trank} of 16. '
-                f'League-wide the pattern is flat ({e["cm"]:+.1f} early, {l["cm"]:+.1f} late), as it must be when conference games count for both sides; in non-conference games alone the SEC beat expectations by {ne["cm"]:+.1f} a game early and {nl["cm"]:+.1f} late.',
-                f'One standard error on a team\'s early-versus-late difference is about &plusmn;{np.mean([trd[t][1] for t in TEAMS]):.1f} points a game. Beyond two: {_names(clear)}. Between one and two: {_names(sugg)}. The rest is noise; single games swing by 20 points routinely.')
-def take_ats():
-    clear=[t for t in TEAMS if abs(tot[t]['pct']-50)>=2*tot[t]['se_pct']]
-    return take(f'Over {NSEAS} seasons there is no SEC team whose expected margins are reliably off. The most optimistic the public has been about any program is {abs(tot[order[-1]]["cm"]):.1f} points a game ({H.escape(order[-1])}), the most pessimistic {tot[order[0]]["cm"]:.1f} ({H.escape(order[0])}), and the whole league spans about {sd*2:.0f} points. That is what you would expect when the number is set by people with money on it.',
-                f'With about {AVGN:.0f} games per team, one standard error on a beat-expectations rate is roughly &plusmn;{100*math.sqrt(0.25/AVGN):.0f} points. Outside two standard errors: {_names(clear)}.')
+    def lollipop(keys,val,label,xr,step,fmt='{:+.1f}',aria=''):
+        W,rh=720,30; L,R=150,30; Hh=rh*len(keys)+50; xmin,xmax=xr; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
+        s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="{aria}">']
+        for v in range(xmin,xmax+1,step): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
+        for i,t in enumerate(keys):
+            y=20+i*rh; raw=val(t); v=max(xmin,min(xmax,raw))
+            s.append(f'<text x="{L-10}" y="{y+5}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
+            s.append(f'<line x1="{X(0):.1f}" y1="{y}" x2="{X(v):.1f}" y2="{y}" class="stem"/>')
+            s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(label(t))}</title></circle>')
+            s.append(f'<text x="{X(v)+(12 if v>=0 else -12):.1f}" y="{y+4}" class="tick" text-anchor="{"start" if v>=0 else "end"}">{fmt.format(round(raw)+0.0 if ".0f" in fmt else raw)}</text>')
+        s.append('</svg>'); return ''.join(s)
+    def dotplot(): return lollipop(order,lambda t:tot[t]['cm'],lambda t:f"{t}: {rec(tot[t])} vs expectations, {tot[t]['pct']:.0f}%, avg {tot[t]['cm']:+.2f}",(-4,4),1,aria='Average beat-expectations margin by team')
+    def xwplot():
+        m=max(8,int(math.ceil(max(abs(dw(tot[t])) for t in TEAMS)/4)*4)); return lollipop(xorder,lambda t:dw(tot[t]),lambda t:f"{t}: {tot[t]['w']}-{tot[t]['l']} actual, {xrec(tot[t])} expected",(-m,m),4 if m>8 else 2,aria='Wins above expectation by team')
+    def devplot(): return lollipop(dorder,lambda t:dev[t],lambda t:f"{t}: avg talent rank {tal[t]:.0f}, avg SP+ rank {spr[t]:.0f}",(-30,30),10,'{:+.0f}',aria='Talent rank minus SP+ rank by team')
+    def trendplot(): return lollipop(torder,lambda t:trd[t][0],lambda t:f"{t}: early {trd[t][2][THIRDS[0]]['cm']:+.1f}, late {trd[t][2][THIRDS[2]]['cm']:+.1f} points a game vs expectations",(-12,12),4,aria='Late-season minus early-season margin against expectations, by team')
 
-coach_section=(f'''<h2>Coaches and their rosters</h2>
-<p>Every head-coaching tenure of three or more seasons in the window, as one dot: the roster's average talent rank against the play's average SP+ rank. Above the diagonal, the coach got more out of the roster than its recruiting rankings promised; below, less. The table lists every tenure of two or more seasons. Tenure years count seasons before the window and 2020.</p>
-{coachplot()}
-{coach_table(LONG,show_team=True)}
-{take_coach_lg()}''' if HAS_S and LONG else '')
+    def favdog():
+        W,rh=720,30; L,R=150,30; Hh=rh*len(TEAMS)+50; xmin,xmax=20,80; X=lambda v:L+(v-xmin)/(xmax-xmin)*(W-L-R)
+        s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Beat-expectations rate when expected to win versus expected to lose">']
+        for v in range(20,81,10): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==50 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v}%</text>')
+        for i,t in enumerate(sorted(TEAMS,key=lambda t:fav[t]['pct'],reverse=True)):
+            y=20+i*rh; f=fav[t]['pct']; u=dog[t]['pct']
+            s.append(f'<text x="{L-10}" y="{y+5}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
+            s.append(f'<line x1="{X(f):.1f}" y1="{y}" x2="{X(u):.1f}" y2="{y}" class="stem"/>')
+            s.append(f'<circle cx="{X(f):.1f}" cy="{y}" r="6" fill="{COLORS[t]}"><title>{H.escape(t)} when expected to win: {rec(fav[t])} ({f:.0f}%)</title></circle>')
+            s.append(f'<circle cx="{X(u):.1f}" cy="{y}" r="6" fill="none" stroke="{COLORS[t]}" stroke-width="2.5"><title>{H.escape(t)} when expected to lose: {rec(dog[t])} ({u:.0f}%)</title></circle>')
+        s.append('</svg>'); return ''.join(s)
 
-conf=f'''<section class="team" id="sec" style="--accent:{MAROON}">
-<h1>The SEC</h1>
-<p class="sub">Sixteen current SEC programs, {len(d):,} team-games over {NSEAS} seasons, every one with an expected margin. Texas and Oklahoma's Big 12 seasons are included so each program has the same window.{" 2020 is left out as an anomaly: ten conference games, no non-conference schedule." if YMIN<2020<YMAX else ""}</p>
-<div class="big"><div><b>{am['w']}-{am['l']}</b><span>Texas A&amp;M won-lost</span></div><div><b>{mgap(am):+.1f}</b><span>expected minus deserved wins, {mrank} of 16</span></div><div><b>{luck(am):+.1f}</b><span>won minus deserved wins, {lrank} of 16</span></div><div><b>{fr(dev['Texas A&M'],'{:+.0f}')}</b><span>talent rank minus SP+ rank, {drank} of 16</span></div></div>
-{INTRO_SEC}
-{GLOSS}
-<h2>Overrated, underrated, lucky, unlucky</h2>
-<p>Up and down is what the public expected minus what the play deserved: up is overrated. Left and right is actual wins minus deserved wins: right is overperforming, usually close games and turnover luck. {NSEAS}-season totals. A team can be overrated and unlucky at the same time; that is the top-left corner.</p>
-{quad()}
-{take_quad()}
-<h2>Playing above or below the roster</h2>
-<p>Average talent-composite rank minus average SP+ rank across the {NSEAS} seasons. Positive means the program has played better than its recruiting rankings would predict; negative means the roster has been better than the play. Ranks are among all FBS programs.</p>
-{devplot() if HAS_S else ''}
-<div class="wrap"><table><tr><th>Team</th><th>Talent rank</th><th>SP+ rank</th><th>Talent&minus;SP+</th><th>Record</th><th>Deserved</th><th>Expected</th><th>Won vs deserved</th><th>Expected vs deserved</th></tr>{ctx_rows}</table></div>
-{take_dev()}
-{coach_section}
-<h2>Wins versus expectation</h2>
-<p>Actual wins minus the wins the public expected, {NSEAS}-season totals. Positive means the program won more often than expected. This mixes the first two questions together; the quadrant chart above pulls them apart.</p>
-{xwplot()}
-<div class="wrap"><table><tr><th>Team</th><th>Record</th><th>Expected</th><th>Won vs expected</th><th>When expected to win</th><th>When expected to lose</th></tr>{xw_rows}</table></div>
-{take_xw()}
-<h2>Early season versus late season</h2>
-<p>How many points a game each program beat expectations by, or fell short, in the last stretch of its seasons (game 9 on, postseason included) minus the first four games. Positive means the team finished seasons stronger than the public expected; negative means it faded. Because the expected margin already moves week to week, this measures how slow opinion was to adjust.</p>
-{trendplot()}
-<div class="wrap"><table><tr><th>Team</th><th>Early</th><th>Middle</th><th>Late</th><th>Late &minus; early</th><th>Early record</th><th>Late record</th></tr>{trend_rows}</table></div>
-{take_trend_lg()}
-<h2>Appendix: against expectations</h2>
-<p>For readers who follow the point spreads.</p>
-<div class="big"><div><b>{allst['pct']:.1f}%</b><span>league-wide rate of beating expectations</span></div><div><b>{am['pct']:.0f}%</b><span>Texas A&amp;M rate</span></div><div><b>{rank} of 16</b><span>A&amp;M rank by beat-by average</span></div></div>
-<h3>Beat expectations by, on average</h3>
-<p>Positive means the program beat its expected margin on average; negative means the public was consistently too optimistic about it.</p>
-{dotplot()}
-{take_ats()}
-<h3>When expected to win, when expected to lose</h3>
-<p>Filled dot is the rate of beating expectations when the team was expected to win, open circle when it was expected to lose. A team far to the left on the filled dot but to the right on the open one is a program the public overbuys when it is supposed to win.</p>
-{favdog()}
-<h3>Season by season</h3>
-<p>Record against expectations per team-season. Maroon shading is above 50%, tan is below; deeper color is further from even.</p>
-{heat()}
-<h3>All sixteen</h3>
-<p>Opinion shift is the average change from the week-earlier number to the kickoff number, from the team's perspective; negative means the public leaned further toward the team during the week. Not every game has a week-earlier number on file.</p>
-<div class="wrap"><table><tr><th>Team</th><th>Won-lost</th><th>Vs expectations</th><th>Beat %</th><th>Beat by, avg</th><th>Beat % when expected to win</th><th>Beat % when expected to lose</th><th>Opinion shift</th></tr>{conf_rows}</table></div>
-<p class="note">Data: CollegeFootballData.com games, lines, ratings, talent, recruiting, rankings and coaches endpoints, kickoff point spread from consensus or DraftKings where available. Expected margins are from the listed team's side. Beat by = actual margin minus expected margin. Conference games appear once for each side, so the league-wide beat-by average nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each expected margin to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them. Deserved wins sum CFBD's postgame win probability per game; where CFBD has no play-by-play for a game ({int(d.post_wp.isna().sum())} of {len(d)}), the expected-margin probability stands in.{" The 2020 season is excluded from every number except head-coach tenure years." if YMIN<2020<YMAX else ""}</p>
-<p class="more"><a href="{BASE}texas-am/">Texas A&amp;M's page</a></p>
-</section>'''
+    def quad():
+        W,Hh=720,540; L,R,T,B=56,20,24,48
+        pts_={t:(luck(tot[t]),mgap(tot[t])) for t in TEAMS}
+        m=max(6,math.ceil(max(max(abs(x),abs(y)) for x,y in pts_.values())+0.5))
+        X=lambda v:L+(v+m)/(2*m)*(W-L-R); Y=lambda v:T+(m-v)/(2*m)*(Hh-T-B)
+        s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Overrated versus underrated and overperforming versus underperforming">']
+        step=2 if m<=8 else 4
+        for v in range(-m,m+1,step):
+            s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{v:+d}</text>')
+            s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="{"zero" if v==0 else "grid"}"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{v:+d}</text>')
+        for x,y,a,txt in [(L+8,T+14,'start','Overrated, underperformed'),(W-R-8,T+14,'end','Overrated, overperformed'),(L+8,Hh-B-8,'start','Underrated, underperformed'),(W-R-8,Hh-B-8,'end','Underrated, overperformed')]:
+            s.append(f'<text x="{x}" y="{y}" class="lbl faint" text-anchor="{a}">{txt}</text>')
+        s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Actual wins minus deserved wins (overperformed to the right)</text>')
+        s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Expected minus deserved wins (overrated is up)</text>')
+        for t in sorted(TEAMS,key=lambda t:pts_[t][1]):
+            x,y=pts_[t]; s.append(f'<circle cx="{X(x):.1f}" cy="{Y(y):.1f}" r="7" fill="{COLORS[t]}" class="dot"><title>{H.escape(t)}: won {tot[t]["w"]}, deserved {tot[t]["sow"]:.1f}, public expected {tot[t]["xw"]:.1f}</title></circle>')
+            s.append(f'<text x="{X(x)+10:.1f}" y="{Y(y)+4:.1f}" class="tname{" hi" if t=="Texas A&M" else ""}" style="font-size:12px">{H.escape(t)}</text>')
+        s.append('</svg>'); return ''.join(s)
+
+    def coachplot():
+        tens=[x for x in ALLTEN if len(x['yrs'])>=3 and pd.notna(gap(x))]
+        if not tens: return ''
+        W,Hh=720,600; L,R,T,B=56,20,24,48; M=70
+        X=lambda v:L+(min(v,M)-1)/(M-1)*(W-L-R); Y=lambda v:T+(min(v,M)-1)/(M-1)*(Hh-T-B)
+        s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Head-coaching tenures: roster talent rank against SP+ rank">']
+        for v in [1,10,20,30,40,50,60,70]:
+            s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="grid"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{"70+" if v==70 else v}</text>')
+            s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="grid"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{"70+" if v==70 else v}</text>')
+        s.append(f'<line x1="{X(1):.1f}" y1="{Y(1):.1f}" x2="{X(70):.1f}" y2="{Y(70):.1f}" class="fair"/>')
+        s.append(f'<text x="{X(68):.1f}" y="{Y(52):.1f}" class="lbl faint" text-anchor="end">Played worse than the roster ↓</text><text x="{X(48):.1f}" y="{Y(2)+10:.1f}" class="lbl faint" text-anchor="end">↑ Played better than the roster</text>')
+        s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Roster talent, average national rank (best at left)</text>')
+        s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Quality of play (SP+), average national rank (best at top)</text>')
+        for x in sorted(tens,key=lambda x:x['sp']):
+            hi=x['team']=='Texas A&M'
+            s.append(f'<circle cx="{X(x["tal"]):.1f}" cy="{Y(x["sp"]):.1f}" r="{7 if hi else 6}" fill="{COLORS[x["team"]]}" class="dot"><title>{H.escape(x["coach"])}, {H.escape(x["team"])} {x["yrs"][0]}–{x["yrs"][-1]}: talent No. {x["tal"]:.0f}, SP+ No. {x["sp"]:.0f}, {x["st"]["w"]}-{x["st"]["l"]}</title></circle>')
+            s.append(f'<text x="{X(x["tal"])+9:.1f}" y="{Y(x["sp"])+4:.1f}" class="tname{" hi" if hi else ""}" style="font-size:11px">{H.escape(x["last"])}</text>')
+        s.append('</svg>'); return ''.join(s)
+
+    def heat():
+        yrs=YEARS; cw=(720-150-20)/len(yrs); L=150; W=720; rh=30; Hh=rh*len(TEAMS)+40
+        s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Record against expectations by team and season">']
+        for j,y in enumerate(yrs): s.append(f'<text x="{L+j*cw+cw/2:.1f}" y="20" class="tick" text-anchor="middle">{y}</text>')
+        for i,t in enumerate(order):
+            y=30+i*rh; s.append(f'<text x="{L-10}" y="{y+19}" class="tname{" hi" if t=="Texas A&M" else ""}" text-anchor="end">{H.escape(t)}</text>')
+            for j,yr in enumerate(yrs):
+                st=stats(d[(d.team==t)&(d.season==yr)]); p=st['pct']; a=min(1,abs(p-50)/30)
+                fill=f'rgba(80,0,0,{a:.2f})' if p>=50 else f'rgba(184,168,143,{a:.2f})'
+                s.append(f'<rect x="{L+j*cw+2:.1f}" y="{y+2}" width="{cw-4:.1f}" height="{rh-4}" fill="{fill}" class="cell"><title>{H.escape(t)} {yr}: {rec(st)} vs expectations, {st["w"]}-{st["l"]} won-lost, beat by {st["cm"]:+.1f} avg</title></rect>')
+                s.append(f'<text x="{L+j*cw+cw/2:.1f}" y="{y+19}" class="cellt" style="font-size:{11 if len(yrs)>6 else 12}px" text-anchor="middle">{rec(st)}</text>')
+        s.append('</svg>'); return ''.join(s)
+
+    conf_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{rec(tot[t])}</td><td>{tot[t]['pct']:.0f}%</td><td>{tot[t]['cm']:+.1f}</td><td>{fav[t]['pct']:.0f}%</td><td>{dog[t]['pct']:.0f}%</td><td>{mvs[t]:+.2f}</td></tr>" for t in order)
+    allst=stats(d); am=tot['Texas A&M']; rank=order.index('Texas A&M')+1; xrank=xorder.index('Texas A&M')+1
+    mrank=morder.index('Texas A&M')+1; lrank=lorder.index('Texas A&M')+1; drank=dorder.index('Texas A&M')+1; trank=torder.index('Texas A&M')+1
+    xw_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{tot[t]['w']}-{tot[t]['l']}</td><td>{xrec(tot[t])}</td><td>{dw(tot[t]):+.1f}</td><td>{tot[t]['fw']}-{tot[t]['fl']}</td><td>{tot[t]['uw']}-{tot[t]['ul']}</td></tr>" for t in xorder)
+    trend_rows=''.join(f"<tr{' class=hi' if t=='Texas A&M' else ''}><td>{H.escape(t)}</td><td>{trd[t][2][THIRDS[0]]['cm']:+.1f}</td><td>{trd[t][2][THIRDS[1]]['cm']:+.1f}</td><td>{trd[t][2][THIRDS[2]]['cm']:+.1f}</td><td>{trd[t][0]:+.1f}</td><td>{trd[t][2][THIRDS[0]]['w']}-{trd[t][2][THIRDS[0]]['l']}</td><td>{trd[t][2][THIRDS[2]]['w']}-{trd[t][2][THIRDS[2]]['l']}</td></tr>" for t in torder)
+    LONG=[x for x in ALLTEN if len(x['yrs'])>=2]; LONG.sort(key=lambda x:gap(x) if pd.notna(gap(x)) else -99,reverse=True)
+
+    # first-year coaches league-wide
+    def first_year_split():
+        if not HAS_S or 'coach_tenure_year' not in S or S.coach_tenure_year.isna().all(): return None
+        ts=[]
+        for (t,yr),grp in S[S.team.isin(TEAMS)].groupby(['team','season']):
+            g=d[(d.team==t)&(d.season==yr)]
+            if not len(g) or pd.isna(grp.iloc[0].coach_tenure_year): continue
+            st=stats(g); ts.append(dict(team=t,season=yr,ty=grp.iloc[0].coach_tenure_year,dw=dw(st),mg=mgap(st),lk=luck(st),dev=grp.iloc[0].talent_rank-grp.iloc[0].sp_rank))
+        ts=pd.DataFrame(ts); a=ts[ts.ty==1]; b=ts[ts.ty>1]
+        if len(a)<3 or len(b)<3: return None
+        def cmp(col):
+            diff=a[col].mean()-b[col].mean(); se=math.sqrt(a[col].var()/len(a)+b[col].var()/len(b)); return a[col].mean(),b[col].mean(),diff,se
+        return dict(n1=len(a),n2=len(b),dw=cmp('dw'),mg=cmp('mg'),lk=cmp('lk'),dev=cmp('dev'))
+    FY=first_year_split()
+
+    def _axis(st):
+        mg=mgap(st); lk=luck(st); zm=abs(mg)/st['se_mg']; zl=abs(lk)/st['se_lk']
+        a=('overrated' if mg>0 else 'underrated') if zm>=2 else ('leaning overrated' if mg>0 else 'leaning underrated') if zm>=1 else 'expected about right'
+        b=('lucky' if lk>0 else 'unlucky') if zl>=2 else ('a little lucky' if lk>0 else 'a little unlucky') if zl>=1 else 'neither lucky nor unlucky'
+        return f"{a}, {b}"
+    def _names(ts): return ', '.join(H.escape(t) for t in ts) if ts else 'no team'
+    def take_quad():
+        mo,mu,lo,lu=morder[0],morder[-1],lorder[0],lorder[-1]; a=tot['Texas A&M']
+        sem=np.mean([tot[t]['se_mg'] for t in TEAMS]); sel=np.mean([tot[t]['se_lk'] for t in TEAMS])
+        clear=[t for t in TEAMS if abs(mgap(tot[t]))>=2*tot[t]['se_mg'] or abs(luck(tot[t]))>=2*tot[t]['se_lk']]
+        sugg=[t for t in TEAMS if t not in clear and (abs(mgap(tot[t]))>=tot[t]['se_mg'] or abs(luck(tot[t]))>=tot[t]['se_lk'])]
+        return take(f'By this measure {H.escape(mo)} is the most overrated program {'in the league' if KEY=='sec' else 'on this site'} ({mgap(tot[mo]):+.1f} wins) and {H.escape(mu)} the most underrated ({mgap(tot[mu]):+.1f}). '
+                    f'{H.escape(lo)} has won the most beyond what its play deserved ({luck(tot[lo]):+.1f}) and {H.escape(lu)} the least ({luck(tot[lu]):+.1f}). '
+                    f'Texas A&amp;M sits at {mgap(a):+.1f} on the expectation axis and {luck(a):+.1f} on the luck axis: {_axis(a)}. The {'league' if KEY=='sec' else 'field'} as a whole clusters near the middle; the corners are a handful of programs.',
+                    f'One standard error is about &plusmn;{sem:.1f} wins up and down and &plusmn;{sel:.1f} left and right. Beyond two standard errors on either axis: {_names(clear)}. Between one and two: {_names(sugg)}. Everyone else is inside the noise, and the luck axis in particular needs many seasons to say much.')
+    def take_dev():
+        pos=[t for t in dorder if dev[t]-LG_DEV>=5]; neg=[t for t in dorder if dev[t]-LG_DEV<=-5]; a=dev['Texas A&M']
+        return take(f'The {"league" if KEY=="sec" else "field"} average is {LG_DEV:+.0f} spots: the talent composite rates elite rosters higher than they play, so the fair baseline is the peer group, not zero. '
+                    f'Clearly above that baseline: {_names(pos)}. Clearly below it: {_names(neg)}. Texas A&amp;M at {a:+.0f} is {"even with" if abs(a-LG_DEV)<1 else f"{a-LG_DEV:+.0f} against"} the {"league" if KEY=="sec" else "field"} average, {"typical of the group" if abs(a-LG_DEV)<5 else "outside the pack"}.',
+                    f'{NSEAS} seasons of rank averages carry roughly &plusmn;{RK_SE:.0f} spots of noise, so gaps inside that are not worth arguing about. Gaps of 15 or more against the league average are well outside it.')
+    def take_coach_lg():
+        tens=[x for x in LONG if len(x['yrs'])>=3 and pd.notna(gap(x))]
+        if len(tens)<4: return ''
+        best=tens[:3]; worst=tens[-3:]
+        def lst(xs): return ', '.join(f"{H.escape(x['last'])} at {H.escape(x['team'])} ({gap(x):+.0f})" for x in xs)
+        fy=''
+        if FY:
+            m1,m2,df,se=FY['dw']; g1,g2,dg,seg=FY['mg']; v1,v2,dv,sev=FY['dev']
+            fy=(f" First-year head coaches ({FY['n1']} debut seasons) have finished {m1:+.1f} wins a season against expectations, versus {m2:+.1f} for everyone else; the public has {'over' if g1>g2 else 'under'}rated them relative to established coaches by {abs(dg):.1f} wins a season, and their rosters played {'better' if dv>0 else 'worse'} relative to talent by {abs(dv):.0f} spots.")
+        return take(f"Among tenures of three or more seasons, the most out of a roster: {lst(best)}. The least: {lst(worst)}. The {'league' if KEY=='sec' else 'field'} average is {LG_DEV:+.0f}, so read every tenure against that.{fy}",
+                    (f"Three-season tenures are about 38 games: roughly &plusmn;{SDG*math.sqrt(38):.1f} wins on the expectation gap, &plusmn;{math.sqrt(38*0.16):.1f} on luck, and &plusmn;7 spots on a rank average. "+
+                     (f"On the first-year split, one standard error is about &plusmn;{FY['dw'][3]:.1f} wins a season on the results gap ({sig(FY['dw'][2],FY['dw'][3])}), &plusmn;{FY['mg'][3]:.1f} on the expectation gap ({sig(FY['mg'][2],FY['mg'][3])}), and &plusmn;{FY['dev'][3]:.0f} spots on the roster gap ({sig(FY['dev'][2],FY['dev'][3])})." if FY else "")))
+    def take_xw():
+        se=np.mean([tot[t]['se_lk'] for t in TEAMS]); clear=[t for t in TEAMS if abs(dw(tot[t]))>=2*se]
+        return take(f'{H.escape(xorder[0])} and {H.escape(xorder[1])} have beaten expectations by the most ({dw(tot[xorder[0]]):+.1f}, {dw(tot[xorder[1]]):+.1f}); {H.escape(xorder[-1])} and {H.escape(xorder[-2])} have fallen furthest short ({dw(tot[xorder[-1]]):+.1f}, {dw(tot[xorder[-2]]):+.1f}). Texas A&amp;M is {dw(tot["Texas A&M"]):+.1f}, {xrank} of {len(TEAMS)}. This number mixes the first two questions together; the quadrant chart above is the one that separates them.',
+                    f'One standard error is about &plusmn;{se:.1f} wins, so only {_names(clear)} {"is" if len(clear)==1 else "are"} clearly outside the noise.')
+    def take_trend_lg():
+        clear=[t for t in torder if abs(trd[t][0])>=2*trd[t][1]]; sugg=[t for t in torder if t not in clear and abs(trd[t][0])>=trd[t][1]]
+        e,l=lg_th[THIRDS[0]],lg_th[THIRDS[2]]; ne,nl=lg_nc[THIRDS[0]],lg_nc[THIRDS[2]]; a=trd['Texas A&M']
+        return take(f'{H.escape(torder[0])} ({trd[torder[0]][0]:+.1f} points a game) and {H.escape(torder[1])} ({trd[torder[1]][0]:+.1f}) finish seasons strongest relative to expectations; {H.escape(torder[-1])} ({trd[torder[-1]][0]:+.1f}) and {H.escape(torder[-2])} ({trd[torder[-2]][0]:+.1f}) fade the most. Texas A&amp;M is {a[0]:+.1f}, {trank} of {len(TEAMS)}. '
+                    f'{'League-wide the pattern is flat' if KEY=='sec' else 'Across the whole field the averages are close to flat'} ({e["cm"]:+.1f} early, {l["cm"]:+.1f} late){', as it must be when conference games count for both sides' if KEY=='sec' else ''}; in non-conference games alone {'the SEC' if KEY=='sec' else 'these programs'} beat expectations by {ne["cm"]:+.1f} a game early and {nl["cm"]:+.1f} late.',
+                    f'One standard error on a team\'s early-versus-late difference is about &plusmn;{np.mean([trd[t][1] for t in TEAMS]):.1f} points a game. Beyond two: {_names(clear)}. Between one and two: {_names(sugg)}. The rest is noise; single games swing by 20 points routinely.')
+    def take_ats():
+        clear=[t for t in TEAMS if abs(tot[t]['pct']-50)>=2*tot[t]['se_pct']]
+        return take(f'Over {NSEAS} seasons there is no {'SEC team' if KEY=='sec' else 'program here'} whose expected margins are reliably off. The most optimistic the public has been about any program is {abs(tot[order[-1]]["cm"]):.1f} points a game ({H.escape(order[-1])}), the most pessimistic {tot[order[0]]["cm"]:.1f} ({H.escape(order[0])}), and the whole {'league' if KEY=='sec' else 'field'} spans about {sd*2:.0f} points. That is what you would expect when the number is set by people with money on it.',
+                    f'With about {AVGN:.0f} games per team, one standard error on a beat-expectations rate is roughly &plusmn;{100*math.sqrt(0.25/AVGN):.0f} points. Outside two standard errors: {_names(clear)}.')
+
+    coach_section=(f'''<h2>Coaches and their rosters</h2>
+    <p>Every head-coaching tenure of three or more seasons in the window, as one dot: the roster's average talent rank against the play's average SP+ rank. Above the diagonal, the coach got more out of the roster than its recruiting rankings promised; below, less. The table lists every tenure of two or more seasons. Tenure years count seasons before the window and 2020.</p>
+    {coachplot()}
+    {coach_table(LONG,show_team=True)}
+    {take_coach_lg()}''' if HAS_S and LONG else '')
+
+    conf=f'''<section class="team" id="sec" style="--accent:{MAROON}">
+    <h1>{TITLE}</h1>
+    <p class="sub">{SUB} {len(d[d.team.isin(TEAMS)]):,} team-games over {NSEAS} seasons, every one with an expected margin.{" 2020 is left out as an anomaly: ten conference games, no non-conference schedule." if YMIN<2020<YMAX else ""}</p>
+    <div class="big"><div><b>{am['w']}-{am['l']}</b><span>Texas A&amp;M won-lost</span></div><div><b>{mgap(am):+.1f}</b><span>expected minus deserved wins, {mrank} of {len(TEAMS)}</span></div><div><b>{luck(am):+.1f}</b><span>won minus deserved wins, {lrank} of {len(TEAMS)}</span></div><div><b>{fr(dev['Texas A&M'],'{:+.0f}')}</b><span>talent rank minus SP+ rank, {drank} of {len(TEAMS)}</span></div></div>
+    {INTRO}
+    {GLOSS}
+    <h2>Overrated, underrated, lucky, unlucky</h2>
+    <p>Up and down is what the public expected minus what the play deserved: up is overrated. Left and right is actual wins minus deserved wins: right is overperforming, usually close games and turnover luck. {NSEAS}-season totals. A team can be overrated and unlucky at the same time; that is the top-left corner.</p>
+    {quad()}
+    {take_quad()}
+    <h2>Playing above or below the roster</h2>
+    <p>Average talent-composite rank minus average SP+ rank across the {NSEAS} seasons. Positive means the program has played better than its recruiting rankings would predict; negative means the roster has been better than the play. Ranks are among all FBS programs.</p>
+    {devplot() if HAS_S else ''}
+    <div class="wrap"><table><tr><th>Team</th><th>Talent rank</th><th>SP+ rank</th><th>Talent&minus;SP+</th><th>Record</th><th>Deserved</th><th>Expected</th><th>Won vs deserved</th><th>Expected vs deserved</th></tr>{ctx_rows}</table></div>
+    {take_dev()}
+    {coach_section}
+    <h2>Wins versus expectation</h2>
+    <p>Actual wins minus the wins the public expected, {NSEAS}-season totals. Positive means the program won more often than expected. This mixes the first two questions together; the quadrant chart above pulls them apart.</p>
+    {xwplot()}
+    <div class="wrap"><table><tr><th>Team</th><th>Record</th><th>Expected</th><th>Won vs expected</th><th>When expected to win</th><th>When expected to lose</th></tr>{xw_rows}</table></div>
+    {take_xw()}
+    <h2>Early season versus late season</h2>
+    <p>How many points a game each program beat expectations by, or fell short, in the last stretch of its seasons (game 9 on, postseason included) minus the first four games. Positive means the team finished seasons stronger than the public expected; negative means it faded. Because the expected margin already moves week to week, this measures how slow opinion was to adjust.</p>
+    {trendplot()}
+    <div class="wrap"><table><tr><th>Team</th><th>Early</th><th>Middle</th><th>Late</th><th>Late &minus; early</th><th>Early record</th><th>Late record</th></tr>{trend_rows}</table></div>
+    {take_trend_lg()}
+    <h2>Appendix: against expectations</h2>
+    <p>For readers who follow the point spreads.</p>
+    <div class="big"><div><b>{allst['pct']:.1f}%</b><span>league-wide rate of beating expectations</span></div><div><b>{am['pct']:.0f}%</b><span>Texas A&amp;M rate</span></div><div><b>{rank} of {len(TEAMS)}</b><span>A&amp;M rank by beat-by average</span></div></div>
+    <h3>Beat expectations by, on average</h3>
+    <p>Positive means the program beat its expected margin on average; negative means the public was consistently too optimistic about it.</p>
+    {dotplot()}
+    {take_ats()}
+    <h3>When expected to win, when expected to lose</h3>
+    <p>Filled dot is the rate of beating expectations when the team was expected to win, open circle when it was expected to lose. A team far to the left on the filled dot but to the right on the open one is a program the public overbuys when it is supposed to win.</p>
+    {favdog()}
+    <h3>Season by season</h3>
+    <p>Record against expectations per team-season. Maroon shading is above 50%, tan is below; deeper color is further from even.</p>
+    {heat()}
+    <h3>{'All sixteen' if KEY=='sec' else 'All '+str(len(TEAMS))}</h3>
+    <p>Opinion shift is the average change from the week-earlier number to the kickoff number, from the team's perspective; negative means the public leaned further toward the team during the week. Not every game has a week-earlier number on file.</p>
+    <div class="wrap"><table><tr><th>Team</th><th>Won-lost</th><th>Vs expectations</th><th>Beat %</th><th>Beat by, avg</th><th>Beat % when expected to win</th><th>Beat % when expected to lose</th><th>Opinion shift</th></tr>{conf_rows}</table></div>
+    <p class="note">Data: CollegeFootballData.com games, lines, ratings, talent, recruiting, rankings and coaches endpoints, kickoff point spread from consensus or DraftKings where available. Expected margins are from the listed team's side. Beat by = actual margin minus expected margin. Conference games appear once for each side, so the league-wide beat-by average nets to roughly zero by construction; per-team numbers are unaffected. Expected wins convert each expected margin to a win probability with a normal model (standard deviation {SIG:.1f} points, fitted to this data) and sum them. Deserved wins sum CFBD's postgame win probability per game; where CFBD has no play-by-play for a game ({int(d.post_wp.isna().sum())} of {len(d)}), the expected-margin probability stands in.{" The 2020 season is excluded from every number except head-coach tenure years." if YMIN<2020<YMAX else ""}</p>
+    <p class="more"><a href="{BASE}texas-am/">Texas A&amp;M's page</a>{' · <a href="'+BASE+'national/">Compare across the SEC and the national field</a>' if KEY=='sec' else ' · <a href="'+BASE+'sec/">The SEC alone</a>'}</p>
+    </section>'''
+
+    return conf
 
 # ---------- page shell, one file per section
 CSS=f'''
@@ -673,15 +692,18 @@ th{{font-weight:600;color:var(--mute)}} tr.hi td{{font-weight:600;background:rgb
 .more{{margin-top:36px;font-weight:600}} a{{color:inherit}}
 @media (prefers-reduced-motion:no-preference){{.pt{{transition:r .15s}} .pt:hover{{r:8.5}}}}
 '''
-SLUGS=['sec']+[slug(t) for t in TEAMS]
+SLUGS=['sec','national']+[slug(t) for t in ALLTEAMS]
 def shell(title,body,current):
-    o=''.join(f'<option value="{s}"{" selected" if s==current else ""}>{"The SEC (all sixteen)" if s=="sec" else H.escape(t)}</option>' for s,t in [('sec',None)]+[(slug(t),t) for t in TEAMS])
+    opt=lambda s_,lab: f'<option value="{s_}"{" selected" if s_==current else ""}>{lab}</option>'
+    o=('<optgroup label="Comparisons">'+opt('sec','The SEC (all sixteen)')+opt('national','SEC + national field')+'</optgroup>'
+       '<optgroup label="SEC">'+''.join(opt(slug(t),H.escape(t)) for t in SEC)+'</optgroup>'
+       '<optgroup label="National comparison">'+''.join(opt(slug(t),H.escape(t)) for t in EXTRA)+'</optgroup>')
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>{H.escape(title)} · SEC football {SPAN}: expectations, luck, and talent</title>
+<title>{H.escape(title)} · College football {SPAN}: expectations, luck, and talent</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Barlow:wght@400;600&display=swap">
 <style>{CSS}</style></head><body><main>
-<nav><a class="brand" href="{BASE}">SEC football, {SPAN}</a><label for="pick">Team</label><select id="pick">{o}</select></nav>
+<nav><a class="brand" href="{BASE}">College football, {SPAN}</a><label for="pick">Team</label><select id="pick">{o}</select></nav>
 {body}
 </main>
 <script>
@@ -693,8 +715,10 @@ var h=location.hash.slice(1);if(h&&K.indexOf(h)>=0&&sel.value!==h){{location.rep
 OUT='out'
 if os.path.isdir(OUT): shutil.rmtree(OUT)
 os.makedirs(OUT)
-pages={'sec':('The SEC',conf)}
-for t in TEAMS: pages[slug(t)]=(t,team_section(t))
+INTRO_NAT=INTRO_SEC.replace('all sixteen programs at once','the sixteen SEC programs and '+str(len(EXTRA))+' of the country\'s elite at once')
+pages={'sec':('The SEC',build_league('sec','The SEC',"Sixteen current SEC programs. Texas and Oklahoma's Big 12 seasons are included so each program has the same window.",INTRO_SEC,SEC)),
+       'national':('SEC and the national field',build_league('national','The SEC and the national field',f"The sixteen SEC programs plus {', '.join(EXTRA[:-1])} and {EXTRA[-1]}: every recent national champion and every program whose average final AP ranking over the window sits inside the top 12.",INTRO_NAT,ALLTEAMS))}
+for t in ALLTEAMS: pages[slug(t)]=(t,team_section(t))
 total=0; largest=0
 for s,(title,body) in pages.items():
     html_=shell(title,body,s); os.makedirs(os.path.join(OUT,s),exist_ok=True)

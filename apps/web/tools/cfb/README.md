@@ -1,4 +1,4 @@
-# SEC expectations / luck / talent pages (`/cfbanalysis`)
+# College football expectations / luck / talent pages (`/cfbanalysis`)
 
 Python tooling that builds the static page served at `https://whyapp.us/cfbanalysis`.
 These are offline scripts, not Worker source; they live outside `src/` so they are
@@ -35,6 +35,17 @@ npm run deploy        # wrangler deploy — publishes public/ as static assets
 ```
 
 Then commit the updated CSVs and `public/cfbanalysis/`.
+
+## Teams
+
+The sixteen current SEC programs, plus a **national comparison set**: every team that
+finished No. 1 in the final AP poll within the window, every program whose average final
+AP ranking over the window (unranked counted as 26th) is inside the top 12, and Indiana.
+As of 2016-2025 that adds Ohio State, Indiana, Michigan, Clemson and Notre Dame. The
+lists live in `EXTRA` in both pull scripts; the build picks up whatever teams the games
+file contains. Pages: `/cfbanalysis/sec/` (SEC only), `/cfbanalysis/national/` (everyone),
+one page per team. The roster-gap baseline is the SEC average for SEC teams and the
+whole-field average for the others.
 
 ## What the page computes
 

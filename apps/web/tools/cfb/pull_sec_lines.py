@@ -1,12 +1,12 @@
 """
 Games, kickoff/opening point spreads, postgame win probability, pregame Elo and
-box-score turnovers for the 16 current SEC programs, 2016-2025, from
+box-score turnovers for the 16 current SEC programs plus a national comparison set, 2016-2025, from
 CollegeFootballData.com.
 
     python pull_sec_lines.py          (needs CFBD_KEY; writes sec_games_2016_2025.csv)
 
-Call budget: 4 calls per season (games, lines, box scores for SEC, box scores for
-the Big 12 while Texas/Oklahoma were there) -> about 40 calls for ten seasons.
+Call budget: about 6 calls per season (games, lines, box scores per conference plus
+Notre Dame) -> about 60 calls for ten seasons.
 Responses are cached per season in cache/ so a rerun only fetches seasons that
 are missing or in progress (the latest season is always refetched).
 """
@@ -21,10 +21,16 @@ BASE = "https://api.collegefootballdata.com"
 H = {"Authorization": f"Bearer {KEY}"}
 SEASONS = range(2016, 2026)
 REFETCH = {max(SEASONS)}          # in-progress season: never trust the cache
-TEAMS = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
-         "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
-         "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
+SEC = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
+       "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
+       "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
+# national comparison set: recent champions + programs whose average final AP rank is inside the top 12, plus Indiana
+EXTRA = ["Ohio State", "Indiana", "Michigan", "Clemson", "Notre Dame"]
+TEAMS = SEC + EXTRA
 BIG12_UNTIL = 2023                # Texas and Oklahoma joined the SEC in 2024
+# box scores are fetched by conference (one call each); Notre Dame is independent, so by team
+BOX_CONFS = lambda year: ["SEC", "B1G", "ACC"] + (["B12"] if year <= BIG12_UNTIL else [])
+BOX_TEAMS = ["Notre Dame"]
 PROVIDER_ORDER = ["consensus", "DraftKings", "Bovada", "ESPN Bet", "teamrankings", "numberfire"]
 CACHE = "cache"; os.makedirs(CACHE, exist_ok=True)
 
@@ -57,9 +63,11 @@ rows = []
 for year in SEASONS:
     games = cached("games", year, lambda: get("/games", year=year, seasonType="both"))
     lines = cached("lines", year, lambda: get("/lines", year=year, seasonType="both"))
-    box = cached("box_sec", year, lambda: get("/games/teams", year=year, conference="SEC", seasonType="both"))
-    if year <= BIG12_UNTIL:
-        box = box + cached("box_b12", year, lambda: get("/games/teams", year=year, conference="B12", seasonType="both"))
+    box = []
+    for conf in BOX_CONFS(year):
+        box += cached(f"box_{conf.lower()}", year, lambda c=conf: get("/games/teams", year=year, conference=c, seasonType="both"))
+    for bt in BOX_TEAMS:
+        box += cached(f"box_{bt.lower().replace(' ', '_')}", year, lambda b=bt: get("/games/teams", year=year, team=b, seasonType="both"))
     games = {g["id"]: norm(g) for g in games}
     lines = {l["id"]: l for l in lines}
     tos = {}
