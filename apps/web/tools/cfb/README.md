@@ -10,7 +10,8 @@ never bundled.
 | `sec_games_2016_2025.csv` | Per team-game data. Committed as deployable state. Until it exists the build falls back to `sec_games_2021_2025.csv`. |
 | `pull_sec_seasons.py` | Fetches season-level context, 2016-2025: SP+ and FPI ratings, 247 talent composite, recruiting class rank, preseason and final AP rank, returning production, advanced season stats, and head coach + tenure year (from the coaches endpoint, one call per school). Writes `sec_seasons_2016_2025.csv`. |
 | `sec_seasons_2016_2025.csv` | Per team-season context. Committed as deployable state. The build still runs without it (context sections are skipped). |
-| `build_cfbanalysis.py` | Reads the CSVs, drops 2020 (COVID season) from every number except coach tenure years, writes one page per team plus the league page into `out/` (Texas A&M is also `out/index.html`, the default landing). |
+| `build_cfbanalysis.py` | Reads the CSVs, drops 2020 (COVID season) from every number except coach tenure years, writes one page per team plus the league, national and coaches pages for one season window (`--window all|2021-2025|2023-2025|current-coach`, `--out dir`). Texas A&M is also the folder's `index.html`. |
+| `build_all.py` | Runs the build for every preset window: `out/` (2016-2025), `out/2021-2025/`, `out/2023-2025/`, `out/current-coach/`. This is what `npm run cfb:build` calls. |
 | `out/` | Build output, one folder per page. Copied to `../../public/cfbanalysis/` by `npm run cfb:build`. Not committed. |
 
 ## Requirements
@@ -46,6 +47,14 @@ lists live in `EXTRA` in both pull scripts; the build picks up whatever teams th
 file contains. Pages: `/cfbanalysis/sec/` (SEC only), `/cfbanalysis/national/` (everyone),
 one page per team. The roster-gap baseline is the SEC average for SEC teams and the
 whole-field average for the others.
+
+## Season presets
+
+Every page exists once per preset window, chosen with the Seasons dropdown: 2016-2025 (default,
+at the root), 2021-2025, 2023-2025, and Current coach (each program over its sitting head coach's
+tenure, so windows differ by team). All prose is generated from the data at build time, so the
+takeaways and error bars on a preset page are correct for that window. Add a preset in `WINDOWS`
+in `build_cfbanalysis.py` and in `build_all.py`.
 
 ## What the page computes
 
