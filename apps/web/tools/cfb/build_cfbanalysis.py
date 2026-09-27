@@ -41,6 +41,7 @@ def sig(v,se):
 def strength(v,se): return sig(v,se).split(' (')[0]
 HAS_S=os.path.exists(SFILE)
 S=pd.read_csv(SFILE) if HAS_S else pd.DataFrame(columns=['season','team'])
+S_ALL=S.copy()
 if HAS_S:
     S=S[S.season.isin(YEARS)].copy()    # only seasons that have games; tenure years were computed on the full record
     for c in ['coach','coach_tenure_year','coach_first_year']:
@@ -104,7 +105,25 @@ def tenures_for(t):
         out.append(dict(team=t,coach=coach,last=coach.split()[-1],first=int(first),yrs=yrs,st=stats(g),
                         tal=grp.talent_rank.mean(),sp=grp.sp_rank.mean()))
     out.sort(key=lambda x:x['yrs'][0]); return out
-TEN={t:tenures_for(t) for t in ALLTEAMS}
+SHORT={'Texas A&M':'A&M','Mississippi State':'Miss St','South Carolina':'S Carolina','Ohio State':'Ohio St','Notre Dame':'ND','Ole Miss':'Ole Miss'}
+def short(t): return SHORT.get(t,t)
+def enrich(x):
+    """add inherited/left SP+, recruiting change and per-season rates to a tenure dict"""
+    t=x['team']; f=x['first']; sa=S_ALL[S_ALL.team==t]
+    before=sa[(sa.season<f)&(sa.season>=f-2)]
+    own=sa[(sa.coach==x['coach'])&(sa.coach_first_year==f)].sort_values('season')
+    x['sp_in']=before.sp_rank.mean() if len(before) else np.nan
+    x['sp_out']=own.sp_rank.tail(2).mean() if len(own) else np.nan
+    x['tal_in']=before.talent_rank.mean() if before.talent_rank.notna().any() else np.nan
+    later=own[own.coach_tenure_year>=3] if (own.coach_tenure_year>=3).any() else own
+    x['tal_later']=later.talent_rank.mean() if later.talent_rank.notna().any() else np.nan
+    x['tal_short']=not (own.coach_tenure_year>=3).any()
+    x['recruit']=(x['tal_in']-x['tal_later']) if pd.notna(x['tal_in']) and pd.notna(x['tal_later']) else np.nan   # + = roster got better
+    x['turn']=(x['sp_in']-x['sp_out']) if pd.notna(x['sp_in']) and pd.notna(x['sp_out']) else np.nan            # + = program got better
+    n=len(x['yrs']); x['n']=n; x['dev_se']=11/math.sqrt(n); x['dw_ps']=dw(x['st'])/n; x['lk_ps']=luck(x['st'])/n
+    x['label']=f"{x['last']} ({short(t)})"; x['hi']=(t=='Texas A&M')
+    return x
+TEN={t:[enrich(x) for x in tenures_for(t)] for t in ALLTEAMS}
 ALLTEN=[x for t in ALLTEAMS for x in TEN[t]]
 def gap(x): return (x['tal']-x['sp']) if pd.notna(x['tal']) and pd.notna(x['sp']) else np.nan
 
@@ -369,7 +388,8 @@ def team_section(t):
     coach_block=(f'''<h3>By head coach</h3>
 <p>The same numbers split by head-coaching tenure. Tenure years count seasons before this window and 2020, which is left out of every other number on the page.</p>
 {coach_table(TEN[t])}
-{take_coaches(t)}''' if TEN[t] else '')
+{take_coaches(t)}
+<p class="more"><a href="{BASE}coaches/">Compare these coaches with every tenure on the site</a></p>''' if TEN[t] else '')
     return f'''<section class="team" id="{slug(t)}" style="--accent:{col}">
 <h1>{H.escape(t)}</h1>
 <p class="sub">Every game over {NSEAS} seasons, from the {H.escape(t)} side of the expectations.</p>
@@ -600,7 +620,8 @@ def build_league(KEY,TITLE,SUB,INTRO,TL):
     <p>Every head-coaching tenure of three or more seasons in the window, as one dot: the roster's average talent rank against the play's average SP+ rank. Above the diagonal, the coach got more out of the roster than its recruiting rankings promised; below, less. The table lists every tenure of two or more seasons. Tenure years count seasons before the window and 2020.</p>
     {coachplot()}
     {coach_table(LONG,show_team=True)}
-    {take_coach_lg()}''' if HAS_S and LONG else '')
+    {take_coach_lg()}
+<p class="more"><a href="{BASE}coaches/">Full coach comparison: recruiting, developing, inherited versus left</a></p>''' if HAS_S and LONG else '')
 
     conf=f'''<section class="team" id="sec" style="--accent:{MAROON}">
     <h1>{TITLE}</h1>
@@ -650,6 +671,108 @@ def build_league(KEY,TITLE,SUB,INTRO,TL):
 
     return conf
 
+# ---------- coaches page
+CT=[x for x in ALLTEN if x['n']>=2 and pd.notna(gap(x))]
+DEV_FIELD=float(np.mean([gap(x) for x in CT]))
+def coach_quad():
+    pts_=[x for x in CT if pd.notna(x['recruit'])]
+    W,Hh=720,600; L,R,T,B=56,20,24,48; mx=30; my=30   # fixed range; outliers are pinned to the edge (tooltip has the real value)
+    X=lambda v:L+(v+mx)/(2*mx)*(W-L-R); Y=lambda v:T+(my-v)/(2*my)*(Hh-T-B)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Coaching tenures: roster improvement against play above roster">']
+    for v in range(-mx,mx+1,10): s.append(f'<line x1="{X(v):.1f}" y1="{T}" x2="{X(v):.1f}" y2="{Hh-B}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-B+18}" class="tick" text-anchor="middle">{v:+d}</text>')
+    for v in range(-my,my+1,10): s.append(f'<line x1="{L}" y1="{Y(v):.1f}" x2="{W-R}" y2="{Y(v):.1f}" class="{"zero" if v==0 else "grid"}"/><text x="{L-8}" y="{Y(v)+4:.1f}" class="tick" text-anchor="end">{v:+d}</text>')
+    for x_,y_,a,txt in [(L+8,T+14,'start','Develops what he gets'),(W-R-8,T+14,'end','Recruits and develops'),(L+8,Hh-B-8,'start','Neither'),(W-R-8,Hh-B-8,'end','Recruits, does not develop')]:
+        s.append(f'<text x="{x_}" y="{y_}" class="lbl faint" text-anchor="{a}">{txt}</text>')
+    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-8}" class="axis" text-anchor="middle">Roster improvement: talent rank inherited minus talent rank from year 3 on (spots, better to the right)</text>')
+    s.append(f'<text transform="translate(14 {(T+Hh-B)/2:.0f}) rotate(-90)" class="axis" text-anchor="middle">Play above roster, against the field average (spots, better is up)</text>')
+    for x in sorted(pts_,key=lambda x:-x['n']):
+        cx,cy=X(max(-mx,min(mx,x['recruit']))),Y(max(-my,min(my,gap(x)-DEV_FIELD)))
+        s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{4+min(x["n"],9)*0.5:.1f}" fill="{COLORS[x["team"]]}" class="dot" opacity=".9"><title>{H.escape(x["coach"])}, {H.escape(x["team"])} {x["yrs"][0]}–{x["yrs"][-1]}: roster No. {x["tal_in"]:.0f} inherited, No. {x["tal_later"]:.0f} {"from year 3" if not x["tal_short"] else "over a short tenure"}; play {gap(x):+.0f} vs roster ({gap(x)-DEV_FIELD:+.0f} vs field)</title></circle>')
+        s.append(f'<text x="{cx+8:.1f}" y="{cy+4:.1f}" class="tname{" hi" if x["hi"] else ""}" style="font-size:11px">{H.escape(x["label"])}</text>')
+    s.append('</svg>'); return ''.join(s)
+
+def coach_rank():
+    ks=sorted(CT,key=gap,reverse=True); W,rh=720,26; L,R=170,30; Hh=rh*len(ks)+50; m=60; X=lambda v:L+(v+m)/(2*m)*(W-L-R)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Play above roster by coaching tenure, with error bars">']
+    for v in range(-m,m+1,20): s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="{"zero" if v==0 else "grid"}"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{v:+d}</text>')
+    s.append(f'<line x1="{X(DEV_FIELD):.1f}" y1="10" x2="{X(DEV_FIELD):.1f}" y2="{Hh-30}" class="fair"/><text x="{X(DEV_FIELD)+4:.1f}" y="{Hh-32}" class="tick">field avg {DEV_FIELD:+.0f}</text>')
+    for i,x in enumerate(ks):
+        y=18+i*rh; v=max(-m,min(m,gap(x))); lo=max(-m,min(m,gap(x)-x['dev_se'])); hi=max(-m,min(m,gap(x)+x['dev_se']))
+        s.append(f'<text x="{L-10}" y="{y+4}" class="tname{" hi" if x["hi"] else ""}" style="font-size:12px" text-anchor="end">{H.escape(x["label"])} <tspan class="tick">{x["n"]}</tspan></text>')
+        s.append(f'<line x1="{X(lo):.1f}" y1="{y}" x2="{X(hi):.1f}" y2="{y}" stroke="{COLORS[x["team"]]}" stroke-width="2" opacity=".35"/>')
+        s.append(f'<circle cx="{X(v):.1f}" cy="{y}" r="5.5" fill="{COLORS[x["team"]]}"><title>{H.escape(x["coach"])}, {H.escape(x["team"])}: roster No. {x["tal"]:.0f}, play No. {x["sp"]:.0f}, {gap(x):+.0f} &plusmn;{x["dev_se"]:.0f} over {x["n"]} seasons</title></circle>')
+    s.append('</svg>'); return ''.join(s)
+
+def coach_turn():
+    ks=sorted([x for x in CT if pd.notna(x['turn'])],key=lambda x:x['turn'],reverse=True); W,rh=720,26; L,R=170,30; Hh=rh*len(ks)+50; xmin,xmax=1,80; X=lambda v:L+(min(v,xmax)-xmin)/(xmax-xmin)*(W-L-R)
+    s=[f'<svg viewBox="0 0 {W} {Hh}" class="chart" role="img" aria-label="Program SP+ rank inherited versus left, by coaching tenure">']
+    for v in [1,10,20,30,40,50,60,70,80]: s.append(f'<line x1="{X(v):.1f}" y1="10" x2="{X(v):.1f}" y2="{Hh-30}" class="grid"/><text x="{X(v):.1f}" y="{Hh-12}" class="tick" text-anchor="middle">{"80+" if v==80 else v}</text>')
+    for i,x in enumerate(ks):
+        y=18+i*rh; a,b=x['sp_in'],x['sp_out']
+        s.append(f'<text x="{L-10}" y="{y+4}" class="tname{" hi" if x["hi"] else ""}" style="font-size:12px" text-anchor="end">{H.escape(x["label"])}</text>')
+        s.append(f'<line x1="{X(a):.1f}" y1="{y}" x2="{X(b):.1f}" y2="{y}" stroke="{COLORS[x["team"]]}" stroke-width="2.5" opacity=".5"/>')
+        s.append(f'<circle cx="{X(a):.1f}" cy="{y}" r="5" fill="none" stroke="{COLORS[x["team"]]}" stroke-width="2"><title>{H.escape(x["coach"])} inherited {H.escape(x["team"])} at SP+ No. {a:.0f} (two seasons before {x["first"]})</title></circle>')
+        s.append(f'<circle cx="{X(b):.1f}" cy="{y}" r="5" fill="{COLORS[x["team"]]}"><title>{H.escape(x["coach"])} left / last two seasons: SP+ No. {b:.0f}</title></circle>')
+        s.append(f'<text x="{X(max(a,b))+9:.1f}" y="{y+4}" class="tick">{x["turn"]:+.0f}</text>')
+    s.append(f'<text x="{(L+W-R)/2:.0f}" y="{Hh-0}" class="axis" text-anchor="middle">SP+ national rank (best at left)</text></svg>'); return ''.join(s)
+
+def coach_full_table():
+    rows=[]
+    for x in sorted(CT,key=gap,reverse=True):
+        st=x['st']; yrs=x['yrs']
+        rows.append(f"<tr{' class=hi' if x['hi'] else ''}><td>{H.escape(x['coach'])} <span class=mute>{H.escape(x['team'])}</span></td><td>{yrs[0]}–{yrs[-1]}{' <span class=mute>(since '+str(x['first'])+')</span>' if x['first']<yrs[0] else ''}</td><td>{x['n']}</td><td>{st['w']}-{st['l']}</td><td>{fr(x['tal'])}</td><td>{fr(x['sp'])}</td><td>{fr(gap(x),'{:+.0f}')} <span class=mute>&plusmn;{x['dev_se']:.0f}</span></td><td>{fr(x['tal_in'])}&rarr;{fr(x['tal_later'])}{'<span class=mute>*</span>' if x['tal_short'] else ''}</td><td>{fr(x['sp_in'])}&rarr;{fr(x['sp_out'])}</td><td>{x['dw_ps']:+.1f}</td><td>{x['lk_ps']:+.1f}</td></tr>")
+    return "<div class='wrap'><table><tr><th>Coach</th><th>Seasons</th><th>#</th><th>Record</th><th>Talent rk</th><th>SP+ rk</th><th>Play above roster</th><th>Roster: inherited&rarr;later</th><th>SP+: inherited&rarr;left</th><th>Won vs expected, per season</th><th>Won vs deserved, per season</th></tr>"+''.join(rows)+"</table></div>"
+
+def _cl(x): return f"{H.escape(x['coach'])} at {H.escape(x['team'])}"
+def take_coach_quad():
+    pts_=[x for x in CT if pd.notna(x['recruit'])]
+    both=[x for x in pts_ if x['recruit']>=5 and gap(x)-DEV_FIELD>=5]; rec=[x for x in pts_ if x['recruit']>=5 and gap(x)-DEV_FIELD<=-5]; devs=[x for x in pts_ if x['recruit']<=-5 and gap(x)-DEV_FIELD>=5]; nei=[x for x in pts_ if x['recruit']<=-5 and gap(x)-DEV_FIELD<=-5]
+    nm=lambda xs:', '.join(f"{H.escape(x['last'])} ({short(x['team'])})" for x in sorted(xs,key=lambda x:-x['n'])) or 'nobody'
+    return take(f"Recruits and develops: {nm(both)}. Recruits but does not develop: {nm(rec)}. Develops what he gets: {nm(devs)}. Neither: {nm(nei)}. Everyone else sits near the middle on at least one axis. Dot size grows with seasons coached.",
+                f"Roster improvement compares the two seasons before the coach arrived with his third season on, so it is blank for tenures that never reached year three and marked with an asterisk in the table where a shorter span had to stand in. One standard error on a rank average is roughly &plusmn;11 spots divided by the square root of the seasons: &plusmn;8 for two seasons, &plusmn;5 for five, &plusmn;4 for nine. The portal era lets a roster improve without the recruiting rank moving, which understates coaches who build through transfers.")
+def take_coach_rank():
+    ks=sorted(CT,key=gap,reverse=True); top=[x for x in ks if gap(x)-x['dev_se']>DEV_FIELD]; bot=[x for x in ks if gap(x)+x['dev_se']<DEV_FIELD]
+    nm=lambda xs,k:(', '.join(f"{H.escape(x['last'])} ({short(x['team'])}, {gap(x):+.0f})" for x in xs[:k])+(f", and {len(xs)-k} more" if len(xs)>k else '')) or 'nobody'
+    return take(f"Clearly above the field average, error bar included: {nm(top,6)}. Clearly below it: {nm(bot[::-1],6)}. {len(CT)-len(top)-len(bot)} tenures overlap the average.",
+                f"The whisker on each dot is one standard error. Short tenures have long whiskers by construction, and fired coaches have short tenures by construction, so the bottom of the chart skews toward the recently fired; read it as \"what the evidence supports so far\", not a final grade.")
+def take_coach_turn():
+    ks=[x for x in CT if pd.notna(x['turn'])]; up=sorted(ks,key=lambda x:-x['turn'])[:3]; dn=sorted(ks,key=lambda x:x['turn'])[:3]
+    nm=lambda xs:', '.join(f"{H.escape(x['last'])} ({short(x['team'])}, No. {x['sp_in']:.0f} to No. {x['sp_out']:.0f})" for x in xs)
+    return take(f"Biggest turnarounds: {nm(up)}. Biggest declines: {nm(dn)}. Open circle is the program's SP+ rank in the two seasons before the coach arrived; filled dot is his last two seasons, or his latest two if he is still there.",
+                "Two-season averages on both ends carry about &plusmn;8 spots each, so a swing under about 15 spots is inside the noise. A coach who inherited a top-five program cannot show a turnaround no matter how well he coached, which is why this chart is paired with the play-above-roster chart rather than used alone.")
+def coach_bottom():
+    am=[x for x in CT if x['team']=='Texas A&M']
+    if not am: return ''
+    parts=[]
+    for x in sorted(am,key=lambda x:x['yrs'][0]):
+        parts.append(f"{H.escape(x['coach'])} ({x['yrs'][0]}–{x['yrs'][-1]}): roster No. {x['tal']:.0f}, play No. {x['sp']:.0f}, {gap(x):+.0f} vs roster ({gap(x)-DEV_FIELD:+.0f} vs the field); "+(f"roster No. {x['tal_in']:.0f} inherited to No. {x['tal_later']:.0f}{' over a short tenure' if x['tal_short'] else ' from year 3'}; " if pd.notna(x['recruit']) else "")+(f"program SP+ No. {x['sp_in']:.0f} inherited to No. {x['sp_out']:.0f}; " if pd.notna(x['turn']) else "")+f"{x['dw_ps']:+.1f} wins a season against expectations")
+    return f'<div class="take bottom"><p><b>Bottom line for Texas A&amp;M:</b> {". ".join(parts)}.</p></div>'
+
+coaches_page=f'''<section class="team" id="coaches" style="--accent:{MAROON}">
+<h1>The coaches</h1>
+<p class="sub">Every head-coaching tenure of two or more seasons across the {len(ALLTEAMS)} programs on this site, {YMIN} through {YMAX}: {len(CT)} tenures. Tenure years count seasons before the window and 2020.</p>
+<div class="intro"><p>Comparing coaches on wins alone rewards whoever inherited the best roster. Every chart here controls for that in some way. <b>Play above roster</b> is how well the team played (SP+) against what the recruiting rankings promised (247 talent composite), the cleanest single measure of coaching because it is opponent-adjusted and not driven by luck. <b>Roster improvement</b> is whether the coach raised the talent level from what he inherited. <b>Inherited versus left</b> is where the program stood when he arrived against where he left it. Wins against expectations and luck are shown but ranked last; at tenure sizes they are mostly noise.</p></div>
+{GLOSS}
+<h2>Recruiting against developing</h2>
+<p>One dot per tenure. Left to right is roster improvement: the talent rank two seasons before the coach arrived minus the talent rank from his third season on. Up and down is play above roster, measured against the field average so the middle line is "typical for these programs". Larger dots are longer tenures. Dots on the edge are off the chart in that direction; hover for the number.</p>
+{coach_quad()}
+{take_coach_quad()}
+<h2>Play above roster, ranked</h2>
+<p>Talent rank minus SP+ rank across the tenure, with one standard error either side. The dashed line is the field average; the talent composite rates every elite roster higher than it plays, so that line, not zero, is the fair bar.</p>
+{coach_rank()}
+{take_coach_rank()}
+<h2>Inherited versus left</h2>
+<p>Where the program stood in SP+ in the two seasons before the coach arrived (open circle) and in his last two seasons, or latest two if he is still there (filled dot). Best is to the left. Sorted by improvement.</p>
+{coach_turn()}
+{take_coach_turn()}
+<h2>All tenures</h2>
+<p>Sorted by play above roster. An asterisk on roster improvement means the tenure never reached a third season, so the whole tenure stands in for "later".</p>
+{coach_full_table()}
+{coach_bottom()}
+<p class="note">Head coach for a season is whoever worked the most games in it. Tenure start is the first consecutive season at the school, so a coach hired before 2016 has his earlier seasons counted in the tenure year but not in these numbers. SP+ and talent composite from CollegeFootballData; the talent composite begins in 2015, so roster-inherited is blank for 2016 hires. The 2020 season is excluded from every average except the inherited/left endpoints, where it is used if it is one of the two seasons in question.</p>
+<p class="more"><a href="{BASE}national/">Back to the programs</a> · <a href="{BASE}texas-am/">Texas A&amp;M's page</a></p>
+</section>'''
+
 # ---------- page shell, one file per section
 CSS=f'''
 :root{{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
@@ -692,10 +815,10 @@ th{{font-weight:600;color:var(--mute)}} tr.hi td{{font-weight:600;background:rgb
 .more{{margin-top:36px;font-weight:600}} a{{color:inherit}}
 @media (prefers-reduced-motion:no-preference){{.pt{{transition:r .15s}} .pt:hover{{r:8.5}}}}
 '''
-SLUGS=['sec','national']+[slug(t) for t in ALLTEAMS]
+SLUGS=['sec','national','coaches']+[slug(t) for t in ALLTEAMS]
 def shell(title,body,current):
     opt=lambda s_,lab: f'<option value="{s_}"{" selected" if s_==current else ""}>{lab}</option>'
-    o=('<optgroup label="Comparisons">'+opt('sec','The SEC (all sixteen)')+opt('national','SEC + national field')+'</optgroup>'
+    o=('<optgroup label="Comparisons">'+opt('sec','The SEC (all sixteen)')+opt('national','SEC + national field')+opt('coaches','The coaches')+'</optgroup>'
        '<optgroup label="SEC">'+''.join(opt(slug(t),H.escape(t)) for t in SEC)+'</optgroup>'
        '<optgroup label="National comparison">'+''.join(opt(slug(t),H.escape(t)) for t in EXTRA)+'</optgroup>')
     return f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
@@ -718,6 +841,7 @@ os.makedirs(OUT)
 INTRO_NAT=INTRO_SEC.replace('all sixteen programs at once','the sixteen SEC programs and '+str(len(EXTRA))+' of the country\'s elite at once')
 pages={'sec':('The SEC',build_league('sec','The SEC',"Sixteen current SEC programs. Texas and Oklahoma's Big 12 seasons are included so each program has the same window.",INTRO_SEC,SEC)),
        'national':('SEC and the national field',build_league('national','The SEC and the national field',f"The sixteen SEC programs plus {', '.join(EXTRA[:-1])} and {EXTRA[-1]}: every recent national champion and every program whose average final AP ranking over the window sits inside the top 12.",INTRO_NAT,ALLTEAMS))}
+pages['coaches']=('The coaches',coaches_page)
 for t in ALLTEAMS: pages[slug(t)]=(t,team_section(t))
 total=0; largest=0
 for s,(title,body) in pages.items():

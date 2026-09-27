@@ -14,7 +14,7 @@ if not KEY:
 
 BASE = "https://api.collegefootballdata.com"
 H = {"Authorization": f"Bearer {KEY}"}
-SEASONS = range(2016, 2026)
+SEASONS = range(2014, 2026)   # two seasons before the page window, so 'inherited' exists for 2016-17 hires
 SEC = ["Alabama", "Arkansas", "Auburn", "Florida", "Georgia", "Kentucky", "LSU",
        "Mississippi State", "Missouri", "Oklahoma", "Ole Miss", "South Carolina",
        "Tennessee", "Texas", "Texas A&M", "Vanderbilt"]
@@ -155,7 +155,7 @@ for t in TEAMS:
     print(f"coaches {t}: {len(primary)} seasons on file", flush=True)
     time.sleep(0.3)
 
-out = "sec_seasons_2016_2025.csv"
+out = "sec_seasons_2016_2025.csv"   # name kept; file now spans 2014-2025
 with open(out, "w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=FIELDS)
     w.writeheader()
