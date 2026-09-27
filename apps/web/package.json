@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "cfb:pull": "cd tools/cfb && python pull_sec_lines.py && python pull_sec_seasons.py",
-    "cfb:build": "cd tools/cfb && python build_cfbanalysis.py && node -e \"const fs=require('fs');fs.rmSync('../../public/cfbanalysis',{recursive:true,force:true});fs.cpSync('out','../../public/cfbanalysis',{recursive:true})\"",
+    "cfb:build": "cd tools/cfb && python build_all.py && node -e \"const fs=require('fs');fs.rmSync('../../public/cfbanalysis',{recursive:true,force:true});fs.cpSync('out','../../public/cfbanalysis',{recursive:true})\"",
     "cfb:refresh": "npm run cfb:pull && npm run cfb:build"
   }
 }
