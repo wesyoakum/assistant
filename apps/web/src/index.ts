@@ -1,4 +1,6 @@
-interface Env {
+import { handleTrail, type TrailEnv } from "./trail";
+
+interface Env extends TrailEnv {
   TRIGGER_RESULTS: KVNamespace;
 }
 
@@ -24,6 +26,11 @@ export default {
 
     if (url.pathname === "/lab") {
       return html(labPage);
+    }
+
+    // Trail (family GPS tracker) API — static page lives in public/trail/
+    if (url.pathname.startsWith("/api/trail/")) {
+      return handleTrail(request, env, url);
     }
 
     if (url.pathname === "/api/trigger" && request.method === "POST") {
@@ -222,6 +229,8 @@ const homePage = `<!DOCTYPE html>
     <a href="/usage">Usage</a>
     <a href="/trigger">Trigger</a>
     <a href="/segment">Segment</a>
+    <a href="/c-lars/">C-LARS</a>
+    <a href="/trail/">Trail</a>
   </nav>
   <div class="container">
     <h1>whyapp</h1>

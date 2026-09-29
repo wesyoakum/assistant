@@ -17,3 +17,8 @@ binding = "ASSETS"
 [[kv_namespaces]]
 binding = "TRIGGER_RESULTS"
 id = "97cd047727b64fb7a9f1faa83167abda"
+
+# Trail family tracker: users, invites, activities
+[[kv_namespaces]]
+binding = "TRAIL"
+id = "5549fe52a1644707971ecabbadf3842f"

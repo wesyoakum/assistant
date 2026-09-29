@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Trail">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trail — simple GPS tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="qrcode.min.js"></script>
+<style>
+/* ---- Leaflet essentials (inlined) ---- */
+.leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute;left:0;top:0}
+.leaflet-container{overflow:hidden;font-family:inherit;-webkit-tap-highlight-color:transparent;touch-action:none}
+.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow{user-select:none;-webkit-user-select:none;-webkit-user-drag:none}
+.leaflet-tile{visibility:hidden}
+.leaflet-tile-loaded{visibility:inherit}
+.leaflet-zoom-box{width:0;height:0;box-sizing:border-box;z-index:800}
+.leaflet-tile-pane{z-index:200}.leaflet-overlay-pane{z-index:400}.leaflet-shadow-pane{z-index:500}.leaflet-marker-pane{z-index:600}.leaflet-tooltip-pane{z-index:650}.leaflet-popup-pane{z-index:700}
+.leaflet-map-pane canvas{z-index:100}.leaflet-map-pane svg{z-index:200}
+.leaflet-zoom-animated{transform-origin:0 0}
+svg.leaflet-zoom-animated{will-change:transform}
+.leaflet-zoom-anim .leaflet-zoom-animated{transition:transform .25s cubic-bezier(0,0,.25,1)}
+.leaflet-zoom-anim .leaflet-tile,.leaflet-pan-anim .leaflet-tile{transition:none}
+.leaflet-zoom-anim .leaflet-zoom-hide{visibility:hidden}
+.leaflet-interactive{cursor:pointer}
+.leaflet-grab{cursor:grab}
+.leaflet-dragging .leaflet-grab{cursor:grabbing}
+.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-image-layer,.leaflet-pane>svg path,.leaflet-tile-container{pointer-events:none}
+.leaflet-marker-icon.leaflet-interactive,.leaflet-image-layer.leaflet-interactive,.leaflet-pane>svg path.leaflet-interactive{pointer-events:auto}
+.leaflet-control{position:relative;z-index:800;pointer-events:auto;float:left;clear:both}
+.leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none}
+.leaflet-top{top:0}.leaflet-right{right:0}.leaflet-bottom{bottom:0}.leaflet-left{left:0}
+
+/* ---- Tokens ---- */
+:root{
+  --bg:#E6EBEF;
+  --panel:#FFFFFF;
+  --ink:#16243B;
+  --ink-2:#5B6980;
+  --line:#CBD3DC;
+  --track:#C8102E;
+  --track-soft:rgba(200,16,46,.18);
+  --go:#C8102E;
+  --go-ink:#FFFFFF;
+  --pause:#16243B;
+  --map-bg:#DCE3E8;
+  --grid:rgba(22,36,59,.08);
+  --tile-filter:none;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1725;--panel:#182337;--ink:#EEF2F7;--ink-2:#93A1B8;--line:#2A3850;
+    --track:#FF3B5C;--track-soft:rgba(255,59,92,.22);--go:#FF3B5C;--go-ink:#12192A;--pause:#EEF2F7;
+    --map-bg:#111B2B;--grid:rgba(238,242,247,.07);
+    --tile-filter:invert(1) hue-rotate(190deg) brightness(.85) contrast(.9) saturate(.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1725;--panel:#182337;--ink:#EEF2F7;--ink-2:#93A1B8;--line:#2A3850;
+  --track:#FF3B5C;--track-soft:rgba(255,59,92,.22);--go:#FF3B5C;--go-ink:#12192A;--pause:#EEF2F7;
+  --map-bg:#111B2B;--grid:rgba(238,242,247,.07);
+  --tile-filter:invert(1) hue-rotate(190deg) brightness(.85) contrast(.9) saturate(.6);
+}
+
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:16px;line-height:1.4;overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible{outline:3px solid var(--track);outline-offset:2px}
+
+#app{position:relative;height:100%;display:flex;flex-direction:column}
+#map{flex:1;background:var(--map-bg)}
+#map.no-tiles{background-color:var(--map-bg);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:40px 40px}
+.leaflet-tile-pane{filter:var(--tile-filter)}
+
+.attrib{position:absolute;left:8px;bottom:8px;z-index:900;font-size:11px;color:var(--ink-2);background:color-mix(in srgb,var(--panel) 80%,transparent);padding:2px 6px;border-radius:4px;pointer-events:none}
+.notice{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:900;max-width:min(92vw,480px);background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);display:none}
+.notice.show{display:block}
+
+.recenter{position:absolute;right:12px;top:12px;z-index:900;width:44px;height:44px;border-radius:50%;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+.recenter svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:2}
+.recenter.on svg{stroke:var(--track)}
+
+/* ---- Bottom sheet ---- */
+.sheet{background:var(--panel);border-top:1px solid var(--line);padding:14px 18px 18px;flex:none;position:relative;z-index:950;overflow:hidden}
+.sheet .gripwrap{margin:-14px -18px 4px;padding:12px 0 10px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.sheet .grip{width:44px;height:5px;border-radius:3px;background:var(--line);margin:0 auto}
+.sheet.dragging{transition:none}
+.sheet.animating{transition:max-height .25s ease}
+.sheet.collapsed .grip{background:var(--ink-2)}
+
+.big{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-items:end}
+.big .val{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:clamp(48px,14vw,72px);line-height:.95;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.big .lbl{font-size:14px;color:var(--ink-2);margin-top:4px}
+.big .unit{font-family:"Barlow Condensed",sans-serif;font-weight:500;font-size:.4em;color:var(--ink-2);margin-left:4px;letter-spacing:0}
+
+.small{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.small .val{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:26px;line-height:1;font-variant-numeric:tabular-nums}
+.small .lbl{font-size:13px;color:var(--ink-2);margin-top:3px}
+
+.controls{display:flex;gap:10px;margin-top:16px}
+.btn{flex:1;height:56px;border-radius:14px;font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:22px;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform .08s}
+.btn:active{transform:scale(.97)}
+.btn.go{background:var(--go);color:var(--go-ink)}
+.btn.ghost{background:transparent;border:2px solid var(--line);color:var(--ink)}
+.btn.dark{background:var(--pause);color:var(--panel)}
+.btn.warn{background:transparent;border:2px solid var(--track);color:var(--track)}
+
+.row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.link{font-size:15px;font-weight:500;color:var(--ink-2);padding:8px 0;text-decoration:underline;text-underline-offset:3px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{padding:6px 12px;font-size:14px;font-weight:500;color:var(--ink-2)}
+.seg button.on{background:var(--ink);color:var(--panel)}
+
+.gps{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2);cursor:pointer;padding:6px 0}
+.gps i{width:8px;height:8px;border-radius:50%;background:var(--line);display:inline-block}
+.gps.ok i{background:#22A06B}.gps.poor i{background:#E0A800}.gps.bad i{background:var(--track)}
+
+.hidden{display:none !important}
+
+/* ---- History ---- */
+.history{position:absolute;inset:0;z-index:1200;background:var(--bg);display:flex;flex-direction:column;transform:translateY(100%);transition:transform .25s ease}
+.history.open{transform:none}
+@media (prefers-reduced-motion:reduce){.history{transition:none}}
+.history header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+.history h2{margin:0;font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:28px}
+.history .list{flex:1;overflow-y:auto;padding:12px 18px 30px}
+.act{width:100%;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center}
+.act .t{font-weight:600}
+.act .m{font-size:13px;color:var(--ink-2)}
+.act .d{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:28px;grid-row:span 2;text-align:right;font-variant-numeric:tabular-nums}
+.empty{color:var(--ink-2);text-align:center;padding:40px 20px;font-size:15px}
+.empty b{display:block;color:var(--ink);font-family:"Barlow Condensed",sans-serif;font-size:26px;font-weight:600;margin-bottom:6px}
+
+.toast{position:absolute;left:50%;bottom:calc(30px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:1300;background:var(--ink);color:var(--panel);padding:10px 16px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+
+/* ---- Users / forms ---- */
+.who{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:600}
+.who i,.u i,.chip i{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.who .dim{color:var(--ink-2);font-weight:500}
+.field{margin-top:12px}
+.field label{display:block;font-size:13px;color:var(--ink-2);margin-bottom:5px;font-weight:500}
+.input{width:100%;height:48px;border:1px solid var(--line);border-radius:10px;padding:0 12px;font:inherit;font-size:16px;background:var(--bg);color:var(--ink);-webkit-appearance:none}
+.input:focus{outline:2px solid var(--track);outline-offset:1px;border-color:transparent}
+.static{height:48px;display:flex;align-items:center;font-weight:600}
+.inline{display:flex;gap:8px}
+.inline .input{flex:1;min-width:0}
+.btn.sm{height:48px;font-size:18px;flex:none;padding:0 18px}
+.check{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:15px}
+.check input{width:20px;height:20px;accent-color:var(--track)}
+.err{color:var(--track);font-size:14px;min-height:20px;margin-top:8px}
+.hint{margin:0 0 10px;font-size:14px;color:var(--ink-2)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 14px 14px;margin-bottom:12px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{padding:7px 12px;border-radius:999px;border:1px solid var(--line);font-size:14px;font-weight:500;white-space:nowrap;display:inline-flex;align-items:center;gap:7px;flex:none}
+.chip.on{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.act .u{display:inline-flex;align-items:center;gap:5px;font-weight:600;color:var(--ink)}
+.act .pend{color:#E0A800;font-weight:600}
+.qrwrap{margin-top:12px;display:flex;flex-direction:column;align-items:center}
+.qrwrap #inv-qr{background:#fff;padding:12px;border-radius:12px;line-height:0}
+.qrwrap #inv-qr img,.qrwrap #inv-qr canvas{display:block}
+.scan{position:absolute;inset:0;z-index:1400;background:#000;display:none;flex-direction:column;align-items:center;justify-content:center}
+.scan.open{display:flex}
+.scan video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.scan-frame{position:relative;width:min(70vw,300px);aspect-ratio:1;border:3px solid #fff;border-radius:18px;box-shadow:0 0 0 100vmax rgba(0,0,0,.45)}
+.scan-msg{position:relative;margin-top:20px;color:#fff;font-size:15px;text-align:center;padding:0 24px;max-width:360px}
+.scan-cancel{position:absolute;left:18px;right:18px;bottom:calc(24px + env(safe-area-inset-bottom,0px));flex:none;height:52px;color:#fff;border-color:#fff}
+.diag{margin:10px 0 0;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;word-break:break-word;color:var(--ink-2);background:var(--bg);border-radius:8px;padding:10px;max-height:260px;overflow:auto}
+/* ---- Routes / following ---- */
+.follow{display:flex;justify-content:space-between;align-items:center;gap:10px;background:color-mix(in srgb,#1F6FEB 12%,var(--panel));border:1px solid #1F6FEB;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px;font-weight:600}
+.follow .link{padding:0;flex:none}
+.controls.three .btn{font-size:18px;padding:0 6px}
+.dval{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:30px;line-height:1;font-variant-numeric:tabular-nums}
+.dval .unit,.small .val .unit{font-family:"Barlow Condensed",sans-serif;font-weight:500;font-size:.5em;color:var(--ink-2);margin-left:3px}
+.results{display:flex;flex-direction:column;gap:6px;margin-top:8px;max-height:150px;overflow-y:auto}
+.result{text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:14px;line-height:1.3}
+.ractions{display:flex;gap:8px;padding:12px 18px 0}
+.ractions .btn{flex:1;padding:0 8px;font-size:17px}
+.seg button{padding:6px 10px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <div class="attrib">© OpenStreetMap contributors</div>
+  <div class="notice" id="notice"></div>
+  <button class="recenter on" id="recenter" aria-label="Follow my position">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="8"/></svg>
+  </button>
+  <div class="sheet">
+    <div class="gripwrap" id="grip" role="button" aria-label="Show or hide the panel"><div class="grip"></div></div>
+    <div class="follow hidden" id="follow"><span id="follow-txt"></span><button class="link" id="b-unfollow">Stop</button></div>
+    <!-- No invite key on this device -->
+    <div id="v-gate" class="hidden">
+      <div class="empty" style="padding:10px 0 4px"><b>Trail is invite-only</b>Open the personal link you were sent and this phone will be signed in. Ask Wes if you need one.</div>
+      <div class="field"><label for="g-link">Or paste your link or key here</label><div class="inline"><input class="input" id="g-link" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="https://whyapp.us/trail/?k=…"><button class="btn dark sm" id="b-gate">Go</button></div></div>
+      <div class="controls"><button class="btn go" id="b-scan">Scan a QR code</button></div>
+    </div>
+    <!-- Unclaimed invite: pick username + alias -->
+    <div id="v-claim" class="hidden">
+      <div class="empty" style="padding:6px 0 0"><b>Welcome to Trail</b>Pick a username (permanent) and a display name (you can change it later).</div>
+      <div class="field"><label for="c-username">Username</label><input class="input" id="c-username" autocapitalize="off" autocomplete="off" spellcheck="false" maxlength="20" placeholder="e.g. wes" inputmode="text"></div>
+      <div class="field"><label for="c-alias">Display name</label><input class="input" id="c-alias" autocomplete="off" maxlength="30" placeholder="e.g. Dad"></div>
+      <label class="check hidden" id="c-upload-row"><input type="checkbox" id="c-upload" checked> <span id="c-upload-txt"></span></label>
+      <div class="err" id="c-err"></div>
+      <div class="controls"><button class="btn go" id="b-claim">Join</button></div>
+    </div>
+    <!-- Idle -->
+    <div id="v-idle" class="hidden">
+      <div class="row">
+        <div class="gps" id="gps-idle"><i></i><span>Finding GPS…</span></div>
+        <div class="seg" id="units">
+          <button data-u="mi" class="on">miles</button><button data-u="km">km</button>
+        </div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <span class="who" id="who"></span>
+        <button class="link" id="b-settings">Settings</button>
+      </div>
+      <div class="controls">
+        <button class="btn ghost" id="b-history" style="flex:0 0 auto;padding:0 16px">History</button>
+        <button class="btn ghost" id="b-routes" style="flex:0 0 auto;padding:0 16px">Routes</button>
+        <button class="btn go" id="b-start">Start</button>
+      </div>
+    </div>
+    <!-- Recording -->
+    <div id="v-rec" class="hidden">
+      <div class="big">
+        <div><div class="val" id="s-time">0:00</div><div class="lbl">Moving time</div></div>
+        <div><div class="val" id="s-dist">0.00<span class="unit" id="s-dist-u">mi</span></div><div class="lbl">Distance</div></div>
+      </div>
+      <div class="small">
+        <div><div class="val" id="s-speed">0.0</div><div class="lbl">Speed <span id="s-speed-u">mph</span></div></div>
+        <div><div class="val" id="s-avg">0.0</div><div class="lbl">Avg <span id="s-avg-u">mph</span></div></div>
+        <div><div class="val" id="s-pace">--:--</div><div class="lbl">Pace <span id="s-pace-u">/mi</span></div></div>
+      </div>
+      <div class="row" style="margin-top:10px"><div class="gps" id="gps-rec"><i></i><span>GPS</span></div><span class="link" id="s-pts" style="text-decoration:none;padding:0"></span></div>
+      <div class="controls">
+        <button class="btn dark" id="b-pause">Pause</button>
+        <button class="btn warn" id="b-finish">Finish</button>
+      </div>
+    </div>
+    <!-- Summary -->
+    <div id="v-done" class="hidden">
+      <div class="big">
+        <div><div class="val" id="d-time">0:00</div><div class="lbl">Moving time</div></div>
+        <div><div class="val" id="d-dist">0.00<span class="unit" id="d-dist-u">mi</span></div><div class="lbl">Distance</div></div>
+      </div>
+      <div class="small">
+        <div><div class="val" id="d-avg">0.0</div><div class="lbl">Avg <span id="d-avg-u">mph</span></div></div>
+        <div><div class="val" id="d-max">0.0</div><div class="lbl">Max <span id="d-max-u">mph</span></div></div>
+        <div><div class="val" id="d-pace">--:--</div><div class="lbl">Pace <span id="d-pace-u">/mi</span></div></div>
+      </div>
+      <div class="controls">
+        <button class="btn ghost" id="b-discard">Discard</button>
+        <button class="btn go" id="b-save">Save activity</button>
+      </div>
+    </div>
+    <!-- Viewing a saved activity -->
+    <div id="v-view" class="hidden">
+      <div class="row"><div><div class="t" id="w-title" style="font-weight:600;font-size:17px"></div><div class="who" id="w-who"></div></div><button class="link" id="b-close-view">Close</button></div>
+      <div class="big" style="margin-top:6px">
+        <div><div class="val" id="w-time">0:00</div><div class="lbl">Moving time</div></div>
+        <div><div class="val" id="w-dist">0.00<span class="unit" id="w-dist-u">mi</span></div><div class="lbl">Distance</div></div>
+      </div>
+      <div class="small">
+        <div><div class="val" id="w-avg">0.0</div><div class="lbl">Avg <span id="w-avg-u">mph</span></div></div>
+        <div><div class="val" id="w-max">0.0</div><div class="lbl">Max <span id="w-max-u">mph</span></div></div>
+        <div><div class="val" id="w-pace">--:--</div><div class="lbl">Pace <span id="w-pace-u">/mi</span></div></div>
+      </div>
+      <div class="inline hidden" id="mkroute-row" style="margin-top:10px"><input class="input" id="mkroute-name" maxlength="60" placeholder="Route name"><button class="btn dark sm" id="b-mkroute-save">Save</button></div>
+      <div class="controls three">
+        <button class="btn ghost" id="b-gpx">Copy GPX</button>
+        <button class="btn ghost" id="b-mkroute">Save as route</button>
+        <button class="btn warn" id="b-delete">Delete</button>
+      </div>
+    </div>
+    <!-- Drawing a route -->
+    <div id="v-draw" class="hidden">
+      <div class="row"><div class="t" style="font-weight:600;font-size:17px">Draw a route</div><span class="hint" id="draw-status" style="margin:0"></span></div>
+      <div class="row" style="margin-top:8px">
+        <div><div class="dval" id="draw-dist">0.00<span class="unit" id="draw-dist-u">mi</span></div><div class="lbl" style="font-size:13px;color:var(--ink-2)">Distance</div></div>
+        <div class="seg" id="snap"><button data-s="off" class="on">Straight</button><button data-s="walk">Walk</button><button data-s="bike">Bike</button><button data-s="drive">Drive</button></div>
+      </div>
+      <div class="field"><input class="input" id="draw-name" maxlength="60" placeholder="Route name (optional)"></div>
+      <div class="err" id="draw-err"></div>
+      <div class="controls three"><button class="btn ghost" id="b-draw-cancel">Cancel</button><button class="btn ghost" id="b-draw-undo">Undo</button><button class="btn go" id="b-draw-save">Save</button></div>
+    </div>
+    <!-- Directions to a place -->
+    <div id="v-dest" class="hidden">
+      <div class="row"><div class="t" style="font-weight:600;font-size:17px">Directions</div><button class="link" id="b-dest-cancel">Cancel</button></div>
+      <div class="inline" style="margin-top:8px"><input class="input" id="dest-q" placeholder="Search an address or place" autocomplete="off" enterkeyhint="search"><button class="btn dark sm" id="b-dest-search">Search</button></div>
+      <div class="results" id="dest-results"></div>
+      <div class="hint" id="dest-label" style="margin:8px 0 0"></div>
+      <div class="row" style="margin-top:10px">
+        <div class="seg" id="dmode"><button data-m="walk" class="on">Walk</button><button data-m="bike">Bike</button><button data-m="drive">Drive</button></div>
+        <button class="btn dark sm" id="b-dest-go" disabled>Get directions</button>
+      </div>
+      <div class="err" id="dest-err"></div>
+      <div id="dest-summary" class="hidden">
+        <div class="small" style="margin-top:6px;grid-template-columns:1fr 1fr"><div><div class="val" id="dest-sum-dist">0.00<span class="unit" id="dest-sum-dist-u">mi</span></div><div class="lbl">Distance</div></div><div><div class="val" id="dest-sum-time">--</div><div class="lbl">Estimated time</div></div></div>
+        <div class="controls"><button class="btn ghost" id="b-dest-follow">Follow now</button><button class="btn go" id="b-dest-save">Save &amp; follow</button></div>
+      </div>
+    </div>
+    <!-- Viewing a saved route -->
+    <div id="v-route" class="hidden">
+      <div class="row"><div><div class="t" id="r-title" style="font-weight:600;font-size:17px"></div><div class="who" id="r-who"></div></div><button class="link" id="b-rclose">Close</button></div>
+      <div class="small" style="margin-top:6px;grid-template-columns:1fr 1fr"><div><div class="val" id="r-dist">0.00<span class="unit" id="r-dist-u">mi</span></div><div class="lbl">Distance</div></div><div><div class="val" id="r-n" style="font-size:18px;line-height:26px">0 points</div><div class="lbl">Detail</div></div></div>
+      <div class="controls"><button class="btn warn" id="b-rdelete">Delete</button><button class="btn go" id="b-rfollow">Follow</button></div>
+    </div>
+  </div>
+  <div class="history" id="history">
+    <header><h2>History</h2><button class="link" id="b-close-history">Close</button></header>
+    <div class="chips" id="chips"></div>
+    <div class="list" id="list"></div>
+  </div>
+  <div class="history" id="routes">
+    <header><h2>Routes</h2><button class="link" id="b-close-routes">Close</button></header>
+    <div class="ractions"><button class="btn ghost sm" id="b-dest">Directions to a place</button><button class="btn ghost sm" id="b-draw">Draw a route</button></div>
+    <div class="list" id="rlist"></div>
+  </div>
+  <div class="history" id="settings">
+    <header><h2>Settings</h2><button class="link" id="b-close-settings">Close</button></header>
+    <div class="list">
+      <div class="card">
+        <div class="field"><label>Username</label><div class="static" id="st-username"></div></div>
+        <div class="field"><label for="st-alias">Display name</label><div class="inline"><input class="input" id="st-alias" maxlength="30"><button class="btn dark sm" id="b-alias">Save</button></div></div>
+      </div>
+      <div class="card">
+        <div class="field"><label>Invite a family member</label><p class="hint">Creates a personal link. Whoever opens it picks their own name.</p>
+          <button class="btn ghost sm" id="b-invite" style="width:100%">Create invite link</button>
+          <div class="inline hidden" id="inv-row" style="margin-top:10px"><input class="input" id="inv-url" readonly><button class="btn dark sm" id="b-inv-copy">Copy</button></div>
+          <div class="qrwrap hidden" id="inv-qrwrap"><div id="inv-qr"></div><p class="hint" style="margin:10px 0 0;text-align:center">They point their phone camera at this, or use “Scan a QR code” in Trail.</p></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="field"><label>Location diagnostics</label>
+          <button class="btn ghost sm" id="b-diag" style="width:100%">Test location now</button>
+          <pre class="diag" id="diag"></pre>
+        </div>
+      </div>
+      <div class="card">
+        <div class="field"><label>This device</label><p class="hint">Signing out forgets your link on this phone. Open your link again to sign back in.</p>
+          <button class="btn warn sm" id="b-signout" style="width:100%">Sign out</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="scan" id="scan"><video id="scan-video" playsinline muted autoplay></video><div class="scan-frame"></div><div class="scan-msg" id="scan-msg">Point at the invite QR code</div><button class="btn ghost scan-cancel" id="b-scan-cancel">Cancel</button></div>
+  <div class="toast" id="toast"></div>
+</div>
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const KEY='trail:activities', UKEY='trail:units', KKEY='trail:key', OKEY='trail:outbox', MKEY='trail:me';
+  // ---------- storage ----------
+  const store = {
+    get(k, d){ try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch(e){ return d; } },
+    set(k, v){ try { if(v===null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } }
+  };
+  // ---------- identity / api ----------
+  let apiKey = store.get(KKEY, null), me = null, users = [];
+  const qs = new URLSearchParams(location.search);
+  const normKey = k => String(k||'').replace(/[^A-Za-z0-9_-]/g,'').toLowerCase();
+  if(qs.get('k')){ const k=normKey(qs.get('k')); if(k!==apiKey){ apiKey=k; store.set(KKEY, apiKey); store.set(MKEY, null); } }
+  else if(apiKey) apiKey = normKey(apiKey);
+  // Keep the key in the address bar: iOS "Add to Home Screen" and shared links then carry the sign-in with them.
+  function syncUrl(){ try{ history.replaceState(null, '', location.pathname + (apiKey ? '?k='+apiKey : '')); }catch(e){} }
+  syncUrl();
+  async function api(path, opts){
+    opts = opts || {};
+    const r = await fetch('/api/trail'+path, { method:opts.method||'GET', body:opts.body?JSON.stringify(opts.body):undefined,
+      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+apiKey } });
+    const data = await r.json().catch(()=>({}));
+    if(!r.ok){ const e = new Error(data.error || ('HTTP '+r.status)); e.status = r.status; throw e; }
+    return data;
+  }
+  const PALETTE = ['#C8102E','#1F6FEB','#22A06B','#E0A800','#8E44AD','#E8590C','#0E8A8A','#B8336A'];
+  function colorFor(username){ let h=0; for(const c of username||'') h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
+  function aliasFor(username){ const u=users.find(x=>x.username===username); return u?u.alias:(me&&me.username===username?me.alias:username); }
+  function dot(username){ return `<i style="background:${colorFor(username)}"></i>`; }
+  // ---------- units ----------
+  let units = store.get(UKEY, 'mi');
+  const U = {
+    mi:{ dist:m=>m/1609.344, distU:'mi', speed:ms=>ms*2.23694, speedU:'mph', paceU:'/mi' },
+    km:{ dist:m=>m/1000,     distU:'km', speed:ms=>ms*3.6,     speedU:'km/h', paceU:'/km' }
+  };
+  function applyUnits(){
+    document.querySelectorAll('#units button').forEach(b=>b.classList.toggle('on', b.dataset.u===units));
+    const u=U[units];
+    ['s','d','w'].forEach(p=>{
+      const e=id=>$(p+'-'+id);
+      e('dist-u').textContent=u.distU; e('pace-u').textContent=u.paceU;
+      if(e('speed-u')) e('speed-u').textContent=u.speedU;
+      e('avg-u').textContent=u.speedU;
+      if(e('max-u')) e('max-u').textContent=u.speedU;
+    });
+  }
+  $('units').addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    units=b.dataset.u; store.set(UKEY,units); applyUnits(); renderLive(); renderFollow();
+  });
+  // ---------- formatting ----------
+  const fmtTime = s => { s=Math.floor(s); const h=Math.floor(s/3600), m=Math.floor(s%3600/60), sec=s%60;
+    return h? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`; };
+  const fmtPace = (meters, secs) => { const d=U[units].dist(meters); if(d<0.02||secs<1) return '--:--';
+    const p=secs/d; if(p>5999) return '--:--'; const m=Math.floor(p/60), s=Math.round(p%60); return `${m}:${String(s).padStart(2,'0')}`; };
+  const fmtDist = m => U[units].dist(m).toFixed(2);
+  const fmtSpeed = ms => U[units].speed(ms).toFixed(1);
+  const fmtDate = ts => new Date(ts).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'});
+  const esc = s => String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // ---------- map ----------
+  const map = L.map('map', { zoomControl:false, attributionControl:false }).setView([30.61, -96.34], 13);
+  let tilesFailed = false;
+  const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 }).addTo(map);
+  tiles.on('tileerror', ()=>{ if(tilesFailed) return; tilesFailed=true; $('map').classList.add('no-tiles');
+    notice('Map tiles couldn’t load here, so the track is drawn on a plain grid. Recording still works.', 6000); });
+  tiles.on('tileload', ()=>{ if(tilesFailed){ tilesFailed=false; $('map').classList.remove('no-tiles'); } });
+  const trackStyle = { color:getComputedStyle(document.documentElement).getPropertyValue('--track').trim()||'#C8102E', weight:5, opacity:.95, lineJoin:'round', lineCap:'round' };
+  let line = L.polyline([], trackStyle).addTo(map);
+  let here = L.circleMarker([0,0], { radius:8, color:'#fff', weight:3, fillColor:trackStyle.color, fillOpacity:1 });
+  let acc = L.circle([0,0], { radius:0, color:trackStyle.color, weight:1, opacity:.4, fillColor:trackStyle.color, fillOpacity:.08 });
+  let follow = true, everCentered = false;
+  $('recenter').addEventListener('click', ()=>{ follow=true; $('recenter').classList.add('on'); if(lastFix) map.setView([lastFix.lat,lastFix.lon], Math.max(map.getZoom(),16)); });
+  map.on('dragstart', ()=>{ follow=false; $('recenter').classList.remove('on'); });
+  function notice(msg, ms){ const n=$('notice'); n.textContent=msg; n.classList.add('show'); clearTimeout(n._t); if(ms) n._t=setTimeout(()=>n.classList.remove('show'), ms); }
+  function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2200); }
+  // ---------- bottom sheet: drag the grip to collapse for a full-screen map ----------
+  const sheet=document.querySelector('.sheet'), PEEK=34;
+  let sheetCollapsed=false, dragY=null, dragH=0, dragMoved=false;
+  function naturalHeight(){ const prev=sheet.style.maxHeight; sheet.style.maxHeight='none'; const h=sheet.scrollHeight; sheet.style.maxHeight=prev; return h; }
+  function settleSheet(){ sheet.classList.remove('animating','dragging'); if(!sheetCollapsed) sheet.style.maxHeight=''; map.invalidateSize(); if(follow&&lastFix) map.panTo([lastFix.lat,lastFix.lon],{animate:false}); }
+  sheet.addEventListener('transitionend', e=>{ if(e.propertyName==='max-height'){ clearTimeout(settleT); settleSheet(); } });
+  function collapseSheet(){ if(sheetCollapsed) return; sheetCollapsed=true; sheet.classList.add('collapsed'); sheet.style.maxHeight=sheet.offsetHeight+'px'; void sheet.offsetHeight; sheet.classList.add('animating'); sheet.style.maxHeight=PEEK+'px'; clearTimeout(settleT); settleT=setTimeout(settleSheet, 350); }
+  let settleT=null;
+  function expandSheet(){ if(!sheetCollapsed){ if(!sheet.classList.contains('dragging')&&!sheet.classList.contains('animating')) sheet.style.maxHeight=''; return; } sheetCollapsed=false; sheet.classList.remove('collapsed'); const h=naturalHeight(); void sheet.offsetHeight; sheet.classList.add('animating'); sheet.style.maxHeight=h+'px'; clearTimeout(settleT); settleT=setTimeout(settleSheet, 350); }
+  $('grip').addEventListener('pointerdown', e=>{ dragY=e.clientY; dragH=sheetCollapsed?PEEK:naturalHeight(); dragMoved=false; sheet.classList.add('dragging'); sheet.style.maxHeight=sheet.offsetHeight+'px'; try{ $('grip').setPointerCapture(e.pointerId); }catch(x){} });
+  $('grip').addEventListener('pointermove', e=>{ if(dragY===null) return; const dy=e.clientY-dragY; if(Math.abs(dy)>4) dragMoved=true; const full=sheetCollapsed?naturalHeight():dragH; sheet.style.maxHeight=Math.max(PEEK, Math.min(full, dragH-dy))+'px'; });
+  function endDrag(e){ if(dragY===null) return; const dy=e.clientY-dragY; dragY=null; sheet.classList.remove('dragging');
+    if(!dragMoved){ sheetCollapsed ? expandSheet() : collapseSheet(); return; }
+    if(dy>40){ sheetCollapsed=false; collapseSheet(); } else if(dy<-40){ sheetCollapsed=true; expandSheet(); }
+    else { const was=sheetCollapsed; sheetCollapsed=!was; if(was) collapseSheet(); else expandSheet(); } }
+  $('grip').addEventListener('pointerup', endDrag); $('grip').addEventListener('pointercancel', endDrag);
+  // ---------- geo ----------
+  const R=6371000;
+  function haversine(a,b){ const toR=x=>x*Math.PI/180; const dLat=toR(b.lat-a.lat), dLon=toR(b.lon-a.lon);
+    const s=Math.sin(dLat/2)**2+Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(s)); }
+  let watchId=null, lastFix=null, state='idle'; // idle | rec | paused | done | view
+  let act=null; // current activity
+  let timer=null, smoothSpeed=0;
+  function gpsQuality(a){ return a<=15?'ok':a<=40?'poor':'bad'; }
+  function setGps(a){ const q=gpsQuality(a); ['gps-idle','gps-rec'].forEach(id=>{ const el=$(id); el.className='gps '+q; el.querySelector('span').textContent=`GPS ±${Math.round(a)} m`; }); }
+  let gpsTimer=null;
+  function setGpsLabel(txt, cls){ ['gps-idle','gps-rec'].forEach(id=>{ const el=$(id); el.className='gps '+(cls||''); el.querySelector('span').textContent=txt; }); }
+  function startWatch(){
+    if(!navigator.geolocation){ setGpsLabel('No location support'); notice('This browser has no location support.'); return; }
+    if(watchId!==null) return;
+    glog('watchPosition started');
+    watchId=navigator.geolocation.watchPosition(onFix, onErr, { enableHighAccuracy:true, maximumAge:1000, timeout:15000 });
+    clearTimeout(gpsTimer); gpsTimer=setTimeout(()=>{ if(!lastFix){ setGpsLabel('No GPS yet — tap to retry'); notice(IOS_HINT, 9000); } }, 20000);
+  }
+  // A retry from a tap: iOS Safari is happiest granting location from a user gesture.
+  function retryGps(){
+    if(!navigator.geolocation) return;
+    if(watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; }
+    setGpsLabel('Finding GPS…'); notice('Asking for your location…', 2500);
+    navigator.geolocation.getCurrentPosition(onFix, onErr, { enableHighAccuracy:true, timeout:20000, maximumAge:0 });
+    startWatch();
+  }
+  ['gps-idle','gps-rec'].forEach(id=>$(id).addEventListener('click', retryGps));
+  const IOS_HINT='Still looking. On iPhone check Settings › Privacy & Security › Location Services › Safari Websites is set to “While Using”, and that Precise Location is on. Then tap the GPS dot to retry.';
+  const geoLog=[]; function glog(m){ geoLog.unshift(new Date().toLocaleTimeString()+' '+m); geoLog.length=Math.min(geoLog.length,12); }
+  function onErr(e){
+    glog('error code '+e.code+': '+(e.message||''));
+    const msgs={1:'Location permission was denied. iPhone: Settings › Privacy & Security › Location Services › Safari Websites → While Using. Then reload.',2:'Location is unavailable right now. Tap the GPS dot to retry.',3:'Waiting for a GPS fix…'};
+    notice(msgs[e.code]||'Location error.', e.code===3?4000:0);
+    if(!lastFix) setGpsLabel(e.code===1?'Location blocked':e.code===2?'GPS unavailable — tap to retry':'Finding GPS…', e.code===1?'bad':'');
+  }
+  function onFix(pos){
+    const c=pos.coords, fix={ lat:c.latitude, lon:c.longitude, acc:c.accuracy, t:pos.timestamp, spd:(c.speed!=null&&c.speed>=0)?c.speed:null, alt:c.altitude };
+    lastFix=fix; clearTimeout(gpsTimer); setGps(fix.acc); if(geoLog.length<3||!geoLog[0].includes('fix')) glog('fix ±'+Math.round(fix.acc)+'m');
+    here.setLatLng([fix.lat,fix.lon]); acc.setLatLng([fix.lat,fix.lon]).setRadius(fix.acc);
+    if(!map.hasLayer(here)){ acc.addTo(map); here.addTo(map); }
+    if(!everCentered){ everCentered=true; map.setView([fix.lat,fix.lon],16); }
+    else if(follow) map.panTo([fix.lat,fix.lon], {animate:true, duration:.5});
+    if(state==='rec') record(fix);
+    updateFollow(fix);
+  }
+  function record(fix){
+    if(fix.acc>50) return; // too noisy to trust
+    const pts=act.points, prev=pts[pts.length-1];
+    if(prev){
+      const d=haversine(prev,fix), dt=(fix.t-prev.t)/1000;
+      if(d<3 && dt<10) return; // GPS jitter while standing still
+      let v = fix.spd!=null ? fix.spd : (dt>0 ? d/dt : 0);
+      if(v>35) return; // > ~78 mph: bad fix
+      act.dist+=d; smoothSpeed = smoothSpeed? smoothSpeed*.6+v*.4 : v;
+      if(smoothSpeed>act.max) act.max=smoothSpeed;
+    }
+    pts.push(fix); line.addLatLng([fix.lat,fix.lon]);
+    renderLive();
+  }
+  // ---------- timer ----------
+  function tick(){ if(state==='rec') act.moving+=1; renderLive(); }
+  // ---------- render ----------
+  function show(v){ ['v-gate','v-claim','v-idle','v-rec','v-done','v-view','v-draw','v-dest','v-route'].forEach(id=>$(id).classList.toggle('hidden', id!==v)); expandSheet(); }
+  function renderLive(){
+    if(!act) return;
+    const t=fmtTime(act.moving), avg=act.moving>0?act.dist/act.moving:0;
+    $('s-time').textContent=t; $('s-dist').firstChild.nodeValue=fmtDist(act.dist);
+    $('s-speed').textContent=fmtSpeed(state==='rec'?smoothSpeed:0); $('s-avg').textContent=fmtSpeed(avg); $('s-pace').textContent=fmtPace(act.dist,act.moving);
+    $('s-pts').textContent=act.points.length+' points';
+    $('b-pause').textContent = state==='paused' ? 'Resume' : 'Pause';
+  }
+  function renderSummary(prefix, a){
+    const avg=a.moving>0?a.dist/a.moving:0;
+    $(prefix+'-time').textContent=fmtTime(a.moving); $(prefix+'-dist').firstChild.nodeValue=fmtDist(a.dist);
+    $(prefix+'-avg').textContent=fmtSpeed(avg); $(prefix+'-max').textContent=fmtSpeed(a.max); $(prefix+'-pace').textContent=fmtPace(a.dist,a.moving);
+  }
+  function renderWho(){ if(me) $('who').innerHTML = `${dot(me.username)} ${esc(me.alias)} <span class="dim">@${esc(me.username)}</span>`; }
+  // ---------- wake lock ----------
+  let wake=null;
+  async function keepAwake(on){
+    try{ if(on && 'wakeLock' in navigator && !wake){ wake=await navigator.wakeLock.request('screen'); wake.addEventListener('release',()=>{wake=null;}); }
+         else if(!on && wake){ await wake.release(); wake=null; } }catch(e){}
+  }
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible'){ if(state==='rec'||state==='paused') keepAwake(true); flushOutbox(); } });
+  window.addEventListener('online', ()=>flushOutbox());
+  // ---------- outbox (tracks waiting to upload) ----------
+  let flushing=false;
+  async function flushOutbox(){
+    if(flushing || !me) return 0;
+    let box=store.get(OKEY,[]); if(!box.length) return 0;
+    flushing=true; let n=0;
+    try{
+      for(const a of box.slice()){
+        try{ await api('/activities',{method:'POST',body:a}); box=box.filter(x=>x.id!==a.id); store.set(OKEY,box); n++; }
+        catch(e){ if(e.status===400||e.status===409){ box=box.filter(x=>x.id!==a.id); store.set(OKEY,box); } else break; }
+      }
+    } finally { flushing=false; }
+    if(n && $('history').classList.contains('open')) renderList();
+    return n;
+  }
+  // ---------- actions ----------
+  $('b-start').addEventListener('click', ()=>{
+    act={ id:String(Date.now()), start:Date.now(), points:[], dist:0, moving:0, max:0, routeId: followRoute?followRoute.id:null };
+    smoothSpeed=0; line.setStyle(trackStyle); line.setLatLngs([]); state='rec'; show('v-rec'); renderLive();
+    clearInterval(timer); timer=setInterval(tick,1000); keepAwake(true); startWatch();
+    if(lastFix) record(lastFix);
+  });
+  $('b-pause').addEventListener('click', ()=>{ state = state==='rec' ? 'paused' : 'rec'; smoothSpeed=0; renderLive(); });
+  $('b-finish').addEventListener('click', ()=>{
+    clearInterval(timer); state='done'; act.end=Date.now(); keepAwake(false);
+    renderSummary('d', act); show('v-done');
+    if(act.points.length>1) map.fitBounds(line.getBounds(), {padding:[30,30]});
+  });
+  $('b-discard').addEventListener('click', ()=>{ reset(); });
+  $('b-save').addEventListener('click', async ()=>{
+    const a=act; a.username=me.username;
+    const box=store.get(OKEY,[]); box.push(a);
+    if(!store.set(OKEY,box)){ toast('Couldn’t save on this device'); return; }
+    reset();
+    const n=await flushOutbox();
+    toast(n ? 'Saved' : 'Saved on phone — will upload when online');
+  });
+  function reset(){ act=null; state='idle'; line.setStyle(trackStyle); line.setLatLngs([]); show('v-idle'); follow=true; $('recenter').classList.add('on'); if(lastFix) map.setView([lastFix.lat,lastFix.lon],16); }
+  // ---------- history ----------
+  let viewing=null, filterUser='', cache=null;
+  $('b-history').addEventListener('click', ()=>{ $('history').classList.add('open'); renderList(); });
+  $('b-close-history').addEventListener('click', ()=>$('history').classList.remove('open'));
+  function renderChips(){
+    const el=$('chips'); el.innerHTML='';
+    const mk=(u,label)=>{ const b=document.createElement('button'); b.className='chip'+(filterUser===u?' on':''); b.innerHTML=(u?dot(u):'')+esc(label);
+      b.addEventListener('click',()=>{ filterUser=u; renderChips(); renderRows(); }); el.appendChild(b); };
+    mk('','Everyone');
+    const ordered=[...users].sort((a,b)=> (a.username===me.username?-1:b.username===me.username?1:0));
+    ordered.forEach(u=>mk(u.username,u.alias));
+  }
+  function renderRows(){
+    const el=$('list'); el.innerHTML='';
+    const box=store.get(OKEY,[]).filter(a=>!filterUser||a.username===filterUser).map(a=>({...a, local:true}));
+    const srv=(cache?cache.activities:[]).filter(a=>!filterUser||a.username===filterUser);
+    const rows=[...box, ...srv];
+    if(!rows.length){ el.innerHTML='<div class="empty"><b>No activities yet</b>Press Start on the main screen and the first track will show up here.</div>'; return; }
+    rows.forEach(a=>{
+      const b=document.createElement('button'); b.className='act';
+      const avg=a.moving>0?a.dist/a.moving:0;
+      b.innerHTML=`<div class="t">${esc(fmtDate(a.start))}</div><div class="d">${fmtDist(a.dist)}<span style="font-size:.5em;font-weight:500;margin-left:3px">${U[units].distU}</span></div>`+
+        `<div class="m"><span class="u">${dot(a.username)}${esc(aliasFor(a.username))}</span> · ${fmtTime(a.moving)} · ${fmtSpeed(avg)} ${U[units].speedU} avg${a.local?' · <span class="pend">pending upload</span>':''}</div>`;
+      b.addEventListener('click', ()=>openRow(a)); el.appendChild(b);
+    });
+  }
+  async function renderList(){
+    renderChips(); if(!cache) $('list').innerHTML='<div class="empty">Loading…</div>'; else renderRows();
+    try{ cache=await api('/activities'); users=cache.users; renderChips(); renderRows(); }
+    catch(e){ if(!cache){ $('list').innerHTML=`<div class="empty"><b>Couldn’t load history</b>${esc(e.message)}</div>`; } else toast('Showing cached history — '+e.message); }
+  }
+  async function openRow(a){
+    if(a.local){ openActivity(a); return; }
+    toast('Loading track…');
+    try{ const full=await api('/activities/'+encodeURIComponent(a.id)); openActivity(full); }
+    catch(e){ toast('Couldn’t load: '+e.message); }
+  }
+  function openActivity(a){
+    viewing=a; state='view'; $('history').classList.remove('open');
+    $('w-title').textContent=fmtDate(a.start);
+    $('w-who').innerHTML=`${dot(a.username)} ${esc(aliasFor(a.username))}${a.local?' · pending upload':''}`;
+    renderSummary('w', a); show('v-view');
+    $('b-delete').classList.toggle('hidden', !(a.local || a.username===me.username));
+    line.setStyle({color:colorFor(a.username)}); line.setLatLngs(a.points.map(p=>[p.lat,p.lon])); follow=false; $('recenter').classList.remove('on');
+    if(a.points.length>1) map.fitBounds(line.getBounds(), {padding:[30,30]}); else if(a.points.length) map.setView([a.points[0].lat,a.points[0].lon],16);
+  }
+  $('b-close-view').addEventListener('click', ()=>{ viewing=null; reset(); });
+  $('b-delete').addEventListener('click', async ()=>{
+    if(!confirm('Delete this activity?')) return;
+    const v=viewing;
+    if(v.local){ store.set(OKEY, store.get(OKEY,[]).filter(x=>x.id!==v.id)); toast('Deleted'); viewing=null; reset(); return; }
+    try{ await api('/activities/'+encodeURIComponent(v.id),{method:'DELETE'}); if(cache) cache.activities=cache.activities.filter(x=>x.id!==v.id); toast('Deleted'); viewing=null; reset(); }
+    catch(e){ toast('Couldn’t delete: '+e.message); }
+  });
+  $('b-gpx').addEventListener('click', async ()=>{
+    const a=viewing; const iso=t=>new Date(t).toISOString();
+    const gpx=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Trail" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>${fmtDate(a.start)}</name><trkseg>\n`+
+      a.points.map(p=>`<trkpt lat="${p.lat}" lon="${p.lon}">${p.alt!=null?`<ele>${p.alt.toFixed(1)}</ele>`:''}<time>${iso(p.t)}</time></trkpt>`).join('\n')+`\n</trkseg></trk>\n</gpx>`;
+    try{ await navigator.clipboard.writeText(gpx); toast('GPX copied to clipboard'); }catch(e){ toast('Clipboard blocked — try again after tapping the page'); }
+  });
+  // ---------- routes: shared helpers ----------
+  const RKEY='trail:follow';
+  const routeStyle={ color:'#1F6FEB', weight:5, opacity:.85, dashArray:'2 10', lineCap:'round' };
+  let routeLine=L.polyline([], routeStyle), routeStart=null, routeEnd=null;
+  let followRoute=null, offCount=0;
+  const MODE_LABEL={walk:'Walking',bike:'Biking',drive:'Driving',draw:'Drawn',track:'From a track'};
+  function fmtDur(s){ s=Math.round(s); const h=Math.floor(s/3600), m=Math.round((s%3600)/60); return h? h+' h '+m+' min' : m+' min'; }
+  // Distance in metres from p to segment a-b (flat-earth, fine at route scale).
+  function segDist(p,a,b){
+    const kx=111320*Math.cos(a.lat*Math.PI/180), ky=110540;
+    const bx=(b.lon-a.lon)*kx, by=(b.lat-a.lat)*ky, px=(p.lon-a.lon)*kx, py=(p.lat-a.lat)*ky;
+    const l2=bx*bx+by*by; let t=l2? ((px*bx+py*by)/l2) : 0; t=Math.max(0,Math.min(1,t));
+    const dx=px-t*bx, dy=py-t*by; return { d:Math.sqrt(dx*dx+dy*dy), t };
+  }
+  function simplify(pts, tol){ // Douglas-Peucker, tolerance in metres
+    if(pts.length<3) return pts.slice();
+    const keep=new Uint8Array(pts.length); keep[0]=keep[pts.length-1]=1;
+    const stack=[[0,pts.length-1]];
+    while(stack.length){ const [i,j]=stack.pop(); let mx=0, mi=-1;
+      for(let k=i+1;k<j;k++){ const d=segDist(pts[k],pts[i],pts[j]).d; if(d>mx){ mx=d; mi=k; } }
+      if(mx>tol){ keep[mi]=1; stack.push([i,mi],[mi,j]); } }
+    return pts.filter((p,i)=>keep[i]);
+  }
+  function routeLength(pts){ let d=0; for(let i=1;i<pts.length;i++) d+=haversine(pts[i-1],pts[i]); return d; }
+  function drawRoute(pts){
+    routeLine.setLatLngs(pts.map(p=>[p.lat,p.lon]));
+    if(!map.hasLayer(routeLine)) routeLine.addTo(map);
+    if(routeStart){ map.removeLayer(routeStart); map.removeLayer(routeEnd); routeStart=routeEnd=null; }
+    if(pts.length){
+      routeStart=L.circleMarker([pts[0].lat,pts[0].lon],{radius:6,color:'#fff',weight:2,fillColor:'#22A06B',fillOpacity:1}).addTo(map);
+      const e=pts[pts.length-1]; routeEnd=L.circleMarker([e.lat,e.lon],{radius:6,color:'#fff',weight:2,fillColor:'#1F6FEB',fillOpacity:1}).addTo(map);
+    }
+  }
+  function clearRouteLayer(){ routeLine.setLatLngs([]); if(map.hasLayer(routeLine)) map.removeLayer(routeLine); if(routeStart){ map.removeLayer(routeStart); map.removeLayer(routeEnd); routeStart=routeEnd=null; } }
+  function restoreRouteLayer(){ if(followRoute) drawRoute(followRoute.points); else clearRouteLayer(); }
+  // ---------- following ----------
+  function setFollow(r){
+    if(r && r.points && r.points.length>1){
+      const cum=[0]; for(let i=1;i<r.points.length;i++) cum[i]=cum[i-1]+haversine(r.points[i-1],r.points[i]);
+      followRoute={ id:r.id||null, name:r.name, points:r.points, dist:r.dist||cum[cum.length-1], cum };
+    } else followRoute=null;
+    store.set(RKEY, followRoute ? { id:followRoute.id, name:followRoute.name, points:followRoute.points, dist:followRoute.dist } : null);
+    offCount=0; renderFollow(); restoreRouteLayer();
+  }
+  function nearestOnRoute(fix){
+    const pts=followRoute.points, cum=followRoute.cum; let best={ d:Infinity, along:0 };
+    for(let i=1;i<pts.length;i++){ const s=segDist(fix,pts[i-1],pts[i]); if(s.d<best.d) best={ d:s.d, along:cum[i-1]+s.t*(cum[i]-cum[i-1]) }; }
+    return best;
+  }
+  function renderFollow(){
+    const bar=$('follow'); if(!followRoute){ bar.classList.add('hidden'); return; }
+    bar.classList.remove('hidden');
+    let txt=followRoute.name;
+    if(lastFix){ const n=nearestOnRoute(lastFix); const left=Math.max(0, followRoute.dist-n.along);
+      txt+=' · '+fmtDist(left)+' '+U[units].distU+' left'; if(n.d>50) txt+=' · off route '+Math.round(n.d)+' m'; }
+    $('follow-txt').textContent=txt;
+  }
+  function updateFollow(fix){
+    if(!followRoute) return;
+    const n=nearestOnRoute(fix);
+    if(n.d>50){ offCount++; if(offCount===3) notice('Off route by '+Math.round(n.d)+' m', 5000); } else offCount=0;
+    renderFollow();
+  }
+  $('b-unfollow').addEventListener('click', ()=>{ setFollow(null); toast('Stopped following'); });
+  // ---------- routes panel ----------
+  let rcache=null, viewingRoute=null;
+  $('b-routes').addEventListener('click', ()=>{ $('routes').classList.add('open'); renderRoutes(); });
+  $('b-close-routes').addEventListener('click', ()=>$('routes').classList.remove('open'));
+  async function renderRoutes(){
+    const el=$('rlist'); if(!rcache) el.innerHTML='<div class="empty">Loading…</div>'; else renderRouteRows();
+    try{ rcache=await api('/routes'); if(rcache.users&&rcache.users.length) users=rcache.users; renderRouteRows(); }
+    catch(e){ if(!rcache) el.innerHTML='<div class="empty"><b>Couldn’t load routes</b>'+esc(e.message)+'</div>'; }
+  }
+  function renderRouteRows(){
+    const el=$('rlist'); el.innerHTML='';
+    const rows=rcache?rcache.routes:[];
+    if(!rows.length){ el.innerHTML='<div class="empty"><b>No routes yet</b>Get directions somewhere, draw a route, or open a saved track and tap “Save as route”.</div>'; return; }
+    rows.forEach(r=>{ const b=document.createElement('button'); b.className='act';
+      b.innerHTML='<div class="t">'+esc(r.name)+'</div><div class="d">'+fmtDist(r.dist)+'<span style="font-size:.5em;font-weight:500;margin-left:3px">'+U[units].distU+'</span></div><div class="m"><span class="u">'+dot(r.username)+esc(aliasFor(r.username))+'</span> · '+esc(MODE_LABEL[r.mode]||r.mode)+'</div>';
+      b.addEventListener('click', ()=>openRoute(r)); el.appendChild(b); });
+  }
+  async function openRoute(meta){
+    toast('Loading route…');
+    try{
+      const r=await api('/routes/'+encodeURIComponent(meta.id)); viewingRoute=r; $('routes').classList.remove('open'); state='route';
+      $('r-title').textContent=r.name; $('r-who').innerHTML=dot(r.username)+' '+esc(aliasFor(r.username))+' · '+esc(MODE_LABEL[r.mode]||r.mode);
+      $('r-dist').firstChild.nodeValue=fmtDist(r.dist); $('r-dist-u').textContent=U[units].distU; $('r-n').textContent=r.points.length+' points';
+      $('b-rdelete').classList.toggle('hidden', r.username!==me.username);
+      show('v-route'); line.setLatLngs([]); drawRoute(r.points); follow=false; $('recenter').classList.remove('on');
+      map.fitBounds(routeLine.getBounds(), {padding:[30,30]});
+    } catch(e){ toast('Couldn’t load: '+e.message); }
+  }
+  $('b-rclose').addEventListener('click', ()=>{ viewingRoute=null; restoreRouteLayer(); reset(); });
+  $('b-rfollow').addEventListener('click', ()=>{ setFollow(viewingRoute); toast('Following '+viewingRoute.name); viewingRoute=null; reset(); });
+  $('b-rdelete').addEventListener('click', async ()=>{
+    if(!confirm('Delete this route?')) return;
+    try{ await api('/routes/'+encodeURIComponent(viewingRoute.id),{method:'DELETE'}); if(rcache) rcache.routes=rcache.routes.filter(x=>x.id!==viewingRoute.id);
+      if(followRoute&&followRoute.id===viewingRoute.id) setFollow(null); toast('Deleted'); viewingRoute=null; restoreRouteLayer(); reset(); }
+    catch(e){ toast('Couldn’t delete: '+e.message); }
+  });
+  async function saveRoute(r){
+    const body={ id:String(Date.now()), name:r.name, mode:r.mode, points:r.points, dist:r.dist, steps:r.steps||[] };
+    await api('/routes',{method:'POST',body}); rcache=null; return body;
+  }
+  // ---------- route from a saved track ----------
+  $('b-mkroute').addEventListener('click', ()=>{ const row=$('mkroute-row'); row.classList.toggle('hidden'); if(!row.classList.contains('hidden')){ $('mkroute-name').value=fmtDate(viewing.start); $('mkroute-name').focus(); } });
+  $('b-mkroute-save').addEventListener('click', async ()=>{
+    const name=$('mkroute-name').value.trim()||fmtDate(viewing.start);
+    const pts=simplify(viewing.points.map(p=>({lat:p.lat,lon:p.lon})), 5);
+    if(pts.length<2){ toast('This track is too short to make a route'); return; }
+    try{ await saveRoute({name, mode:'track', points:pts, dist:routeLength(pts)}); toast('Route saved'); $('mkroute-row').classList.add('hidden'); }
+    catch(e){ toast('Couldn’t save: '+e.message); }
+  });
+  // ---------- drawing a route ----------
+  let draw=null, drawSeq=0;
+  $('b-draw').addEventListener('click', ()=>{ $('routes').classList.remove('open'); startDraw(); });
+  function startDraw(){
+    draw={ wps:[], markers:[], snap:'off', pts:[], dist:0, steps:null }; state='draw'; show('v-draw');
+    $('draw-name').value=''; $('draw-err').textContent=''; clearRouteLayer(); line.setLatLngs([]); follow=false; $('recenter').classList.remove('on');
+    document.querySelectorAll('#snap button').forEach(b=>b.classList.toggle('on', b.dataset.s==='off'));
+    renderDraw(); notice('Tap the map to add points. Snap to roads with Walk, Bike or Drive.', 5000);
+  }
+  function endDraw(){ if(draw){ draw.markers.forEach(m=>map.removeLayer(m)); draw=null; } restoreRouteLayer(); reset(); }
+  map.on('click', e=>{ if(state==='draw') addWaypoint(e.latlng.lat, e.latlng.lng); else if(state==='dest') setPin(e.latlng.lat, e.latlng.lng, null); });
+  function addWaypoint(lat,lon){ draw.wps.push({lat,lon}); draw.markers.push(L.circleMarker([lat,lon],{radius:5,color:'#fff',weight:2,fillColor:'#1F6FEB',fillOpacity:1}).addTo(map)); rebuildDraw(); }
+  $('b-draw-undo').addEventListener('click', ()=>{ if(!draw.wps.length) return; draw.wps.pop(); map.removeLayer(draw.markers.pop()); rebuildDraw(); });
+  $('b-draw-cancel').addEventListener('click', endDraw);
+  $('snap').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; draw.snap=b.dataset.s; document.querySelectorAll('#snap button').forEach(x=>x.classList.toggle('on', x===b)); rebuildDraw(); });
+  async function rebuildDraw(){
+    const seq=++drawSeq; $('draw-err').textContent='';
+    const straight=()=>{ draw.pts=draw.wps.slice(); draw.dist=routeLength(draw.pts); draw.steps=null; drawRoute(draw.pts); };
+    if(draw.wps.length<2 || draw.snap==='off'){ straight(); renderDraw(); return; }
+    $('draw-status').textContent='Snapping to roads…';
+    try{ const r=await api('/directions',{method:'POST',body:{ coords:draw.wps, mode:draw.snap }}); if(seq!==drawSeq||!draw) return; draw.pts=r.points; draw.dist=r.dist; draw.steps=r.steps; drawRoute(draw.pts); }
+    catch(e){ if(seq!==drawSeq||!draw) return; straight(); $('draw-err').textContent=e.message; }
+    renderDraw();
+  }
+  function renderDraw(){ if(!draw) return; $('draw-dist').firstChild.nodeValue=fmtDist(draw.dist); $('draw-dist-u').textContent=U[units].distU; $('draw-status').textContent=draw.wps.length+' point'+(draw.wps.length===1?'':'s'); }
+  $('b-draw-save').addEventListener('click', async ()=>{
+    if(draw.wps.length<2){ $('draw-err').textContent='Add at least two points.'; return; }
+    const name=$('draw-name').value.trim()||('Drawn route '+new Date().toLocaleDateString());
+    try{ await saveRoute({ name, mode: draw.snap==='off'?'draw':draw.snap, points:draw.pts, dist:draw.dist, steps:draw.steps }); toast('Route saved'); endDraw(); }
+    catch(e){ $('draw-err').textContent=e.message; }
+  });
+  // ---------- directions to a place ----------
+  let dest=null;
+  $('b-dest').addEventListener('click', ()=>{ $('routes').classList.remove('open'); startDest(); });
+  function startDest(){
+    dest={ lat:null, lon:null, label:'', mode:'walk', result:null, marker:null }; state='dest'; show('v-dest');
+    $('dest-q').value=''; $('dest-results').innerHTML=''; $('dest-label').textContent='Search above, or tap the map to drop a pin.'; $('dest-summary').classList.add('hidden'); $('dest-err').textContent=''; $('b-dest-go').disabled=true;
+    clearRouteLayer(); line.setLatLngs([]); follow=false; $('recenter').classList.remove('on');
+    document.querySelectorAll('#dmode button').forEach(b=>b.classList.toggle('on', b.dataset.m==='walk'));
+  }
+  function endDest(){ if(dest&&dest.marker) map.removeLayer(dest.marker); dest=null; restoreRouteLayer(); reset(); }
+  function setPin(lat,lon,label){
+    dest.lat=lat; dest.lon=lon; dest.label=label||(lat.toFixed(5)+', '+lon.toFixed(5)); dest.result=null; $('dest-summary').classList.add('hidden'); clearRouteLayer();
+    if(dest.marker) dest.marker.setLatLng([lat,lon]); else dest.marker=L.circleMarker([lat,lon],{radius:8,color:'#fff',weight:3,fillColor:'#1F6FEB',fillOpacity:1}).addTo(map);
+    $('dest-label').textContent=dest.label; $('dest-results').innerHTML=''; $('b-dest-go').disabled=false;
+    if(!label){ api('/geocode?lat='+lat+'&lon='+lon).then(r=>{ if(dest&&dest.lat===lat&&r.results&&r.results[0]){ dest.label=r.results[0].label; $('dest-label').textContent=dest.label; } }).catch(()=>{}); }
+  }
+  async function searchDest(){
+    const q=$('dest-q').value.trim(); if(!q) return;
+    $('dest-results').innerHTML='<div class="hint">Searching…</div>'; $('dest-err').textContent='';
+    try{
+      const near=lastFix?('&lat='+lastFix.lat+'&lon='+lastFix.lon):'';
+      const r=await api('/geocode?q='+encodeURIComponent(q)+near); const el=$('dest-results'); el.innerHTML='';
+      if(!r.results.length){ el.innerHTML='<div class="hint">Nothing found. Try adding a city or state.</div>'; return; }
+      r.results.forEach(x=>{ const b=document.createElement('button'); b.className='result'; b.textContent=x.label; b.addEventListener('click', ()=>{ setPin(x.lat,x.lon,x.label); map.setView([x.lat,x.lon],15); }); el.appendChild(b); });
+    } catch(e){ $('dest-results').innerHTML=''; $('dest-err').textContent=e.message; }
+  }
+  $('b-dest-search').addEventListener('click', searchDest);
+  $('dest-q').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); searchDest(); } });
+  $('dmode').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; dest.mode=b.dataset.m; document.querySelectorAll('#dmode button').forEach(x=>x.classList.toggle('on', x===b)); if(dest.result) getDirections(); });
+  async function getDirections(){
+    if(dest.lat==null) return;
+    if(!lastFix){ $('dest-err').textContent='Waiting for your GPS position first.'; return; }
+    $('dest-err').textContent=''; $('b-dest-go').disabled=true; $('b-dest-go').textContent='Finding a route…';
+    try{
+      const r=await api('/directions',{method:'POST',body:{ coords:[{lat:lastFix.lat,lon:lastFix.lon},{lat:dest.lat,lon:dest.lon}], mode:dest.mode }});
+      if(!dest) return; dest.result=r; drawRoute(r.points); map.fitBounds(routeLine.getBounds(),{padding:[30,30]});
+      $('dest-sum-dist').firstChild.nodeValue=fmtDist(r.dist); $('dest-sum-dist-u').textContent=U[units].distU; $('dest-sum-time').textContent=fmtDur(r.duration); $('dest-summary').classList.remove('hidden');
+    } catch(e){ $('dest-err').textContent=e.message; }
+    finally{ if(dest){ $('b-dest-go').disabled=false; $('b-dest-go').textContent='Get directions'; } }
+  }
+  $('b-dest-go').addEventListener('click', getDirections);
+  $('b-dest-cancel').addEventListener('click', endDest);
+  function destRoute(){ return { name:(MODE_LABEL[dest.mode]||'')+' to '+dest.label, mode:dest.mode, points:dest.result.points, dist:dest.result.dist, steps:dest.result.steps }; }
+  $('b-dest-follow').addEventListener('click', ()=>{ if(!dest.result) return; setFollow(destRoute()); toast('Following'); endDest(); });
+  $('b-dest-save').addEventListener('click', async ()=>{
+    if(!dest.result) return;
+    try{ const r=destRoute(); const saved=await saveRoute(r); setFollow({...r, id:saved.id}); toast('Route saved — following'); endDest(); }
+    catch(e){ $('dest-err').textContent=e.message; }
+  });
+  // ---------- settings ----------
+  $('b-settings').addEventListener('click', ()=>{ $('st-username').textContent='@'+me.username; $('st-alias').value=me.alias; $('inv-row').classList.add('hidden'); $('settings').classList.add('open'); renderDiag(); });
+  $('b-close-settings').addEventListener('click', ()=>$('settings').classList.remove('open'));
+  $('b-alias').addEventListener('click', async ()=>{
+    const alias=$('st-alias').value.trim(); if(!alias){ toast('Display name can’t be empty'); return; }
+    try{ me=await api('/me',{method:'PATCH',body:{alias}}); store.set(MKEY,me); cache=null; renderWho(); toast('Saved'); }
+    catch(e){ toast('Couldn’t save: '+e.message); }
+  });
+  $('b-invite').addEventListener('click', async ()=>{
+    try{ const r=await api('/invite',{method:'POST'}); $('inv-url').value=r.url; $('inv-row').classList.remove('hidden'); showQr(r.url);
+      try{ await navigator.clipboard.writeText(r.url); toast('Invite link copied — send it to them'); }catch(e){ toast('Invite link ready — copy it below'); } }
+    catch(e){ toast('Couldn’t create invite: '+e.message); }
+  });
+  $('b-inv-copy').addEventListener('click', async ()=>{ const u=$('inv-url'); u.select(); try{ await navigator.clipboard.writeText(u.value); toast('Copied'); }catch(e){ toast('Select the text and copy it'); } });
+  async function renderDiag(extra){
+    let perm='n/a'; try{ if(navigator.permissions){ const p=await navigator.permissions.query({name:'geolocation'}); perm=p.state; } }catch(e){ perm='query failed: '+e.message; }
+    const lines=[
+      'permission: '+perm,
+      'secure context: '+window.isSecureContext+'  geolocation api: '+!!navigator.geolocation,
+      'watch active: '+(watchId!==null)+'  last fix: '+(lastFix?new Date(lastFix.t).toLocaleTimeString()+' ±'+Math.round(lastFix.acc)+'m':'none'),
+      'online: '+navigator.onLine+'  visibility: '+document.visibilityState,
+      'ua: '+navigator.userAgent,
+      extra||'', '--- events ---', ...geoLog];
+    $('diag').textContent=lines.filter(Boolean).join('\n');
+  }
+  $('b-diag').addEventListener('click', ()=>{
+    renderDiag('test: requesting getCurrentPosition…');
+    if(!navigator.geolocation){ renderDiag('test: no geolocation API'); return; }
+    const t0=Date.now();
+    navigator.geolocation.getCurrentPosition(
+      p=>{ onFix(p); renderDiag('test: OK in '+(Date.now()-t0)+'ms, ±'+Math.round(p.coords.accuracy)+'m'); },
+      e=>{ renderDiag('test: FAILED code '+e.code+' ('+e.message+') after '+(Date.now()-t0)+'ms'); },
+      { enableHighAccuracy:true, timeout:25000, maximumAge:0 });
+  });
+  $('b-signout').addEventListener('click', ()=>{
+    const pending=store.get(OKEY,[]).length;
+    if(!confirm(pending?`${pending} track(s) haven’t uploaded yet and will be lost. Sign out anyway?`:'Sign out on this device?')) return;
+    store.set(KKEY,null); store.set(MKEY,null); store.set(OKEY,null); location.replace(location.pathname);
+  });
+  $('b-gate').addEventListener('click', ()=>{
+    const v=$('g-link').value.trim(); const m=v.match(/[?&]k=([^&#\s]+)/); const k=normKey(m?m[1]:v);
+    if(k.length<8){ toast('That doesn’t look like a Trail link'); return; }
+    store.set(KKEY,k); store.set(MKEY,null); location.replace(location.pathname+'?k='+k);
+  });
+  // ---------- QR: show an invite ----------
+  function showQr(url){
+    const el=$('inv-qr'); el.innerHTML='';
+    try{ new QRCode(el, { text:url, width:220, height:220, correctLevel: QRCode.CorrectLevel.M }); $('inv-qrwrap').classList.remove('hidden'); }
+    catch(e){ $('inv-qrwrap').classList.add('hidden'); }
+  }
+  // ---------- QR: scan an invite (camera) ----------
+  let scanStream=null, scanRaf=0;
+  function loadJsQR(){ return window.jsQR ? Promise.resolve() : new Promise((res,rej)=>{ const sc=document.createElement('script'); sc.src='jsqr.js'; sc.onload=res; sc.onerror=()=>rej(new Error('Couldn’t load the scanner')); document.head.appendChild(sc); }); }
+  function acceptScanned(text){
+    const m=String(text).match(/[?&]k=([^&#]+)/); const k=normKey(m?m[1]:'');
+    if(k.length<8){ $('scan-msg').textContent='That QR code isn’t a Trail invite'; return false; }
+    stopScan(); store.set(KKEY,k); store.set(MKEY,null); location.replace(location.pathname+'?k='+k); return true;
+  }
+  async function startScan(){
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){ toast('This browser can’t use the camera here'); return; }
+    $('scan').classList.add('open'); $('scan-msg').textContent='Starting camera…';
+    try{
+      await loadJsQR();
+      scanStream=await navigator.mediaDevices.getUserMedia({ video:{ facingMode:{ ideal:'environment' }, width:{ideal:1280}, height:{ideal:720} }, audio:false });
+      const v=$('scan-video'); v.srcObject=scanStream; await v.play();
+      $('scan-msg').textContent='Point at the invite QR code';
+      const c=document.createElement('canvas'), ctx=c.getContext('2d', { willReadFrequently:true });
+      let last=0;
+      const step=(ts)=>{
+        if(!scanStream) return;
+        if(ts-last>120 && v.readyState>=2){
+          last=ts; const w=v.videoWidth, h=v.videoHeight;
+          if(w&&h){ const sc=Math.min(1, 640/Math.max(w,h)); c.width=Math.round(w*sc); c.height=Math.round(h*sc); ctx.drawImage(v,0,0,c.width,c.height);
+            const img=ctx.getImageData(0,0,c.width,c.height); const code=jsQR(img.data,img.width,img.height,{ inversionAttempts:'dontInvert' });
+            if(code&&code.data&&acceptScanned(code.data)) return; }
+        }
+        scanRaf=requestAnimationFrame(step);
+      };
+      scanRaf=requestAnimationFrame(step);
+    } catch(e){
+      $('scan-msg').textContent = (e&&e.name==='NotAllowedError') ? 'Camera permission was denied. Allow the camera for this site, or paste the link instead.' : ('Camera problem: '+(e.message||e));
+    }
+  }
+  function stopScan(){ cancelAnimationFrame(scanRaf); if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; } const v=$('scan-video'); v.pause(); v.srcObject=null; $('scan').classList.remove('open'); }
+  $('b-scan').addEventListener('click', startScan);
+  $('b-scan-cancel').addEventListener('click', stopScan);
+  // ---------- claim ----------
+  function prepClaim(){
+    const old=store.get(KEY,[]);
+    $('c-upload-row').classList.toggle('hidden', !old.length);
+    if(old.length) $('c-upload-txt').textContent=`Upload ${old.length} track${old.length>1?'s':''} already saved on this phone`;
+    $('c-err').textContent='';
+  }
+  $('c-username').addEventListener('input', e=>{ e.target.value=e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,20); });
+  $('b-claim').addEventListener('click', async ()=>{
+    const username=$('c-username').value.trim(), alias=$('c-alias').value.trim()||username;
+    $('c-err').textContent='';
+    if(!/^[a-z0-9_]{2,20}$/.test(username)){ $('c-err').textContent='Username must be 2–20 characters: a–z, 0–9, _'; return; }
+    $('b-claim').disabled=true;
+    try{
+      me=await api('/claim',{method:'POST',body:{username,alias}}); store.set(MKEY,me);
+      if(!$('c-upload-row').classList.contains('hidden') && $('c-upload').checked){
+        const old=store.get(KEY,[]).map(a=>({...a, id:String(a.id), username}));
+        store.set(OKEY, store.get(OKEY,[]).concat(old));
+      }
+      store.set(KEY,null);
+      enter(); const n=await flushOutbox(); if(n) toast(`Uploaded ${n} track${n>1?'s':''}`);
+    } catch(e){ $('c-err').textContent=e.message; }
+    finally{ $('b-claim').disabled=false; }
+  });
+  // ---------- boot ----------
+  function enter(){ renderWho(); show('v-idle'); startWatch(); const fr=store.get(RKEY,null); if(fr) setFollow(fr); }
+  async function boot(){
+    applyUnits();
+    if(!apiKey){ show('v-gate'); return; }
+    startWatch(); // ask right at page load, before the network round-trip
+    try{
+      const m=await api('/me');
+      if(!m.claimed){ show('v-claim'); prepClaim(); return; }
+      me=m; store.set(MKEY,me);
+    } catch(e){
+      if(e.status===401){ apiKey=null; store.set(KKEY,null); store.set(MKEY,null); syncUrl(); show('v-gate'); notice('That link isn’t valid any more. Ask for a new one.', 8000); return; }
+      me=store.get(MKEY,null);
+      if(!me){ show('v-gate'); notice('Can’t reach the server. Check your connection and reload.'); return; }
+      notice('Offline — tracks will upload when you’re back online.', 5000);
+    }
+    enter(); flushOutbox();
+  }
+  boot();
+  window.addEventListener('resize', ()=>map.invalidateSize());
+})();
+</script>
+</body>
+</html>
