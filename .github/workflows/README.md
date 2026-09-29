@@ -7,6 +7,8 @@ Two workflows, two purposes:
 | `eas-update.yml` | GitHub Actions | Push to `main` touching `apps/mobile/**` or `packages/shared/**`, or manual dispatch | Publishes an OTA update via `eas update`. JS/TS changes only. |
 | `eas-build.yml` | GitHub Actions | Manual dispatch only | Full native iOS build (on Expo's infra) + auto-submit to TestFlight. Use after native changes. |
 | `deploy-api.yml` | GitHub Actions | Push to `main` touching `apps/api/**` or `packages/shared/**`, or manual dispatch | Deploys the Cloudflare Worker (`api.whyapp.us`) via `wrangler deploy`. |
+| `deploy-lab-web.yml` | GitHub Actions | Push to `main` touching `apps/lab-web/**`, or manual dispatch | Deploys the `lab.whyapp.us` Worker via `wrangler deploy`. |
+| (none here) | `wesyoakum/whyapp` repo | Push to its `main` | `whyapp.us` itself is deployed from its own repo, not this one. |
 | `../../.eas/workflows/build-ios-testflight.yml` | EAS (Expo's CI) | Manual dispatch only | Same as `eas-build.yml` but runs on Expo's Workflows. Kept as backup. |
 
 ## One-time setup (do this once, from any browser — phone works)

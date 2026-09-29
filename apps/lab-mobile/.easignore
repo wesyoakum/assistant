@@ -9,8 +9,6 @@
 .claude/**
 apps/api
 apps/api/**
-apps/web
-apps/web/**
 apps/mobile
 apps/mobile/**
 archive

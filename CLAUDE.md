@@ -17,7 +17,7 @@ Goal: ~6–8 weeks at ~10–15 hrs/week. Operating cost target ~$20–35/mo.
 
 > Note: the codebase has progressed well past the original week-by-week
 > plan. Auth, Gmail triage, calendar, capture, push, chat, reminders, and
-> iCal feeds are all implemented. There is also an `apps/web` Worker.
+> iCal feeds are all implemented. The whyapp.us site lives in the separate repo `wesyoakum/whyapp` (local `C:\dev\whyapp`).
 > Treat the milestones below as historical context, not current TODOs.
 
 ## Active priorities
@@ -244,7 +244,7 @@ Shared (`packages/shared/src/`):
 - `types.ts` — `TriageItem`, `FeedbackKind`, `FeedbackRow`, `CalendarSuggestion`, `QueueMessage`, etc.
 
 Other:
-- `apps/web/src/index.ts` — small marketing/privacy-policy Worker for `whyapp.us`.
+- whyapp.us site: separate repo `wesyoakum/whyapp` (local `C:\dev\whyapp`), not in this monorepo.
 
 ## Operating cost (2 testers)
 

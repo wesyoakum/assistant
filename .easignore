@@ -2,7 +2,6 @@
 .git
 .claude
 apps/api
-apps/web
 apps/mobile
 archive
 node_modules
